@@ -57,10 +57,6 @@ static void submit_event(struct pt_regs *ctx, struct file *file, size_t size, lo
     
     pid = bpf_get_current_pid_tgid() >> 32;
     
-    int filter_pid = FILTER_PID;
-    if (filter_pid != 0 && pid != filter_pid)
-        return;
-    
     data.pid = pid;
     data.ts = bpf_ktime_get_ns();
     bpf_get_current_comm(&data.comm, sizeof(data.comm));

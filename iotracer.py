@@ -10,15 +10,17 @@ from pathlib import Path
 from datetime import datetime
 from utils import logger
 
-# command linez
+running = True
+
+# Track attached probes for explicit detachment
+kprobes = []
+
+# command line arguments
 parser = argparse.ArgumentParser(description='Trace VFS syscalls')
-parser.add_argument('-p', '--pid', type=int, help='Filter by process ID')
-parser.add_argument('-c', '--command', type=str, help='Filter by command name')
 parser.add_argument('-o', '--output', type=str, help='Output file for logging')
-parser.add_argument('-t', '--type', type=str, help='Filter by operation type (READ,WRITE,OPEN,CLOSE,FSYNC)')
-parser.add_argument('-f', '--filepath', type=str, help='Filter by filepath substring')
 parser.add_argument('-l', '--limit', type=int, default=0, help='Limit number of events to capture (0 = unlimited)')
 parser.add_argument('-b', '--bpf-file', type=str, default='vfs_prober.c', help='BPF C source file path')
+parser.add_argument('-p', '--page-cnt', type=int, default=8, help='Number of pages for perf buffer (default 8)')
 args = parser.parse_args()
 
 try:
@@ -28,29 +30,37 @@ except IOError as e:
     logger("error", f"could not read BPF file '{args.bpf_file}': {e}")
     sys.exit(1)
 
-# filtering PID 
-if args.pid:
-    bpf_text = bpf_text.replace('FILTER_PID', str(args.pid))
-else:
-    bpf_text = bpf_text.replace('FILTER_PID', '0')
-
 try:
     b = BPF(text=bpf_text) # init BPF
 except Exception as e:
     logger("error", f"failed to initialize BPF: {e}")
     sys.exit(1)
 
+# Function to safely attach kprobes and keep track of them
+def attach_kprobe(event, fn_name):
+    global kprobes
+    try:
+        k = b.attach_kprobe(event=event, fn_name=fn_name)
+        kprobes.append((event, k))
+        return True
+    except Exception as e:
+        logger("error", f"Failed to attach kprobe {event}: {e}")
+        return False
+
 try:
     # kernel functions
-    b.attach_kprobe(event="vfs_read", fn_name="trace_vfs_read")
-    b.attach_kprobe(event="vfs_write", fn_name="trace_vfs_write")
-    b.attach_kprobe(event="vfs_open", fn_name="trace_vfs_open")
-    b.attach_kprobe(event="vfs_fsync", fn_name="trace_vfs_fsync")
-    try:
-        b.attach_kprobe(event="vfs_fsync_range", fn_name="trace_vfs_fsync_range")
-    except Exception:
+    attach_kprobe("vfs_read", "trace_vfs_read")
+    attach_kprobe("vfs_write", "trace_vfs_write")
+    attach_kprobe("vfs_open", "trace_vfs_open")
+    attach_kprobe("vfs_fsync", "trace_vfs_fsync")
+    if not attach_kprobe("vfs_fsync_range", "trace_vfs_fsync_range"):
         logger("info", "vfs_fsync_range not found, using only vfs_fsync")
-    b.attach_kprobe(event="__fput", fn_name="trace_fput") 
+    attach_kprobe("__fput", "trace_fput") 
+    
+    if not kprobes:
+        logger("error", "No kprobes attached successfully!")
+        sys.exit(1)
+        
 except Exception as e:
     logger("error", f"failed to attach to kernel functions: {e}")
     sys.exit(1)
@@ -67,7 +77,8 @@ op_names = {
 outfile = None
 if args.output:
     try:
-        outfile = open(args.output, 'w')
+        # Use line buffering for better performance
+        outfile = open(args.output, 'w', buffering=1)
         logger("info", f"logging to {args.output}")
     except IOError as e:
         logger("info", f"could not open output file '{args.output}': {e}")
@@ -76,24 +87,15 @@ if args.output:
 event_count = 0 # event limiter
 
 def print_event(cpu, data, size):
-    global event_count, args
+    global event_count, args, running
     
     event = b["events"].event(data)
     op_name = op_names.get(event.op, "UNKNOWN")
-    
-    if args.command and args.command.lower() not in event.comm.decode().lower():
-        return
-    
-    if args.type and args.type.upper() != op_name:
-        return
     
     try:
         filename = event.filename.decode()
     except UnicodeDecodeError:
         filename = "[decode_error]"
-        
-    if args.filepath and args.filepath.lower() not in filename.lower():
-        return
     
     flags_str = format_flags(event.flags)
     
@@ -120,13 +122,12 @@ def print_event(cpu, data, size):
     # write to file
     if outfile:
         outfile.write(output + "\n")
-        outfile.flush()
     
     # limiter
     if args.limit > 0:
         event_count += 1
         if event_count >= args.limit:
-            cleanup(None, None)
+            running = False
 
 def format_flags(flags):
     flag_map = {
@@ -150,32 +151,52 @@ def format_flags(flags):
     return "|".join(result) if result else "0"
 
 def cleanup(signum, frame):
-    logger("info", "Detaching...")
+    global running, kprobes
+    
+    running = False
+    logger("info", "Detaching probes (this may take a moment)...")
+    
+    # Explicitly detach all kprobes we tracked
+    for event, k in kprobes:
+        try:
+            b.detach_kprobe(event=event)
+            logger("info", f"Detached kprobe: {event}")
+        except Exception as e:
+            logger("error", f"Error detaching {event}: {e}")
+    
     if outfile:
+        logger("info", "Closing output file...")
         outfile.close()
-    exit()
+    
+    logger("info", "Cleanup complete")
 
+# Register signal handlers
 signal.signal(signal.SIGINT, cleanup)
 signal.signal(signal.SIGTERM, cleanup)
 
 logger("info", "starting VFS syscall tracer...")
 print("tracing VFS calls (read, write, open, close, fsync)... Press Ctrl+C to exit")
-if args.pid:
-    logger("info", f"Filtering for PID: {args.pid}")
-if args.command:
-    logger("info", f"Filtering for command: {args.command}")
-if args.type:
-    logger("info", f"Filtering for operation type: {args.type}")
-if args.filepath:
-    logger("info", f"Filtering for files containing: {args.filepath}")
 if args.limit > 0:
     logger("info", f"Limiting to {args.limit} events")
 print("\n%-12s %-6s %-16s %-30s %-10s %-12s" % 
       ("OP", "PID", "COMM", "FILENAME", "INODE", "SIZE/LBA"))
 
-b["events"].open_perf_buffer(print_event)
-while True:
-    try:
-        b.perf_buffer_poll()
-    except KeyboardInterrupt:
-        cleanup(None, None)
+# Open perf buffer with configurable page count for performance tuning
+b["events"].open_perf_buffer(print_event, page_cnt=args.page_cnt)
+
+# Main loop with better error handling
+try:
+    while running:
+        try:
+            # Short timeout to check running flag frequently
+            b.perf_buffer_poll(timeout=50)
+        except KeyboardInterrupt:
+            running = False
+        except Exception as e:
+            logger("error", f"error in perf buffer polling: {e}")
+            time.sleep(0.1) 
+except Exception as e:
+    logger("error", f"Main loop error: {e}")
+finally:
+    cleanup(None, None)
+    logger("info", "Exiting...")
