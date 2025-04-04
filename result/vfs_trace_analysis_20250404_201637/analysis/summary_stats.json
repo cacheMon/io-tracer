@@ -1,0 +1,45 @@
+{
+    "total_operations": 38558,
+    "operations_by_type": {
+        "WRITE": 38410,
+        "READ": 148
+    },
+    "unique_files": 10,
+    "unique_processes": 11,
+    "read_stats": {
+        "total_reads": 148,
+        "total_read_bytes": 1095410,
+        "avg_read_size": 7401.418918918919,
+        "max_read_size": 65536
+    },
+    "write_stats": {
+        "total_writes": 38410,
+        "total_write_bytes": 4925506,
+        "avg_write_size": 128.23499088778965,
+        "max_write_size": 8192
+    },
+    "top_files": {
+        "vfs_trace.log": 38332,
+        "inotify": 93,
+        "[eventfd]": 80,
+        ".browse.VC.db": 21,
+        ".browse.VC.db-wal": 17,
+        "UNIX-STREAM": 7,
+        "card0": 3,
+        "ptmx": 3,
+        "1": 1,
+        "tty": 1
+    },
+    "top_processes": {
+        "python3": 38333,
+        "code": 124,
+        "cpptools": 40,
+        "KMS thread": 27,
+        "gnome-shell": 18,
+        "gnome-terminal-": 5,
+        "udisksd": 5,
+        "gvfs-udisks2-vo": 2,
+        "rtkit-daemon": 2,
+        "sudo": 2
+    }
+}

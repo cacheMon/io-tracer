@@ -1,1 +1,16 @@
 # IO-Tracer
+
+The program has been wrapped into a single bash script.
+Ensure you have sudo privilege.
+
+```
+Usage: ./runner.sh [options]
+Options:
+  -d, --duration <seconds>   Duration to trace (default: 30 seconds)
+  -o, --output <directory>   Output directory (default: vfs_trace_analysis_timestamp)
+  -w, --workload <command>   Run a specific workload while tracing
+  -h, --help                 Show this help message
+
+```
+
+Analysis folder example is in the `result` folder.
