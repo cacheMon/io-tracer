@@ -10,7 +10,7 @@ VERBOSE=0
 function print_usage {
     echo "Usage: $0 [options]"
     echo "Options:"
-    echo "  -d, --duration <seconds>   Duration to trace (default: 30 seconds)"
+    echo "  -d, --duration <seconds>   Duration to trace, including compiling (default: 30 seconds)"
     echo "  -o, --output <directory>   Output directory (default: vfs_trace_analysis_timestamp)"
     # echo "  -l, --limit <count>        Limit number of events to capture (default: unlimited)"
     # echo "  -p, --pid <pid>            Filter tracing to specific PID"
@@ -23,6 +23,11 @@ function print_usage {
 while [[ $# -gt 0 ]]; do
     case $1 in
         -d|--duration)
+            # Minimum 4 seconds to compile the BPF program
+            if ! [[ "$2" =~ ^[0-9]+$ ]] || [ "$2" -lt 6 ]; then
+                echo "Error: Duration must be a positive integer greater than or equal to 6 seconds"
+                exit 1
+            fi
             DURATION="$2"
             shift 2
             ;;
@@ -134,8 +139,8 @@ wait $TRACER_PID 2>/dev/null
 echo "Trace completed"
 
 # start the analyzer
-echo "Running analysis on trace data..."
-/home/vboxuser/io-tracer/venv/bin/python3 analyzer.py "$LOG_FILE" -o "$OUTPUT_DIR/analysis"
+echo "====================== Running analysis on trace data... ======================"
+./venv/bin/python3 analyzer.py "$LOG_FILE" -o "$OUTPUT_DIR/analysis"
 
 echo "Analysis complete. Results are in $OUTPUT_DIR/analysis/"
 echo "Charts are in $OUTPUT_DIR/analysis/charts/"
