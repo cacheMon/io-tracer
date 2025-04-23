@@ -1,0 +1,44 @@
+VFS TRACE ANALYSIS SUMMARY
+==========================
+
+Total Operations: 127093
+
+Operations by Type:
+  WRITE: 127032
+  READ: 61
+
+Unique Files: 16
+Unique Processes: 8
+
+Read Statistics:
+  Total Reads: 61
+  Total Read Bytes: 160786 (0.15 MB)
+  Average Read Size: 2635.84 bytes
+  Max Read Size: 65536 bytes
+
+Write Statistics:
+  Total Writes: 127032
+  Total Write Bytes: 16164696 (15.42 MB)
+  Average Write Size: 127.25 bytes
+  Max Write Size: 128 bytes
+
+Top 10 Files by Operation Count:
+  1. vfs_trace.log: 126979
+  2. [eventfd]: 75
+  3. cmdline: 12
+  4. : 4
+  5. ptmx: 3
+  6. card0: 3
+  7. memory.pressure: 2
+  8. memory.current: 2
+  9. memory.min: 2
+  10. memory.low: 2
+
+Top 10 Processes by Operation Count:
+  1. python3: 126980
+  2. code: 35
+  3. KMS thread: 29
+  4. gnome-shell: 29
+  5. systemd-oomd: 13
+  6. gnome-terminal-: 5
+  7. sudo: 2

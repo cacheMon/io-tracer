@@ -1,4 +1,4 @@
-#include <uapi/linux/ptrace.h>
+#include <linux/ptrace.h>
 #include <linux/fs.h>
 #include <linux/sched.h>
 #include <linux/dcache.h>

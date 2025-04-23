@@ -1,7 +1,7 @@
 #!/bin/bash
 
 DURATION=30
-OUTPUT_DIR="vfs_trace_analysis_$(date +%Y%m%d_%H%M%S)"
+OUTPUT_DIR="experiment/vfs_trace_analysis_$(date +%Y%m%d_%H%M%S)"
 LIMIT=0
 PID=""
 WORKLOAD=""
@@ -35,21 +35,14 @@ while [[ $# -gt 0 ]]; do
             OUTPUT_DIR="$2"
             shift 2
             ;;
-        # -l|--limit)
-        #     LIMIT="$2"
-        #     shift 2
-        #     ;;
-        # -p|--pid)
-        #     PID="$2"
-        #     shift 2
-        #     ;;
         -w|--workload)
             WORKLOAD="$2"
             shift 2
             ;;
         -v|--verbose)
             VERBOSE=1
-            shift 2
+            echo "Verbose mode enabled"
+            shift 1
             ;;
         -h|--help)
             print_usage
@@ -93,16 +86,14 @@ echo "Output will be saved to $OUTPUT_DIR"
 # fi
 if [ $VERBOSE -eq 1 ]; then
     echo "Verbose mode enabled"
-    python3 bpf/iotracer.py -o "$LOG_FILE" -j "$JSON_FILE" -b "$BPF_FILE" -v &
+    python3 bpf/iotracer.py -o "$LOG_FILE" -j "$JSON_FILE" -b "$BPF_FILE" -v True &
 else
     echo "Verbose mode disabled"
     python3 bpf/iotracer.py -o "$LOG_FILE" -j "$JSON_FILE" -b "$BPF_FILE" &
 fi
-python3 bpf/iotracer.py -o "$LOG_FILE" -j "$JSON_FILE" -b "$BPF_FILE" &
 
 TRACER_PID=$!
 
-# TODO: workload if specified
 WORKLOAD_PID=""
 if [ -n "$WORKLOAD" ]; then
     echo "Starting workload: $WORKLOAD"
@@ -111,29 +102,29 @@ if [ -n "$WORKLOAD" ]; then
     echo "Workload PID: $WORKLOAD_PID"
 fi
 
-if [ $LIMIT -eq 0 ]; then
-    echo "Tracing for $DURATION seconds..."
-    sleep $DURATION
-    echo "Stopping tracer..."
-    kill -SIGINT $TRACER_PID
+# if [ $LIMIT -eq 0 ]; then
+#     echo "Tracing for $DURATION seconds..."
+#     sleep $DURATION
+#     echo "Stopping tracer..."
+#     kill -SIGINT $TRACER_PID
     
-    # Stop workload if it's still running
-    if [ -n "$WORKLOAD_PID" ] && kill -0 $WORKLOAD_PID 2>/dev/null; then
-        echo "Stopping workload..."
-        kill -SIGTERM $WORKLOAD_PID
-    fi
-else
-    # code unreachable
-    # TODO: implement limit
-    echo "Tracing until $LIMIT events are captured..."
-    wait $TRACER_PID
+#     # Stop workload if it's still running
+#     if [ -n "$WORKLOAD_PID" ] && kill -0 $WORKLOAD_PID 2>/dev/null; then
+#         echo "Stopping workload..."
+#         kill -SIGTERM $WORKLOAD_PID
+#     fi
+# else
+#     # code unreachable
+#     # TODO: implement limit
+#     echo "Tracing until $LIMIT events are captured..."
+#     wait $TRACER_PID
     
-    # Stop workload if it's still running
-    if [ -n "$WORKLOAD_PID" ] && kill -0 $WORKLOAD_PID 2>/dev/null; then
-        echo "Stopping workload..."
-        kill -SIGTERM $WORKLOAD_PID
-    fi
-fi
+#     # Stop workload if it's still running
+#     if [ -n "$WORKLOAD_PID" ] && kill -0 $WORKLOAD_PID 2>/dev/null; then
+#         echo "Stopping workload..."
+#         kill -SIGTERM $WORKLOAD_PID
+#     fi
+# fi
 
 wait $TRACER_PID 2>/dev/null
 echo "Trace completed"

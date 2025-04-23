@@ -23,6 +23,7 @@ parser.add_argument('-b', '--bpf-file', type=str, default='./bpf/vfs_prober.c', 
 parser.add_argument('-p', '--page-cnt', type=int, default=8, help='Number of pages for perf buffer (default 8)')
 parser.add_argument('-a', '--analyze', action='store_true', help='Run analyzer on completion')
 parser.add_argument('-v', '--verbose', type=bool, default=False, help='Print verbose output')
+parser.add_argument('-d', '--duration', type=int, default=10, help='Duration to run the tracer in seconds (default 10)')
 args = parser.parse_args()
 
 try:
@@ -64,8 +65,7 @@ try:
     
     if not kprobes:
         logger("error", "no kprobes attached successfully!")
-        sys.exit(1)
-        
+        sys.exit(1)   
 except Exception as e:
     logger("error", f"failed to attach to kernel functions: {e}")
     sys.exit(1)
@@ -240,11 +240,17 @@ def lost_cb(lost):
 
 b["events"].open_perf_buffer(print_event, page_cnt=args.page_cnt, lost_cb=lost_cb)
 
+start = time.time()
+duration_target = args.duration
+logger("info", f"Tracing for {duration_target} seconds...")
 try:
     while running:
         try:
             # Short timeout to check running flag frequently
             b.perf_buffer_poll(timeout=50)
+            if args.duration > 0 and (time.time() - start) > duration_target:
+                running = False
+                logger("info", "Duration limit reached, stopping...")
         except KeyboardInterrupt:
             running = False
         except Exception as e:
