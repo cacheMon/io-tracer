@@ -122,15 +122,18 @@ def print_event(cpu, data, size):
     except UnicodeDecodeError:
         comm = "[decode_error]"
     
+    """
+    TIMESTAMP OP PID COMM FILENAME INODE SIZE LBA FLAGS
+    """
     if event.op in [1, 2]:
-        output = f"[{timestamp}] {op_name}: PID {event.pid} ({comm}): " \
-                 f"file '{filename}' (inode: {event.inode}), " \
-                 f"size: {event.size} bytes, LBA: {event.lba}, " \
-                 f"flags: {flags_str}"
-    else:  
-        output = f"[{timestamp}] {op_name}: PID {event.pid} ({comm}): " \
-                 f"file '{filename}' (inode: {event.inode}), " \
-                 f"flags: {flags_str}"
+        output = f"{timestamp} {op_name} {event.pid} {comm} " \
+                 f"{filename} {event.inode} " \
+                 f"{event.size} {event.lba} " \
+                 f"{flags_str}"
+    else: 
+        output = f"{timestamp} {op_name} {event.pid} {comm} " \
+                 f"{filename} {event.inode} " \
+                 f"{flags_str}"
     
     if args.verbose:
         print(output)
@@ -224,16 +227,15 @@ def cleanup(signum, frame):
 signal.signal(signal.SIGINT, cleanup)
 signal.signal(signal.SIGTERM, cleanup)
 
-logger("info", "starting VFS syscall tracer...")
+logger("info", "VFS syscall tracer started")
 logger("info","tracing VFS calls (read, write, open, close, fsync)... Press Ctrl+C to exit")
 if args.limit > 0:
     logger("info", f"Limiting to {args.limit} events")
-if args.verbose:
-    print("\n%-12s %-6s %-16s %-30s %-10s %-12s" % 
-        ("OP", "PID", "COMM", "FILENAME", "INODE", "SIZE/LBA"))
+# if args.verbose: 
+#     print("\n%-12s %-6s %-16s %-30s %-10s %-12s" % 
+#         ("OP", "PID", "COMM", "FILENAME", "INODE", "SIZE/LBA"))
 
 def lost_cb(lost):
-    # global running
     if lost > 0:
         if args.verbose:
             logger("warning", f"Lost {lost} events in kernel buffer")
@@ -246,7 +248,6 @@ logger("info", f"Tracing for {duration_target} seconds...")
 try:
     while running:
         try:
-            # Short timeout to check running flag frequently
             b.perf_buffer_poll(timeout=50)
             if args.duration > 0 and (time.time() - start) > duration_target:
                 running = False
