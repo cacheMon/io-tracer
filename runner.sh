@@ -1,7 +1,7 @@
 #!/bin/bash
 
 DURATION=30
-OUTPUT_DIR="experiment/vfs_trace_analysis_$(date +%Y%m%d_%H%M%S)"
+OUTPUT_DIR="result/vfs_trace_analysis_$(date +%Y%m%d_%H%M%S)"
 LIMIT=0
 PID=""
 WORKLOAD=""
@@ -86,10 +86,10 @@ echo "Output will be saved to $OUTPUT_DIR"
 # fi
 if [ $VERBOSE -eq 1 ]; then
     echo "Verbose mode enabled"
-    python3 bpf/iotracer.py -o "$LOG_FILE" -j "$JSON_FILE" -b "$BPF_FILE" -v True &
+    python3 bpf/iotracer.py -o "$LOG_FILE" -j "$JSON_FILE" -b "$BPF_FILE" -d $DURATION -v True &
 else
     echo "Verbose mode disabled"
-    python3 bpf/iotracer.py -o "$LOG_FILE" -j "$JSON_FILE" -b "$BPF_FILE" &
+    python3 bpf/iotracer.py -o "$LOG_FILE" -j "$JSON_FILE" -b "$BPF_FILE" -d $DURATION &
 fi
 
 TRACER_PID=$!
