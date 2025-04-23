@@ -39,7 +39,7 @@ except IOError as e:
 #     bpf_text = bpf_text.replace('FILTER_PID', str(filter_pid))
 
 try:
-    b = BPF(text=bpf_text)
+    b = BPF(text=bpf_text, cflags=["-Wno-duplicate-decl-specifier"])
 except Exception as e:
     logger("error", f"failed to initialize BPF: {e}")
     sys.exit(1)
