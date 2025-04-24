@@ -26,6 +26,8 @@ struct data_t {
     enum op_type op;
 };
 
+BPF_ARRAY(last_timestamp, u64, 1);
+
 BPF_PERF_OUTPUT(events);
 
 static int get_file_path(struct file *file, char *buf, int size) {
@@ -53,10 +55,12 @@ static int get_file_path(struct file *file, char *buf, int size) {
 // submit event data
 static void submit_event(struct pt_regs *ctx, struct file *file, size_t size, loff_t *pos, enum op_type op) {
     struct data_t data = {};
-    u32 pid;
+    u32 pid,zero;
+    u64* last_time;
     
     pid = bpf_get_current_pid_tgid() >> 32;
-    
+    zero = 0;
+
     data.pid = pid;
     data.ts = bpf_ktime_get_ns();
     bpf_get_current_comm(&data.comm, sizeof(data.comm));

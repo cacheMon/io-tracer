@@ -10,6 +10,9 @@ import json
 from pathlib import Path
 from datetime import datetime
 from utils import logger
+import threading
+import queue
+
 
 running = True
 kprobes = []
@@ -100,9 +103,11 @@ if args.json:
         args.json = None
 
 event_count = 0
+last_event_time = 0
+THRESHOLD_NS = 1000000
 
 def print_event(cpu, data, size):
-    global event_count, args, running, json_events
+    global event_count, args, running, json_events, last_event_time
     
     event = b["events"].event(data)
     op_name = op_names.get(event.op, "UNKNOWN")
@@ -114,7 +119,12 @@ def print_event(cpu, data, size):
     
     flags_str = format_flags(event.flags)
     
-    ts = event.ts / 1000000000 
+    raw_time = event.ts
+    if raw_time - last_event_time < THRESHOLD_NS:
+        return
+    last_event_time = raw_time
+
+    ts = raw_time / 1000000000 
     timestamp = datetime.fromtimestamp(ts).strftime('%H:%M:%S.%f')[:-3]
     
     try:
@@ -243,22 +253,53 @@ b["events"].open_perf_buffer(print_event, page_cnt=args.page_cnt, lost_cb=lost_c
 
 start = time.time()
 duration_target = args.duration
+end_time = start + duration_target
 logger("info", f"Tracing for {duration_target} seconds...")
-try:
-    while running:
+
+
+event_queue = queue.Queue()
+polling_active = True
+
+def polling_thread():
+    while polling_active:
         try:
             b.perf_buffer_poll(timeout=50)
-            if args.duration > 0 and (time.time() - start) > duration_target:
-                running = False
-                logger("info", "Duration limit reached, stopping...")
-        except KeyboardInterrupt:
-            running = False
         except Exception as e:
-            logger("error", f"error in perf buffer polling: {e}")
-            time.sleep(0.1)
-    logger("info", "Duration limit reached, stopping...")
+            logger("error", f"Error in polling thread: {e}")
+            time.sleep(0.01)
+
+poller = threading.Thread(target=polling_thread)
+poller.daemon = True
+poller.start()
+
+try:
+    remaining = duration_target
+    while remaining > 0 and running:
+        sleep_time = min(0.1, remaining)
+        time.sleep(sleep_time)
+        
+        current = time.time()
+        remaining = end_time - current
+        
+        if args.verbose and int(current) > int(current - sleep_time):
+            elapsed = current - start
+            logger("info", f"Progress: {elapsed:.1f}s/{duration_target}s")
+    
+    logger("info", f"Main thread: time limit reached after {time.time() - start:.2f}s")
+    running = False
+    
+except KeyboardInterrupt:
+    logger("info", "Keyboard interrupt received")
+    running = False
 except Exception as e:
     logger("error", f"Main loop error: {e}")
 finally:
+    polling_active = False
+    
+    time.sleep(0.2)
+    
+    actual_duration = time.time() - start
+    logger("info", f"Trace completed after {actual_duration:.2f} seconds (target: {duration_target}s)")
+    
     cleanup(None, None)
     logger("info", "Exiting...")
