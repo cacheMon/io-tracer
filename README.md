@@ -3,6 +3,7 @@
 ## Setup
 
 ```
+pip install -r requirement.txt
 sudo apt-get install bpfcc-tools linux-headers-$(uname -r)
 ```
 

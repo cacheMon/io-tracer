@@ -39,7 +39,7 @@ except IOError as e:
 #     bpf_text = bpf_text.replace('FILTER_PID', str(filter_pid))
 
 try:
-    b = BPF(text=bpf_text, cflags=["-Wno-duplicate-decl-specifier"])
+    b = BPF(text=bpf_text, cflags=["-Wno-duplicate-decl-specifier", "-Wno-macro-redefined"])
 except Exception as e:
     logger("error", f"failed to initialize BPF: {e}")
     sys.exit(1)
@@ -122,18 +122,14 @@ def print_event(cpu, data, size):
     except UnicodeDecodeError:
         comm = "[decode_error]"
     
-    """
-    TIMESTAMP OP PID COMM FILENAME INODE SIZE LBA FLAGS
-    """
-    if event.op in [1, 2]:
-        output = f"{timestamp} {op_name} {event.pid} {comm} " \
-                 f"{filename} {event.inode} " \
-                 f"{event.size} {event.lba} " \
-                 f"{flags_str}"
-    else: 
-        output = f"{timestamp} {op_name} {event.pid} {comm} " \
-                 f"{filename} {event.inode} " \
-                 f"{flags_str}"
+    if event.op in [1, 2]:  
+        size_val = event.size
+        lba_val = event.lba
+    else:  
+        size_val = 0
+        lba_val = 0
+    
+    output = f"{timestamp} {op_name} {event.pid} {comm} {filename} {event.inode} {size_val} {lba_val} {flags_str}"
     
     if args.verbose:
         print(output)
@@ -157,6 +153,9 @@ def print_event(cpu, data, size):
         if event.op in [1, 2]:  # READ/WRITE
             json_event["size"] = event.size
             json_event["lba"] = event.lba
+        else:
+            json_event["size"] = 0
+            json_event["lba"] = 0
         
         json_events.append(json_event)
     
@@ -256,7 +255,8 @@ try:
             running = False
         except Exception as e:
             logger("error", f"error in perf buffer polling: {e}")
-            time.sleep(0.1) 
+            time.sleep(0.1)
+    logger("info", "Duration limit reached, stopping...")
 except Exception as e:
     logger("error", f"Main loop error: {e}")
 finally:
