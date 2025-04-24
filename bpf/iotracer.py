@@ -86,6 +86,7 @@ outfile = None
 if args.output:
     try:
         outfile = open(args.output, 'w', buffering=1)
+        # outfile.write("timestamp op_name pid comm filename inode size_val lba_val flags_str\n")
         logger("info", f"logging to {args.output}")
     except IOError as e:
         logger("info", f"could not open output file '{args.output}': {e}")
@@ -132,12 +133,14 @@ def print_event(cpu, data, size):
     except UnicodeDecodeError:
         comm = "[decode_error]"
     
-    if event.op in [1, 2]:  
-        size_val = event.size
-        lba_val = event.lba
-    else:  
-        size_val = 0
-        lba_val = 0
+    # if event.op in [1, 2]:  
+    #     size_val = event.size
+    #     lba_val = event.lba
+    # else:  
+    #     size_val = 0
+    #     lba_val = 0
+    size_val = event.size if event.size is not None else 0
+    lba_val = event.lba if event.lba is not None else 0
     
     output = f"{timestamp} {op_name} {event.pid} {comm} {filename} {event.inode} {size_val} {lba_val} {flags_str}"
     

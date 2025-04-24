@@ -8,6 +8,7 @@ from heatmap_file_access import heatmap_file_access
 from latency_analysis import latency_analysis
 from throughput_analysis import throughput_analysis
 from operation_frequency_analysis import operation_frequency_analysis
+from lba_overtime_analysis import lba_overtime_analysis
 from summary import generate_summary_stats
 
 
@@ -50,6 +51,9 @@ def main():
     print("Analyzing operation frequency...")
     operation_frequency_analysis(df, charts_dir)
     
+    print("Analyzing Logical Block Address Overtime...")
+    lba_overtime_analysis(df, charts_dir)
+
     print("Generating summary statistics...")
     generate_summary_stats(df, output_dir)
     

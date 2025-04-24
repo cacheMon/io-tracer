@@ -26,7 +26,7 @@ struct data_t {
     enum op_type op;
 };
 
-BPF_ARRAY(last_timestamp, u64, 1);
+BPF_HASH(file_positions, u64, u64, 1024);
 
 BPF_PERF_OUTPUT(events);
 
@@ -55,25 +55,52 @@ static int get_file_path(struct file *file, char *buf, int size) {
 // submit event data
 static void submit_event(struct pt_regs *ctx, struct file *file, size_t size, loff_t *pos, enum op_type op) {
     struct data_t data = {};
-    u32 pid,zero;
-    u64* last_time;
+    u32 pid;
+    u64 file_inode = 0;
+    u64 position = 0;
+    u64 next_position = 0;
+    u64 lba_value = 0;
     
     pid = bpf_get_current_pid_tgid() >> 32;
-    zero = 0;
-
+    
     data.pid = pid;
     data.ts = bpf_ktime_get_ns();
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
     data.op = op;
+    data.lba = 0;  // Default LBA
     
     if (file) {
-        data.inode = get_file_path(file, data.filename, sizeof(data.filename));
+        file_inode = get_file_path(file, data.filename, sizeof(data.filename));
+        data.inode = file_inode;
         data.size = size;
         
+        // Try to read position from pos pointer if available
         if (pos) {
-            bpf_probe_read_kernel(&data.lba, sizeof(data.lba), pos);
+            bpf_probe_read_kernel(&position, sizeof(position), pos);
         }
         
+        // Try to get current tracked position if we don't have a current position
+        if (position == 0) {
+            u64 *current_pos = file_positions.lookup(&file_inode);
+            if (current_pos) {
+                position = *current_pos;
+            }
+        }
+        
+        // Calculate LBA from position (minimum LBA is 1 for valid positions)
+        lba_value = position / BLOCK_SIZE;
+        if (position > 0 && lba_value == 0) {
+            lba_value = 1;
+        }
+        data.lba = lba_value;
+        
+        // Update position for next operation (for READ and WRITE)
+        if (op == OP_READ || op == OP_WRITE) {
+            next_position = position + size;
+            file_positions.update(&file_inode, &next_position);
+        }
+        
+        // Read flags
         bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
     }
     
@@ -103,14 +130,19 @@ int trace_vfs_fsync(struct pt_regs *ctx, struct file *file, int datasync) {
 }
 
 int trace_vfs_fsync_range(struct pt_regs *ctx, struct file *file, loff_t start, loff_t end, int datasync) {
-    submit_event(ctx, file, end - start, NULL, OP_FSYNC);
+    loff_t pos = start;
+    submit_event(ctx, file, end - start, &pos, OP_FSYNC);
     return 0;
 }
 
-// Calls during file close
 int trace_fput(struct pt_regs *ctx, struct file *file) {
     if (file) {
-        submit_event(ctx, file, 0, NULL, OP_CLOSE);
+        // For close operations, use the file's current position if available
+        loff_t *pos = NULL;
+        if (file->f_pos) {
+            pos = &file->f_pos;
+        }
+        submit_event(ctx, file, 0, pos, OP_CLOSE);
     }
     return 0;
 }
