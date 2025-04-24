@@ -12,7 +12,7 @@ The program has been wrapped into a single bash script.
 Ensure you have sudo privilege.
 
 ```
-Usage: ./runner.sh [options]
+Usage: sudo bash ./runner.sh [options]
 Options:
   -d, --duration <seconds>   Duration to trace (default: 30 seconds)
   -o, --output <directory>   Output directory (default: vfs_trace_analysis_timestamp)
