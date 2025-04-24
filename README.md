@@ -1,5 +1,13 @@
 # IO-Tracer
 
+## Setup
+
+```
+sudo apt-get install bpfcc-tools linux-headers-$(uname -r)
+```
+
+## Usage
+
 The program has been wrapped into a single bash script.
 Ensure you have sudo privilege.
 
