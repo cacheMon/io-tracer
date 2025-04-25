@@ -3,8 +3,7 @@
 ## Setup
 
 ```
-pip install -r requirement.txt
-sudo apt-get install bpfcc-tools linux-headers-$(uname -r)
+bash ./setup.sh
 ```
 
 ## Usage
@@ -15,9 +14,9 @@ Ensure you have sudo privilege.
 ```
 Usage: sudo bash ./runner.sh [options]
 Options:
-  -d, --duration <seconds>   Duration to trace (default: 30 seconds)
+  -d, --duration <seconds>   Duration to trace, including compiling (default: 30 seconds)
   -o, --output <directory>   Output directory (default: vfs_trace_analysis_timestamp)
-  -w, --workload <command>   Run a specific workload while tracing
+  -v, --verbose             Log outputs
   -h, --help                 Show this help message
 
 ```

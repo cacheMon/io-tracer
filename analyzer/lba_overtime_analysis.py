@@ -8,7 +8,6 @@ def lba_overtime_analysis(df, output_dir):
     Analyze and visualize how LBA (Logical Block Address) changes over time
     for read and write operations.
     """
-    print(df['op'].values)
     if 'READ' not in df['op'].values and 'WRITE' not in df['op'].values:
         print("No READ/WRITE operations found for LBA analysis")
         return

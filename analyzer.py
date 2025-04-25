@@ -1,19 +1,18 @@
-import numpy as np
+#!/usr/bin/env python3
+
 import argparse
-import json
 from pathlib import Path
-from log_parser import parse_trace_log
-from time_series_analysis import time_series_analysis    
-from heatmap_file_access import heatmap_file_access   
-from latency_analysis import latency_analysis
-from throughput_analysis import throughput_analysis
-from operation_frequency_analysis import operation_frequency_analysis
-from lba_overtime_analysis import lba_overtime_analysis
-from summary import generate_summary_stats
+from analyzer.log_parser import parse_trace_log
+from analyzer.time_series_analysis import time_series_analysis    
+from analyzer.heatmap_file_access import heatmap_file_access   
+from analyzer.latency_analysis import latency_analysis
+from analyzer.throughput_analysis import throughput_analysis
+from analyzer.operation_frequency_analysis import operation_frequency_analysis
+from analyzer.lba_overtime_analysis import lba_overtime_analysis
+from analyzer.summary import generate_summary_stats
 
 
-
-def main():
+def analyzer():
     parser = argparse.ArgumentParser(description='Analyze VFS trace logs')
     parser.add_argument('log_file', type=str, help='VFS trace log file to analyze')
     parser.add_argument('-o', '--output', type=str, default='vfs_analysis', help='Output directory for analysis results')
@@ -61,4 +60,4 @@ def main():
     print(f"Charts can be found in {charts_dir}/")
 
 if __name__ == "__main__":
-    main()
+    analyzer()
