@@ -24,5 +24,4 @@ Options:
 Analysis folder example is in the `result` folder.
 
 ## TODO:
-- Precompile the BPF program so that i won't compile on script run
-- Implement limit
+- Measure the tracer overhead

@@ -66,7 +66,7 @@ class IOTracer:
         # Read the .c file
         try:
             with open(self.bpf_file, 'r') as f:
-                self. bpf_text = f.read()
+                self.bpf_text = f.read()
         except IOError as e:
             logger("error", f"could not read BPF file '{self.bpf_file}': {e}")
             sys.exit(1)
@@ -82,7 +82,8 @@ class IOTracer:
     def _attach_kprobe(self,event, fn_name):
         global kprobes
         try:
-            logger("info", f"Attaching kprobe {event} to {fn_name}")
+            if self.verbose:
+                logger("info", f"Attaching kprobe {event} to {fn_name}")
             k = self.b.attach_kprobe(event=event, fn_name=fn_name)
             kprobes.append((event, k))
             return True
@@ -94,9 +95,10 @@ class IOTracer:
         try:
             self.outfile = open(self.output, 'w', buffering=1)
             self.outfile_block = open(self.output_block, 'w', buffering=1)
-            self.outfile.write("timestamp op_name pid comm filename inode size_val lba_val flags_str\n")
+            self.outfile.write("timestamp op_name pid comm filename inode size_val flags_str\n")
             self.outfile_block.write("timestamp pid comm sector nr_sectors\n")
-            logger("info", f"logging to {self.output}")
+            if self.verbose:
+                logger("info", f"Logging to {self.output}")
         except IOError as e:
             logger("info", f"could not open output file '{self.output}': {e}")
             sys.exit(1)
@@ -106,7 +108,8 @@ class IOTracer:
         try:
             json_outfile = self.output_json
             json_block_outfile = self.output_block_json
-            logger("info", f"Will save JSON data to {json_outfile} and {json_block_outfile}  on completion")
+            if self.verbose:
+                logger("info", f"Saving JSON data to {json_outfile} and {json_block_outfile} on completion")
         except IOError as e:
             logger("info", f"could not prepare JSON output file '{self.output_json}': {e}")
             self.output_json = None
@@ -191,7 +194,7 @@ class IOTracer:
         # print("%d %d %d" % (event.pid, event.ts, event.sector))
         timestamp = event.ts
         pid = event.pid
-        comm = event.comm
+        comm = event.comm.decode('utf-8', errors='replace')
         sector = event.sector
         nr_sectors = event.nr_sectors
         output = f"{timestamp} {pid} {comm} {sector} {nr_sectors}"
@@ -204,7 +207,7 @@ class IOTracer:
             json_event = {
                 "timestamp": timestamp,
                 "pid": event.pid,
-                "comm": comm.decode(),
+                "comm": comm,
                 "sector": sector,
                 "nr_sectors": nr_sectors
             }
@@ -230,7 +233,7 @@ class IOTracer:
             if flags & flag:
                 result.append(name)
         
-        return "|".join(result) if result else "0"
+        return "|".join(result) if result else "NO_FLAGS"
     
     def _cleanup(self,signum, frame):
         global running, kprobes, json_events, json_block_events, json_outfile
@@ -238,13 +241,13 @@ class IOTracer:
         self._write_json()
 
         running = False
-        logger("info", "Detaching probes (this may take a moment)...")
         
         # detach kprobes
         for event, k in kprobes:
             try:
                 self.b.detach_kprobe(event=event)
-                logger("info", f"Detached kprobe: {event}")
+                if self.verbose:
+                    logger("info", f"Detached kprobe: {event}")
             except Exception as e:
                 logger("error", f"Error detaching {event}: {e}")
                 
@@ -252,28 +255,33 @@ class IOTracer:
             try:
                 with open(self.output_json, 'w') as f:
                     json.dump(json_events, f, indent=2)
-                logger("info", f"Saved {len(json_events)} events to {self.output_json}")
+                if self.verbose:
+                    logger("info", f"Saved {len(json_events)} events to {self.output_json}")
                 with open(self.output_block_json, 'w') as f:
                     json.dump(json_block_events, f, indent=2)
-                logger("info", f"Saved {len(json_block_events)} events to {self.output_block_json}")
+                if self.verbose:
+                    logger("info", f"Saved {len(json_block_events)} events to {self.output_block_json}")
             except Exception as e:
                 logger("error", f"Failed to save JSON data: {e}")
 
             try:
                 self.outfile.write(self.log_output)
-                logger("info", f"Saved log to {self.output}")
-                self.outfile_block.write(self.log_block_output)                
-                logger("info", f"Saved log block to {self.output_block}")
+                if self.verbose:
+                    logger("info", f"Saved log to {self.output}")
+                self.outfile_block.write(self.log_block_output)          
+                if self.verbose:      
+                    logger("info", f"Saved log block to {self.output_block}")
             except Exception as e:
                 logger("error", f"Failed to save log data: {e}")
         
         if self.outfile or self.outfile_block:
-            logger("info", "Closing output file...")
+            if self.verbose:
+                logger("info", "Closing output file...")
             self.outfile.close()
             self.outfile_block.close()
 
-
-        logger("info", "Cleanup complete")
+        if self.verbose:
+            logger("info", "Cleanup complete")
 
     def _lost_cb(self,lost):
         if lost > 0:
@@ -310,8 +318,8 @@ class IOTracer:
         signal.signal(signal.SIGINT, self._cleanup)
         signal.signal(signal.SIGTERM, self._cleanup)
 
-        logger("info", "VFS syscall tracer started")
-        logger("info","tracing VFS calls (read, write, open, close, fsync)... Press Ctrl+C to exit")
+        logger("info", "IO tracer started")
+        logger("info","Press Ctrl+C to exit")
         # if self.args.limit > 0:
         #     logger("info", f"Limiting to {args.limit} events")
 
@@ -352,7 +360,8 @@ class IOTracer:
                     elapsed = current - start
                     logger("info", f"Progress: {elapsed:.1f}s/{duration_target}s")
             
-            logger("info", f"Main thread: time limit reached after {time.time() - start:.2f}s")
+            if self.verbose:
+                logger("info", f"Main thread: time limit reached after {time.time() - start:.2f}s")
             running = False
             
         except KeyboardInterrupt:
@@ -366,7 +375,8 @@ class IOTracer:
             time.sleep(0.2)
             
             actual_duration = time.time() - start
-            logger("info", f"Trace completed after {actual_duration:.2f} seconds (target: {duration_target}s)")
+            if self.verbose:
+                logger("info", f"Trace completed after {actual_duration:.2f} seconds (target: {duration_target}s)")
             
             self._cleanup(None, None)
             logger("info", "Exiting...")

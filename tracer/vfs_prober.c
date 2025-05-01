@@ -240,15 +240,11 @@ int trace_submit_bio(struct pt_regs *ctx, struct bio *bio) {
     data.ts = bpf_ktime_get_ns();
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
     
-    // Get block device info
     bpf_probe_read_kernel(&data.sector, sizeof(data.sector), &bio->bi_iter.bi_sector);
-    data.nr_sectors = bio->bi_iter.bi_size >> 9; // Convert bytes to sectors
+    data.nr_sectors = bio->bi_iter.bi_size >> 9; 
+
+    data.rwbs = bio->bi_opf; 
     
-    // Try to get operation type
-    data.rwbs = bio->bi_opf; // Read operation flags
-    
-    // Try to get inode if possible (this is tricky and won't always work)
-    // You might need to extract from bio->bi_io_vec->bv_page->mapping->host
     
     bl_events.perf_submit(ctx, &data, sizeof(data));
     return 0;

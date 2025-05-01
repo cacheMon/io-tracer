@@ -41,8 +41,8 @@ def analyzer():
     print("Generating file access heatmaps...")
     heatmap_file_access(df, charts_dir)
     
-    print("Analyzing latency distribution...")
-    latency_analysis(df, charts_dir)
+    # print("Analyzing latency distribution...")
+    # latency_analysis(df, charts_dir)
     
     print("Calculating throughput...")
     throughput_analysis(df, charts_dir)

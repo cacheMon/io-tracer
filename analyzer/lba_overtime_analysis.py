@@ -22,31 +22,31 @@ def lba_overtime_analysis(df, output_dir):
     # Sort by timestamp to see progression over time
     io_df = io_df.sort_values('timestamp')
     
-    # Create a time-based scatter plot of LBA accesses
-    plt.figure(figsize=(14, 8))
+    # # Create a time-based scatter plot of LBA accesses
+    # plt.figure(figsize=(14, 8))
     
-    # Plot LBA vs time, colored by operation type
-    for op_type in ['READ', 'WRITE']:
-        op_df = io_df[io_df['op'] == op_type]
-        if not op_df.empty:
-            plt.scatter(
-                op_df['timestamp'], 
-                op_df['lba'],
-                label=op_type,
-                alpha=0.7,
-                s=op_df['size'] / 1024,  # Size of point based on I/O size (KB)
-                edgecolors='w',
-                linewidths=0.5
-            )
+    # # Plot LBA vs time, colored by operation type
+    # for op_type in ['READ', 'WRITE']:
+    #     op_df = io_df[io_df['op'] == op_type]
+    #     if not op_df.empty:
+    #         plt.scatter(
+    #             op_df['timestamp'], 
+    #             op_df['lba'],
+    #             label=op_type,
+    #             alpha=0.7,
+    #             s=op_df['size'] / 1024,  # Size of point based on I/O size (KB)
+    #             edgecolors='w',
+    #             linewidths=0.5
+    #         )
     
-    plt.title('LBA Access Patterns Over Time')
-    plt.xlabel('Time')
-    plt.ylabel('Logical Block Address (LBA)')
-    plt.yscale('log')  # Log scale often helps visualize the full range of LBAs
-    plt.legend()
-    plt.grid(True, which="both", ls="--", alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(f"{output_dir}/lba_overtime_scatter.png")
+    # plt.title('LBA Access Patterns Over Time')
+    # plt.xlabel('Time')
+    # plt.ylabel('Logical Block Address (LBA)')
+    # plt.yscale('log')  # Log scale often helps visualize the full range of LBAs
+    # plt.legend()
+    # plt.grid(True, which="both", ls="--", alpha=0.3)
+    # plt.tight_layout()
+    # plt.savefig(f"{output_dir}/lba_overtime_scatter.png")
     
     # Create a visualization showing access patterns for top files
     top_files = io_df['filename'].value_counts().head(5).index.tolist()

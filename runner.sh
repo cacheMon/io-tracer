@@ -1,7 +1,7 @@
 #!/bin/bash
 
 DURATION=30
-OUTPUT_DIR="result/vfs_trace_analysis_$(date +%Y%m%d_%H%M%S)"
+OUTPUT_DIR="result/IO_trace_analysis_$(date +%Y%m%d_%H%M%S)"
 LIMIT=0
 PID=""
 WORKLOAD=""
@@ -10,13 +10,14 @@ VERBOSE=0
 function print_usage {
     echo "Usage: $0 [options]"
     echo "Options:"
-    echo "  -d, --duration <seconds>   Duration to trace, including compiling (default: 30 seconds)"
-    echo "  -o, --output <directory>   Output directory (default: vfs_trace_analysis_timestamp)"
+    echo "  -d,     --duration <seconds>    Duration to trace, including compiling (default: 30 seconds)"
+    echo "  -o,     --output <directory>    Output directory (default: vfs_trace_analysis_timestamp)"
     # echo "  -l, --limit <count>        Limit number of events to capture (default: unlimited)"
     # echo "  -p, --pid <pid>            Filter tracing to specific PID"
     # echo "  -w, --workload <command>   Run a specific workload while tracing"
-    echo "  -v, --verbose             Log outputs"
-    echo "  -h, --help                 Show this help message"
+    echo "  -v,     --verbose               Log outputs"
+    echo "  -h,     --help                  Show this help message"
+    echo "  -tw,    --time-window',         Time window for matching PIDs (default 5_000_000 ns)"
     exit 1
 }
 
@@ -28,6 +29,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -o|--output)
             OUTPUT_DIR="$2"
+            shift 2
+            ;;
+        -tw|--time-window)
+            TIME_WINDOW="$2"
             shift 2
             ;;
         # -w|--workload)
@@ -84,6 +89,10 @@ if [ -v DURATION ] || [ -n "$DURATION" ]; then
     PARAMS="$PARAMS -d $DURATION"
 fi
 
+if [ -v TIME_WINDOWN ] || [ -n "$TIME_WINDOW" ]; then
+    PARAMS="$PARAMS -tw $TIME_WINDOW"
+fi
+
 if [ $VERBOSE -eq 1 ]; then
     echo "Verbose mode enabled"
     PARAMS="$PARAMS -v True"
@@ -119,7 +128,7 @@ fi
 
 # start the analyzer
 # echo "====================== Running analysis on trace data... ======================"
-./venv/bin/python ./analyzer.py "$OUTPUT_DIR/vfs_trace.log" -o "$OUTPUT_DIR/analysis"
+./venv/bin/python ./analyzer.py "$OUTPUT_DIR/trace.log" -o "$OUTPUT_DIR/analysis"
 
 # echo "Analysis complete. Results are in $OUTPUT_DIR/analysis/"
 # echo "Charts are in $OUTPUT_DIR/analysis/charts/"
