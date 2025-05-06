@@ -23,7 +23,7 @@ class IOTracer:
             page_cnt: int = 8,
             analyze: bool = False,
             verbose: bool = False,
-            duration: int = 10,
+            duration: int = None,
             debouncing_duration: int = THRESHOLD_NS,
         ):
         global running, kprobes, json_events, json_block_events, json_outfile, event_count, last_event_time
@@ -328,9 +328,12 @@ class IOTracer:
         self.b["bl_events"].open_perf_buffer(self._print_event_block, page_cnt=self.page_cnt, lost_cb=self._lost_cb)
 
         start = time.time()
-        duration_target = self.duration
-        end_time = start + duration_target
-        logger("info", f"Tracing for {duration_target} seconds...")
+        if self.duration is not None:
+            duration_target = self.duration
+            end_time = start + duration_target
+            logger("info", f"Tracing for {duration_target} seconds...")
+        else:
+            logger("info", "Tracing indefinitely. Ctrl + C to stop.")
 
 
         polling_active = True
@@ -348,21 +351,24 @@ class IOTracer:
         poller.start()
 
         try:
-            remaining = duration_target
-            while remaining > 0 and running:
-                sleep_time = min(0.1, remaining)
-                time.sleep(sleep_time)
-                
-                current = time.time()
-                remaining = end_time - current
-                
-                if self.verbose and int(current) > int(current - sleep_time):
-                    elapsed = current - start
-                    logger("info", f"Progress: {elapsed:.1f}s/{duration_target}s")
-            
-            if self.verbose:
-                logger("info", f"Main thread: time limit reached after {time.time() - start:.2f}s")
-            running = False
+            if self.duration is not None:
+                remaining = duration_target
+                while remaining > 0 and running:
+                    sleep_time = min(0.1, remaining)
+                    time.sleep(sleep_time)
+                    
+                    current = time.time()
+                    remaining = end_time - current
+                    
+                    if self.verbose and int(current) > int(current - sleep_time):
+                        elapsed = current - start
+                        logger("info", f"Progress: {elapsed:.1f}s/{duration_target}s")
+            else:
+                while running:
+                    time.sleep(0.1)
+                if self.verbose:
+                    logger("info", f"Main thread: time limit reached after {time.time() - start:.2f}s")
+                running = False
             
         except KeyboardInterrupt:
             logger("info", "Keyboard interrupt received")
@@ -378,5 +384,4 @@ class IOTracer:
             if self.verbose:
                 logger("info", f"Trace completed after {actual_duration:.2f} seconds (target: {duration_target}s)")
             
-            self._cleanup(None, None)
             logger("info", "Exiting...")

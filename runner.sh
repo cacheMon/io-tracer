@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DURATION=30
+# DURATION=30
 OUTPUT_DIR="result/IO_trace_analysis_$(date +%Y%m%d_%H%M%S)"
 LIMIT=0
 PID=""
@@ -99,6 +99,7 @@ if [ $VERBOSE -eq 1 ]; then
     eval "python ./tracer.py $PARAMS"
 else
     echo "Verbose mode disabled"
+    echo "python ./tracer.py $PARAMS"
     eval "python3 ./tracer.py $PARAMS"
 fi
 
