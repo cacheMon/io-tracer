@@ -38,6 +38,7 @@ def heatmap_file_access(df, output_dir):
                 continue
                 
             bins = np.linspace(0, max_lba, 10)
+            file_df = io_df[io_df['filename'] == file].copy() 
             file_df['lba_bin'] = pd.cut(file_df['lba'], bins)
             
             lba_heatmap = pd.crosstab(file_df['lba_bin'], file_df['op'])

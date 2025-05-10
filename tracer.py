@@ -16,16 +16,17 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--flush_interval', type=int, default=60, help='Flush interval in seconds. Default is 60 second')
     parser.add_argument('-tw', '--time-window', type=int, default=5_000_000, help='Time window for matching PIDs (default 5_000_000 ns)')
 
-    output_dir = parser.parse_args().output.strip()
+    parse_args = parser.parse_args()
+    output_dir = parse_args.output.strip()
 
     tracer = IOTracer(
         output_dir=output_dir,
-        bpf_file=parser.parse_args().bpf_file.strip(),
-        page_cnt=parser.parse_args().page_cnt,
-        analyze=parser.parse_args().analyze,
-        verbose=parser.parse_args().verbose,
-        duration=parser.parse_args().duration,
-        flush_interval=parser.parse_args().flush_interval,
+        bpf_file=parse_args.bpf_file.strip(),
+        page_cnt=parse_args.page_cnt,
+        analyze=parse_args.analyze,
+        verbose=parse_args.verbose,
+        duration=parse_args.duration,
+        flush_interval=parse_args.flush_interval,
     )
     # tracer.debug()
     tracer.trace()

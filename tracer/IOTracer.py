@@ -172,7 +172,6 @@ class IOTracer:
             comm = "[decode_error]"
         
         size_val = event.size if event.size is not None else 0
-        lba_val = event.lba if event.lba is not None else 0
         
         output = f"{timestamp} {op_name} {event.pid} {comm} {filename} {event.inode} {size_val} {flags_str}"
         
@@ -196,10 +195,8 @@ class IOTracer:
             
             if event.op in [1, 2]:  # READ/WRITE
                 json_event["size"] = event.size
-                json_event["lba"] = event.lba
             else:
                 json_event["size"] = 0
-                json_event["lba"] = 0
             
             json_events.append(json_event)
 

@@ -6,13 +6,13 @@ def throughput_analysis(df, output_dir):
         print("No READ/WRITE operations found for throughput analysis")
         return
     
-    io_df = df[df['op'].isin(['READ', 'WRITE'])]
+    io_df = df[df['op'].isin(['READ', 'WRITE'])].copy()
     
     if io_df.empty:
         print("No READ/WRITE operations with size information")
         return
     
-    io_df['timestamp_second'] = io_df['timestamp'].dt.floor('S')
+    io_df.loc[:,'timestamp_second'] = io_df['timestamp'].dt.floor('s')
     throughput = io_df.groupby(['timestamp_second', 'op'])['size'].sum().unstack().fillna(0)
     
     throughput = throughput / 1024

@@ -46,7 +46,6 @@ struct data_t {
     char filename[FILENAME_MAX_LEN];
     u64 inode;
     u64 size;
-    u64 lba;
     u32 flags;
     enum op_type op;
 };
@@ -151,7 +150,6 @@ static void submit_event(struct pt_regs *ctx, struct file *file, size_t size, lo
     data.ts = bpf_ktime_get_ns();
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
     data.op = op;
-    data.lba = 0;  // Default LBA
     
     if (file) {
         file_inode = get_file_path(file, data.filename, sizeof(data.filename));
@@ -172,13 +170,6 @@ static void submit_event(struct pt_regs *ctx, struct file *file, size_t size, lo
                 position = *current_pos;
             }
         }
-        
-        // Calculate LBA from position (minimum LBA is 1 for valid positions)
-        lba_value = position / BLOCK_SIZE;
-        if (position > 0 && lba_value == 0) {
-            lba_value = 1;
-        }
-        data.lba = lba_value;
         
         // Update position for next operation (for READ and WRITE)
         if (op == OP_READ || op == OP_WRITE) {

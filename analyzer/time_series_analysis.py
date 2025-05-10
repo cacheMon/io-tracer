@@ -5,7 +5,7 @@ def time_series_analysis(df, output_dir):
     plt.figure(figsize=(12, 6))
     
     time_series = df.set_index('timestamp')
-    ops_by_time = time_series.groupby([pd.Grouper(freq='1S'), 'op']).size().unstack().fillna(0)
+    ops_by_time = time_series.groupby([pd.Grouper(freq='1s'), 'op']).size().unstack().fillna(0)
     
     # Plot
     ax = ops_by_time.plot(kind='line', marker='o')
@@ -22,11 +22,11 @@ def time_series_analysis(df, output_dir):
         
         if not read_df.empty:
             read_df.set_index('timestamp', inplace=True)
-            read_cumsum = read_df.resample('1S')['size'].sum().cumsum()
+            read_cumsum = read_df.resample('1s')['size'].sum().cumsum()
             
         if not write_df.empty:
             write_df.set_index('timestamp', inplace=True)
-            write_cumsum = write_df.resample('1S')['size'].sum().cumsum()
+            write_cumsum = write_df.resample('1s')['size'].sum().cumsum()
         
         plt.figure(figsize=(12, 6))
         if not read_df.empty:

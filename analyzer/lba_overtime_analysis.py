@@ -95,8 +95,8 @@ def lba_overtime_analysis(df, output_dir):
             continue
             
         # Calculate differences between consecutive LBAs
-        file_io['next_lba'] = file_io['lba'].shift(-1)
-        file_io['lba_diff'] = file_io['next_lba'] - file_io['lba']
+        file_io.loc[:,'next_lba'] = file_io['lba'].shift(-1)
+        file_io.loc[:,'lba_diff'] = file_io['next_lba'] - file_io['lba']
         
         # Count accesses that seem sequential (diff = size or small positive value)
         # This is an approximation - true sequentiality would need more context

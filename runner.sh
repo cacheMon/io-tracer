@@ -17,7 +17,7 @@ function print_usage {
     # echo "  -w, --workload <command>   Run a specific workload while tracing"
     echo "  -v,     --verbose               Log outputs"
     echo "  -h,     --help                  Show this help message"
-    echo "  -tw,    --time-window',         Time window for matching PIDs (default 5_000_000 ns)"
+    echo "  -tw,    --time-window,         Time window for matching PIDs (default 5_000_000 ns)"
     exit 1
 }
 
@@ -89,7 +89,7 @@ if [ -v DURATION ] || [ -n "$DURATION" ]; then
     PARAMS="$PARAMS -d $DURATION"
 fi
 
-if [ -v TIME_WINDOWN ] || [ -n "$TIME_WINDOW" ]; then
+if [ -v TIME_WINDOW ] || [ -n "$TIME_WINDOW" ]; then
     PARAMS="$PARAMS -tw $TIME_WINDOW"
 fi
 
