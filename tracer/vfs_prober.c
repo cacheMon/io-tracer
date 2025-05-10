@@ -59,6 +59,7 @@ struct bio_data_t {
     u32 nr_sectors;    // Number of sectors
     u32 rwbs;          // Read/write/discard/flush flags
     // u64 ino;           // Attempt to get inode if possible
+    u32 op;            // Operation type
 };
 
 BPF_HASH(file_positions, u64, u64, 1024);
@@ -234,7 +235,7 @@ int trace_submit_bio(struct pt_regs *ctx, struct bio *bio) {
     bpf_probe_read_kernel(&data.sector, sizeof(data.sector), &bio->bi_iter.bi_sector);
     data.nr_sectors = bio->bi_iter.bi_size >> 9; 
 
-    data.rwbs = bio->bi_opf; 
+    data.op = bio->bi_opf & REQ_OP_MASK; 
     
     
     bl_events.perf_submit(ctx, &data, sizeof(data));

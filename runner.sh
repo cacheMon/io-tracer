@@ -6,7 +6,6 @@ LIMIT=0
 PID=""
 WORKLOAD=""
 VERBOSE=0
-FLUSH_INTERVAL=0
 
 function print_usage {
     echo "Usage: $0 [options]"

@@ -25,7 +25,8 @@ class BlockToFS:
                     'pid': parts[1],
                     'comm': parts[2],
                     'sector': parts[3], 
-                    'nr_sectors': parts[4]
+                    'nr_sectors': parts[4],
+                    'operation': parts[5],
                 })
 
     def parse_vfs_log(self):
@@ -52,7 +53,7 @@ class BlockToFS:
             Find matching PIDs between block and VFS data within a time window.
         """
         
-        output = "timestamp op_name pid comm filename inode size_val sector flags_str\n"
+        output = "timestamp vfs_op_name pid comm filename inode size_val sector flags_str blk_operation\n"
         logger("info","Finding the matching PID between block and vfs data with time window...")
 
         # Group VFS operations by PID
@@ -94,7 +95,7 @@ class BlockToFS:
                 dvfs = closest_vfs
                 timestamp = int((block_timestamp + float(dvfs['timestamp'])) // 2)
                 
-                n_opname = dvfs['op_name']
+                n_vfs_opname = dvfs['op_name']
                 n_vfs_pid = dvfs['pid']
                 n_blk_comm = dblock['comm']
                 n_size = dvfs['size_val']
@@ -102,21 +103,23 @@ class BlockToFS:
                 n_filename = dvfs['filename']
                 n_inode = dvfs['inode'] 
                 n_sector = dblock['sector']
+                n_blk_operation = dblock['operation']
                 
                 json_data = {
                     'timestamp': timestamp,
-                    'op_name': n_opname,
+                    'op_name': n_vfs_opname,
                     'pid': n_vfs_pid,
                     'comm': n_blk_comm,
                     'filename': n_filename,
                     'inode': n_inode,
                     'size_val': n_size,
                     'sector': n_sector,
-                    'flags_str': n_flags
+                    'flags_str': n_flags,
+                    'blk_operation': n_blk_operation
                 }
 
                 self.json_output.append(json_data)
-                output += f"{timestamp} {n_opname} {n_vfs_pid} {n_blk_comm} {n_filename} {n_inode} {n_size} {n_sector} {n_flags}\n"
+                output += f"{timestamp} {n_vfs_opname} {n_vfs_pid} {n_blk_comm} {n_filename} {n_inode} {n_size} {n_sector} {n_flags} {n_blk_operation}\n"
 
         self.find_optimal_time_window()
         return output
