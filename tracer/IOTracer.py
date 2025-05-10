@@ -24,9 +24,11 @@ class IOTracer:
             analyze: bool = False,
             verbose: bool = False,
             duration: int = None,
-            debouncing_duration: int = THRESHOLD_NS,
+            # debouncing_duration: int = THRESHOLD_NS,
+            flush_interval: int = 60,
         ):
-        global running, kprobes, json_events, json_block_events, json_outfile, event_count, last_event_time
+        global running, kprobes, json_events, json_block_events, json_outfile, event_count, last_event_time, flushing
+        flushing = False
         running = True
         kprobes = []
         json_events = []
@@ -36,7 +38,7 @@ class IOTracer:
         last_event_time = 0
         self.bpf = None
         self.outfile = None
-        self.debouncing_duration = debouncing_duration
+        # self.debouncing_duration = debouncing_duration
 
         self.log_output = ''
         self.log_block_output = ''
@@ -50,10 +52,27 @@ class IOTracer:
         self.output_block_json = f"{self.output_dir}/block_trace.json"
 
         self.bpf_file = bpf_file
+        if page_cnt is None or page_cnt <= 0:
+            logger("error", f"Invalid page count: {page_cnt}. Page count must be a positive integer.")
+            sys.exit(1)
         self.page_cnt = page_cnt
         self.analyze = analyze
         self.verbose = verbose
+
+        if duration is not None and duration <= 0:
+            logger("error", f"Invalid duration: {duration}. Duration must be a positive integer.")
+            sys.exit(1)
+
         self.duration = duration
+
+        if (not duration is None) and (flush_interval == duration):
+            logger("WARN", f"Flush interval is equal to the duration. Setting flush interval to {flush_interval - 10} second.")
+            self.flush_interval = flush_interval - 10
+
+        if flush_interval is not None and flush_interval <= 3:   
+            logger("error", f"Invalid flush interval: {flush_interval}. Flush interval must be greater than 3 second.")
+            sys.exit(1)
+        self.flush_interval = flush_interval
 
         self.op_names = {
             1: "READ",
@@ -157,8 +176,8 @@ class IOTracer:
         
         output = f"{timestamp} {op_name} {event.pid} {comm} {filename} {event.inode} {size_val} {flags_str}"
         
-        if self.verbose:
-            print(output)
+        # if self.verbose:
+        #     print(output)
         
         # write to file
         self.log_output += output + "\n"
@@ -234,14 +253,35 @@ class IOTracer:
                 result.append(name)
         
         return "|".join(result) if result else "NO_FLAGS"
-    
-    def _cleanup(self,signum, frame):
-        global running, kprobes, json_events, json_block_events, json_outfile
-        self._write_log()
-        self._write_json()
 
-        running = False
+    def _flush(self):
+        global json_events, json_block_events, flushing
         
+        logger("FLUSH", "Flushing data...", True)
+        json_events_copy = json_events
+        json_block_events_copy = json_block_events
+        log_output_copy = self.log_output
+        log_block_output_copy = self.log_block_output
+        json_events = []
+        json_block_events = []
+        self.log_output = ''
+        self.log_block_output = ''
+
+        self._write_to_disk(
+            json_events_copy, 
+            json_block_events_copy, 
+            log_output_copy, 
+            log_block_output_copy
+        )
+
+        if self.verbose:
+            logger("FLUSH", f"Flushing complete!", True)
+        flushing = False
+        time.sleep(1)
+        
+
+    def _detach_kprobes(self):
+        global kprobes
         # detach kprobes
         for event, k in kprobes:
             try:
@@ -250,38 +290,48 @@ class IOTracer:
                     logger("info", f"Detached kprobe: {event}")
             except Exception as e:
                 logger("error", f"Error detaching {event}: {e}")
-                
+
+    def _write_to_disk(self, json_events_copy, json_block_events_copy, log_output_copy, log_block_output_copy):
         if self.output_json:
             try:
                 with open(self.output_json, 'w') as f:
-                    json.dump(json_events, f, indent=2)
+                    json.dump(json_events_copy, f, indent=2)
                 if self.verbose:
-                    logger("info", f"Saved {len(json_events)} events to {self.output_json}")
+                    logger("WRITE", f"Saved {len(json_events_copy)} events to {self.output_json}")
                 with open(self.output_block_json, 'w') as f:
-                    json.dump(json_block_events, f, indent=2)
+                    json.dump(json_block_events_copy, f, indent=2)
                 if self.verbose:
-                    logger("info", f"Saved {len(json_block_events)} events to {self.output_block_json}")
+                    logger("WRITE", f"Saved {len(json_block_events_copy)} events to {self.output_block_json}")
             except Exception as e:
-                logger("error", f"Failed to save JSON data: {e}")
+                logger("WRITE ERROR", f"Failed to save JSON data: {e}")
 
             try:
-                self.outfile.write(self.log_output)
+                self.outfile.write(log_output_copy)
                 if self.verbose:
-                    logger("info", f"Saved log to {self.output}")
-                self.outfile_block.write(self.log_block_output)          
+                    logger("WRITE", f"Saved log to {self.output}")
+                self.outfile_block.write(log_block_output_copy)          
                 if self.verbose:      
-                    logger("info", f"Saved log block to {self.output_block}")
+                    logger("WRITE", f"Saved log block to {self.output_block}")
             except Exception as e:
-                logger("error", f"Failed to save log data: {e}")
-        
-        if self.outfile or self.outfile_block:
-            if self.verbose:
-                logger("info", "Closing output file...")
-            self.outfile.close()
-            self.outfile_block.close()
+                logger("WRITE ERROR", f"Failed to save log data: {e}")
 
+    def _cleanup(self,signum, frame):
+        global running, json_events, json_block_events
+
+        running = False
+        
+        # detach kprobes
+        self._detach_kprobes()
+                
+        self._write_to_disk(
+            json_events,
+            json_block_events,
+            self.log_output,
+            self.log_block_output
+        )
+        
         if self.verbose:
-            logger("info", "Cleanup complete")
+            logger("CLEANUP", "Cleanup complete")
 
     def _lost_cb(self,lost):
         if lost > 0:
@@ -308,9 +358,35 @@ class IOTracer:
             logger("error", f"failed to attach to kernel functions: {e}")
             sys.exit(1)
 
-    def trace(self):
-        global running, kprobes, json_events, json_outfile, event_count, last_event_time
+    def _is_time_to_flush(self,time) -> bool:
+        global flushing
+        if (int(time % self.flush_interval) == 0 and int(time) != 0):
+            flushing = True
+            return True
+        else:
+            return False
 
+    def _polling_thread(self):
+        global polling_active
+        while polling_active:
+            try:
+                self.b.perf_buffer_poll(timeout=50)
+            except Exception as e:
+                logger("error", f"Error in polling thread: {e}")
+                time.sleep(0.01)
+
+    def _create_thread(self):
+        global polling_active
+        polling_active = True
+
+        poller = threading.Thread(target=self._polling_thread)
+        poller.daemon = True
+        poller.start()
+
+    def trace(self):
+        global flushing,running, kprobes, json_events, json_outfile, event_count, last_event_time, polling_active
+        self._write_log()
+        self._write_json()
         self._compile()
         self._attach_vfs_probes()
 
@@ -336,19 +412,7 @@ class IOTracer:
             logger("info", "Tracing indefinitely. Ctrl + C to stop.")
 
 
-        polling_active = True
-
-        def polling_thread():
-            while polling_active:
-                try:
-                    self.b.perf_buffer_poll(timeout=50)
-                except Exception as e:
-                    logger("error", f"Error in polling thread: {e}")
-                    time.sleep(0.01)
-
-        poller = threading.Thread(target=polling_thread)
-        poller.daemon = True
-        poller.start()
+        self._create_thread()
 
         try:
             if self.duration is not None:
@@ -359,6 +423,10 @@ class IOTracer:
                     
                     current = time.time()
                     remaining = end_time - current
+
+                    self._is_time_to_flush(current - start)
+                    if flushing:
+                        self._flush()
                     
                     if self.verbose and int(current) > int(current - sleep_time):
                         elapsed = current - start
@@ -366,10 +434,15 @@ class IOTracer:
             else:
                 while running:
                     time.sleep(0.1)
+                    current = time.time()
+                    self._is_time_to_flush(current - start)
+                    if flushing:
+                        self._flush()
+                        
+                        
                 if self.verbose:
                     logger("info", f"Main thread: time limit reached after {time.time() - start:.2f}s")
                 running = False
-            
         except KeyboardInterrupt:
             logger("info", "Keyboard interrupt received")
             running = False
@@ -383,5 +456,5 @@ class IOTracer:
             actual_duration = time.time() - start
             if self.verbose:
                 logger("info", f"Trace completed after {actual_duration:.2f} seconds (target: {duration_target}s)")
-            
+            print()
             logger("info", "Exiting...")

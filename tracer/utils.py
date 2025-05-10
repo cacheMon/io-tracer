@@ -1,4 +1,6 @@
 import argparse
+import time
+import datetime
 
 def attach_kprobe(event, fn_name):
     global kprobes
@@ -21,10 +23,13 @@ def argument_parser():
     parser.add_argument('-v', '--verbose', type=bool, default=False, help='Print verbose output')
     parser.add_argument('-d', '--duration', type=int, default=10, help='Duration to run the tracer in seconds (default 10)')
 
-def logger(error_scale,string):
+def logger(error_scale,string, timestamp=False):
     """
     A simple logger function that prints the provided string.
     """
+    timestamp_seconds = time.time()
+    dt_object = datetime.datetime.fromtimestamp(timestamp_seconds)
+    formatted_time = dt_object.strftime("%Y-%m-%d %H:%M:%S.%f")
     if error_scale == "warning":
         logo = "[WARN]"
     elif error_scale == "error":
@@ -32,5 +37,11 @@ def logger(error_scale,string):
     elif error_scale == "info":
         logo = "[INFO]"
     else:
-        logo = "[]"
+        logo = f"[{error_scale}]"
+
+    if timestamp:
+        timestamp_seconds = time.time()
+        dt_object = datetime.datetime.fromtimestamp(timestamp_seconds)
+        formatted_time = dt_object.strftime("%Y-%m-%d %H:%M:%S.%f")
+        logo += f" [{formatted_time}]" 
     print(logo + " " + string)
