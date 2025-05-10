@@ -32,7 +32,7 @@ if __name__ == "__main__":
     tracer.trace()
     log_output = tracer.output
     log_block = tracer.output_block
-    time_window = parser.parse_args().time_window
+    time_window = parse_args.time_window
 
     BlockToFS(block_log=log_block, vfs_log=log_output, output_dir=output_dir, time_window=time_window).run()
     # BlockToFS(block_log=log_block, vfs_log=log_output, output_file=output_dir+"/trace.log", time_window=time_window).find_optimal_time_window()
