@@ -32,7 +32,7 @@ def analyzer():
         logger("info","Exiting analysis...")
         return
     
-    logger("info",f"Parsed {len(df)} VFS operations")
+    logger("info",f"Parsed {len(df)} traces")
     
     charts_dir = output_dir / "charts"
     charts_dir.mkdir(exist_ok=True)
