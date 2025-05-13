@@ -206,7 +206,7 @@ class BlockToFS:
         if self.verbose:
             print(f"Optimal time window: {best_window[1]['window_ms']}ms with score {best_window[1]['score']:.3f}")
         if(self.time_window != int(best_window[1]['window_ms'])*1000000):
-            print(f"Try running with flag -tw: {int(best_window[1]['window_ms'])}000000 for better results")
+            logger("info",f"Try running with flag -tw: {int(best_window[1]['window_ms'])}000000 for better results")
         
         return best_window[0]
 
