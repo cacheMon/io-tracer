@@ -393,8 +393,9 @@ class IOTracer:
             self.log_block_output
         )
         
-        if self.verbose:
-            logger("CLEANUP", "Cleanup complete")
+        # if self.verbose:
+        #     logger("CLEANUP", "Cleanup complete")
+        logger("CLEANUP", "Cleanup complete")
 
     def _lost_cb(self,lost):
         if lost > 0:
@@ -494,18 +495,18 @@ class IOTracer:
                     if self.verbose and int(current) > int(current - sleep_time):
                         elapsed = current - start
                         logger("info", f"Progress: {elapsed:.1f}s/{duration_target}s")
+                self._cleanup(None, None)
             else:
+                # Cleanup on Ctrl+C
                 while running:
                     time.sleep(0.1)
                     current = time.time()
                     self._is_time_to_flush(current - start)
                     if flushing:
                         self._flush()
-                        
-                        
                 if self.verbose:
                     logger("info", f"Main thread: time limit reached after {time.time() - start:.2f}s")
-                running = False
+            running = False
         except KeyboardInterrupt:
             logger("info", "Keyboard interrupt received")
             running = False
@@ -516,8 +517,8 @@ class IOTracer:
             
             time.sleep(0.2)
             
-            actual_duration = time.time() - start
             if self.verbose:
+                actual_duration = time.time() - start
                 logger("info", f"Trace completed after {actual_duration:.2f} seconds (target: {duration_target}s)")
             print()
             logger("info", "Exiting...")
