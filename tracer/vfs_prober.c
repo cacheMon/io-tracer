@@ -141,7 +141,11 @@ static int get_file_path(struct file *file, char *buf, int size) {
 }
 
 // submit event data
-static void submit_event(struct pt_regs *ctx, struct file *file, size_t size, loff_t *pos, enum op_type op) {
+static int submit_event(struct pt_regs *ctx, struct file *file, size_t size, loff_t *pos, enum op_type op) {
+    if (file == NULL) {
+        return 0;
+    }
+
     struct data_t data = {};
     u32 pid;
     u64 file_inode = 0;
@@ -187,6 +191,7 @@ static void submit_event(struct pt_regs *ctx, struct file *file, size_t size, lo
     }
     
     events.perf_submit(ctx, &data, sizeof(data));
+    return 0;
 }
 
 int trace_vfs_read(struct pt_regs *ctx, struct file *file, char __user *buf, size_t count, loff_t *pos) {
