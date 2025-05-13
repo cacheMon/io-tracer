@@ -50,6 +50,18 @@ def lba_overtime_analysis(df, output_dir):
     
     # Create a visualization showing access patterns for top files
     top_files = io_df['filename'].value_counts().head(5).index.tolist()
+
+    min_timestamp = None
+    max_timestamp = None
+
+    # Find the min and max timestamps for the x-axis limits
+    for file in top_files:
+        file_df = io_df[io_df['filename'] == file]
+        if not file_df.empty:
+            if min_timestamp is None or file_df['timestamp'].min() < min_timestamp:
+                min_timestamp = file_df['timestamp'].min()
+            if max_timestamp is None or file_df['timestamp'].max() > max_timestamp:
+                max_timestamp = file_df['timestamp'].max()
     
     if top_files:
         plt.figure(figsize=(14, 10))
@@ -73,6 +85,7 @@ def lba_overtime_analysis(df, output_dir):
                 
                 plt.title(f'LBA Access Pattern: {file}')
                 plt.ylabel('LBA')
+                plt.xlim(min_timestamp, max_timestamp)
                 
                 # Only show x-label on the bottom subplot
                 if i == len(top_files) - 1:
