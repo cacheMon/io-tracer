@@ -393,9 +393,8 @@ class IOTracer:
             self.log_block_output
         )
         
-        # if self.verbose:
-        #     logger("CLEANUP", "Cleanup complete")
-        logger("CLEANUP", "Cleanup complete")
+        if self.verbose:
+            logger("CLEANUP", "Cleanup complete")
 
     def _lost_cb(self,lost):
         if lost > 0:
