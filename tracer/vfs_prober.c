@@ -67,9 +67,16 @@ BPF_HASH(file_positions, u64, u64, 1024);
 BPF_PERF_OUTPUT(events);
 BPF_PERF_OUTPUT(bl_events);
 
+static u64 get_file_inode(struct file *file) {
+    u64 inode = 0;
+    if (file && file->f_path.dentry && file->f_path.dentry->d_inode) {
+        inode = file->f_path.dentry->d_inode->i_ino;
+    }
+    return inode;
+}
+
 static int get_file_path(struct file *file, char *buf, int size) {
     struct dentry *dentry;
-    u64 inode = 0;
     
     // Safety check for file pointer
     if (!file) {
@@ -84,9 +91,7 @@ static int get_file_path(struct file *file, char *buf, int size) {
         return 0;
     }
     
-    // Get inode if available
-    if (dentry->d_inode)
-        inode = dentry->d_inode->i_ino;
+
     
     // Try to detect special filesystem types
     struct super_block *sb = dentry->d_sb;
@@ -131,9 +136,8 @@ static int get_file_path(struct file *file, char *buf, int size) {
     }
     
     // Log the filename with error handling (don't use direct pointer access)
-    bpf_trace_printk("Filename: %s, inode: %lu, fs_magic: 0x%lx\n", buf, inode, magic);
-    
-    return inode;
+    // bpf_trace_printk("Filename: %s, inode: %lu, fs_magic: 0x%lx\n", buf, inode, magic);
+    return 0;
 }
 
 // submit event data
@@ -153,8 +157,8 @@ static void submit_event(struct pt_regs *ctx, struct file *file, size_t size, lo
     data.op = op;
     
     if (file) {
-        file_inode = get_file_path(file, data.filename, sizeof(data.filename));
-        data.inode = file_inode;
+        data.inode = get_file_inode(file);
+        get_file_path(file, data.filename, sizeof(data.filename));
         data.size = size;
         
         // Try to read position from pos pointer if available

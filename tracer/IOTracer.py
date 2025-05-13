@@ -172,8 +172,8 @@ class IOTracer:
             comm = "[decode_error]"
         
         size_val = event.size if event.size is not None else 0
-        
-        output = f"{timestamp} {op_name} {event.pid} {comm} {filename} {event.inode} {size_val} {flags_str}"
+        # Replace space with underscore in filename and comm
+        output = f"{timestamp} {op_name} {event.pid} {comm.replace(' ','_')} {filename.replace(' ','_')} {event.inode} {size_val} {flags_str}"
         
         # if self.verbose:
         #     print(output)
