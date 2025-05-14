@@ -130,7 +130,7 @@ class BlockToFS:
                     'op_name': "[none]",  # No matching VFS operation
                     'pid': dblock['pid'],
                     'comm': dblock['comm'],
-                    'filename': "UNKNOWN",
+                    'filename': "[unknown]",
                     'inode': "0",
                     'size_val': dblock['nr_sectors'],  # Use sectors as size
                     'sector': dblock['sector'],
@@ -139,7 +139,7 @@ class BlockToFS:
                 }
                 
                 self.json_output.append(json_data)
-                output += f"{int(timestamp)} [none] {dblock['pid']} {dblock['comm']} UNKNOWN 0 {dblock['nr_sectors']} {dblock['sector']} [none] {dblock['operation']}\n"
+                output += f"{int(timestamp)} [none] {dblock['pid']} {dblock['comm']} [unknown] 0 {dblock['nr_sectors']} {dblock['sector']} [none] {dblock['operation']}\n"
         
         # Finally, add unmatched VFS operations
         matched_vfs = set()

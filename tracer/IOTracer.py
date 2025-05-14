@@ -148,7 +148,7 @@ class IOTracer:
         
         event = self.b["events"].event(data)
         # print(f"{event.ts} FILESYSTEM LAYER -> PID:{event.pid}")
-        op_name = self.op_names.get(event.op, "UNKNOWN")
+        op_name = self.op_names.get(event.op, "[unknown]")
         
         try:
             filename = event.filename.decode()
@@ -314,7 +314,7 @@ class IOTracer:
                 36: "REQ_OP_LAST"
             }
 
-            result = [op_types.get(flags, f"UNKNOWN_OP({flags})")]
+            result = [op_types.get(flags, f"[UNKNOWN_OP({flags})]")]
             return "|".join(result) if result else "NO_FLAGS"
 
     def _flush(self):
