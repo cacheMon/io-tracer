@@ -214,7 +214,7 @@ class IOTracer:
         sector = event.sector
         nr_sectors = event.nr_sectors
         ops_str = self._format_flags(event.op, is_block=True)
-        output = f"{timestamp} {pid} {comm} {sector} {nr_sectors} {ops_str}"
+        output = f"{timestamp} {pid} {comm.replace(' ','_')} {sector} {nr_sectors} {ops_str}"
          # write to file
         self.log_block_output += output + "\n"
         
