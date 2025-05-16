@@ -325,10 +325,6 @@ class IOTracer:
         json_block_events_copy = json_block_events
         log_output_copy = self.log_output
         log_block_output_copy = self.log_block_output
-        json_events = []
-        json_block_events = []
-        self.log_output = ''
-        self.log_block_output = ''
 
         self._write_to_disk(
             json_events_copy, 
@@ -336,6 +332,11 @@ class IOTracer:
             log_output_copy, 
             log_block_output_copy
         )
+
+        json_events = []
+        json_block_events = []
+        self.log_output = ''
+        self.log_block_output = ''
 
         if self.verbose:
             logger("FLUSH", f"Flushing complete!", True)
