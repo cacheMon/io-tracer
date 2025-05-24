@@ -24,36 +24,57 @@ class WriteManager:
 
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
+        else:
+            logger("error", f"Output directory {self.output_dir} already exists. Please change the output directory to avoid overwriting files.")
+            sys.exit(1)
 
-        self.log_stream = open(self.output_vfs_file, 'w', buffering=1)
-        self.log_block_stream = open(self.output_block_file, 'w', buffering=1)
-        self.json_stream = open(self.output_vfs_json_file, 'w', buffering=1)
-        self.json_block_stream = open(self.output_block_json_file, 'w', buffering=1)
+        self._vfs_handle = None
+        self._block_handle = None
+        self._vfs_json_handle = None
+        self._block_json_handle = None
+
+    def _ensure_handles_open(self):
+        if self._vfs_handle is None:
+            self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
+        if self._block_handle is None:
+            self._block_handle = open(self.output_block_file, 'a', buffering=8192)
+        if self._vfs_json_handle is None:
+            self._vfs_json_handle = open(self.output_vfs_json_file, 'a', buffering=8192)
+        if self._block_json_handle is None:
+            self._block_json_handle = open(self.output_block_json_file, 'a', buffering=8192)
 
     def write_log_vfs(self, log_output: str):
-        self.log_stream.write(log_output)
+        self._ensure_handles_open()
+        self._vfs_handle.write(log_output)
 
     def write_log_vfs_json(self, log_output: any):
-        json.dump(log_output, self.json_stream, indent=2)
+        self._ensure_handles_open()
+        json.dump(log_output, self._vfs_json_handle, indent=2)
 
     def write_log_block(self, log_output: str):
-        self.log_block_stream.write(log_output)
+        self._ensure_handles_open()
+        self._block_handle.write(log_output)
 
     def write_log_block_json(self, log_output: any):
-        json.dump(log_output, self.json_block_stream, indent=2)
+        self._ensure_handles_open()
+        json.dump(log_output, self._block_json_handle, indent=2)
 
     def write_to_disk(self, json_events: list, json_block_events: list, log_output: str, log_block_output: str):
         # TODO: Execute this on another thread
-        self.write_log_vfs(log_output)
-        self.write_log_block(log_block_output)
-        self.write_log_vfs_json(json_events)
-        self.write_log_block_json(json_block_events)
+        t1 = threading.Thread(target=self.write_log_vfs, args=(log_output,))
+        t2 = threading.Thread(target=self.write_log_block, args=(log_block_output,))
+        t3 = threading.Thread(target=self.write_log_vfs_json, args=(json_events,))
+        t4 = threading.Thread(target=self.write_log_block_json, args=(json_block_events,))
+        t1.start()
+        t2.start()
+        t3.start()
+        t4.start()
 
-    def close(self):
-        self.log_stream.close()
-        self.log_block_stream.close()
-        self.json_stream.close()
-        self.json_block_stream.close()
+        t1.join()
+        t2.join()
+        t3.join()
+        t4.join()
+
 
 class IOTracer:
     def __init__(
@@ -65,7 +86,7 @@ class IOTracer:
             verbose: bool = False,
             duration: int = None,
             # debouncing_duration: int = THRESHOLD_NS,
-            flush_interval: int = 60,
+            flush_threshold: int = 5000,
         ):
         global running, kprobes, json_events, json_block_events, json_outfile, event_count, last_event_time, flushing
         flushing = False
@@ -96,14 +117,7 @@ class IOTracer:
 
         self.duration = duration
 
-        if (not duration is None) and (flush_interval == duration):
-            logger("WARN", f"Flush interval is equal to the duration. Setting flush interval to {flush_interval - 10} second.")
-            self.flush_interval = flush_interval - 10
-
-        if flush_interval is not None and flush_interval <= 3:   
-            logger("error", f"Invalid flush interval: {flush_interval}. Flush interval must be greater than 3 second.")
-            sys.exit(1)
-        self.flush_interval = flush_interval
+        self.flush_threshold = flush_threshold
 
         self.op_names = {
             1: "READ",
@@ -344,6 +358,7 @@ class IOTracer:
         log_output_copy = self.log_output
         log_block_output_copy = self.log_block_output
 
+
         self.writer.write_to_disk(
             json_events_copy, 
             json_block_events_copy, 
@@ -352,10 +367,11 @@ class IOTracer:
         )
 
 
-        json_events = []
-        json_block_events = []
+        json_events.clear()
+        json_block_events.clear()
         self.log_output = ''
         self.log_block_output = ''
+        logger("FLUSH", f"Flushing complete!", True)
 
         if self.verbose:
             logger("FLUSH", f"Flushing complete!", True)
@@ -389,8 +405,6 @@ class IOTracer:
             self.log_block_output
         )
 
-        self.writer.close()
-
         if self.verbose:
             logger("CLEANUP", "Cleanup complete")
 
@@ -419,9 +433,9 @@ class IOTracer:
             logger("error", f"failed to attach to kernel functions: {e}")
             sys.exit(1)
 
-    def _is_time_to_flush(self,time) -> bool:
-        global flushing
-        if (int(time % self.flush_interval) == 0 and int(time) != 0):
+    def _is_time_to_flush(self) -> bool:
+        global flushing, json_events, json_block_events
+        if (json_events and len(json_events) > self.flush_threshold) or (json_block_events and len(json_block_events) > self.flush_threshold):
             flushing = True
             return True
         else:
@@ -484,7 +498,7 @@ class IOTracer:
                     current = time.time()
                     remaining = end_time - current
 
-                    self._is_time_to_flush(current - start)
+                    self._is_time_to_flush()
                     if flushing:
                         self._flush()
                     
@@ -496,8 +510,7 @@ class IOTracer:
                 # Cleanup on Ctrl+C
                 while running:
                     time.sleep(0.1)
-                    current = time.time()
-                    self._is_time_to_flush(current - start)
+                    self._is_time_to_flush()
                     if flushing:
                         self._flush()
                 if self.verbose:

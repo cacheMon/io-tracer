@@ -13,7 +13,7 @@ if __name__ == "__main__":
     parser.add_argument('-a', '--analyze', type=bool, help='Run analyzer on completion')
     parser.add_argument('-v', '--verbose', type=bool, default=False, help='Print verbose output')
     parser.add_argument('-d', '--duration', type=int, help='Duration to run the tracer in seconds. Default is NULL (run indefinitely)')
-    parser.add_argument('-f', '--flush_interval', type=int, default=60, help='Flush interval in seconds. Default is 60 second')
+    parser.add_argument('-f', '--flush_threshold', type=int, default=50000, help='Buffered flush threshold in array length (default 5000)')
     parser.add_argument('-tw', '--time-window', type=int, default=5_000_000, help='Time window for matching PIDs (default 5_000_000 ns)')
 
     parse_args = parser.parse_args()
@@ -26,7 +26,7 @@ if __name__ == "__main__":
         analyze=parse_args.analyze,
         verbose=parse_args.verbose,
         duration=parse_args.duration,
-        flush_interval=parse_args.flush_interval,
+        flush_threshold=parse_args.flush_threshold,
     )
     # tracer.debug()
     tracer.trace()
