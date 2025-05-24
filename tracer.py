@@ -30,8 +30,8 @@ if __name__ == "__main__":
     )
     # tracer.debug()
     tracer.trace()
-    log_output = tracer.output
-    log_block = tracer.output_block
+    log_output = tracer.writer.output_vfs_file
+    log_block = tracer.writer.output_block_file
     time_window = parse_args.time_window
 
     BlockToFS(block_log=log_block, vfs_log=log_output, output_dir=output_dir, time_window=time_window).run()

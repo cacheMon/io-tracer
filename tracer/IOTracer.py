@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 
-import subprocess
 import signal
 from bcc import BPF
 import time
@@ -14,6 +13,47 @@ from .utils import logger
 import threading
 
 THRESHOLD_NS = 1000000
+
+class WriteManager:
+    def __init__(self, output_dir: str | None):
+        self.output_dir = output_dir if output_dir else f"./result/vfs_trace_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self.output_vfs_file = f"{self.output_dir}/vfs_trace.log"
+        self.output_vfs_json_file = f"{self.output_dir}/vfs_trace.json"
+        self.output_block_file = f"{self.output_dir}/block_trace.log"
+        self.output_block_json_file = f"{self.output_dir}/block_trace.json"
+
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
+
+        self.log_stream = open(self.output_vfs_file, 'w', buffering=1)
+        self.log_block_stream = open(self.output_block_file, 'w', buffering=1)
+        self.json_stream = open(self.output_vfs_json_file, 'w', buffering=1)
+        self.json_block_stream = open(self.output_block_json_file, 'w', buffering=1)
+
+    def write_log_vfs(self, log_output: str):
+        self.log_stream.write(log_output)
+
+    def write_log_vfs_json(self, log_output: any):
+        json.dump(log_output, self.json_stream, indent=2)
+
+    def write_log_block(self, log_output: str):
+        self.log_block_stream.write(log_output)
+
+    def write_log_block_json(self, log_output: any):
+        json.dump(log_output, self.json_block_stream, indent=2)
+
+    def write_to_disk(self, json_events: list, json_block_events: list, log_output: str, log_block_output: str):
+        # TODO: Execute this on another thread
+        self.write_log_vfs(log_output)
+        self.write_log_block(log_block_output)
+        self.write_log_vfs_json(json_events)
+        self.write_log_block_json(json_block_events)
+
+    def close(self):
+        self.log_stream.close()
+        self.log_block_stream.close()
+        self.json_stream.close()
+        self.json_block_stream.close()
 
 class IOTracer:
     def __init__(
@@ -37,19 +77,10 @@ class IOTracer:
         event_count = 0
         last_event_time = 0
         self.bpf = None
-        self.outfile = None
-        # self.debouncing_duration = debouncing_duration
 
+        self.writer = WriteManager(output_dir)
         self.log_output = ''
         self.log_block_output = ''
-
-        self.output_dir = output_dir if output_dir else f"./result/vfs_trace_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir)
-        self.output = f"{self.output_dir}/vfs_trace.log"
-        self.output_json = f"{self.output_dir}/vfs_trace.json"
-        self.output_block = f"{self.output_dir}/block_trace.log"
-        self.output_block_json = f"{self.output_dir}/block_trace.json"
 
         self.bpf_file = bpf_file
         if page_cnt is None or page_cnt <= 0:
@@ -110,28 +141,15 @@ class IOTracer:
             logger("error", f"Failed to attach kprobe {event}: {e}")
             return False
         
-    def _write_log(self):
+    def _write_log_header(self):
         try:
-            self.outfile = open(self.output, 'w', buffering=1)
-            self.outfile_block = open(self.output_block, 'w', buffering=1)
-            self.outfile.write("timestamp op_name pid comm filename inode size_val flags_str\n")
-            self.outfile_block.write("timestamp pid comm sector nr_sectors operation\n")
+            self.writer.write_log_block(f"timestamp pid comm sector nr_sectors operation\n")
+            self.writer.write_log_vfs(f"timestamp op_name pid comm filename inode size_val flags_str\n")
             if self.verbose:
                 logger("info", f"Logging to {self.output}")
         except IOError as e:
             logger("info", f"could not open output file '{self.output}': {e}")
             sys.exit(1)
-
-    def _write_json(self):
-        # JSON output
-        try:
-            json_outfile = self.output_json
-            json_block_outfile = self.output_block_json
-            if self.verbose:
-                logger("info", f"Saving JSON data to {json_outfile} and {json_block_outfile} on completion")
-        except IOError as e:
-            logger("info", f"could not prepare JSON output file '{self.output_json}': {e}")
-            self.output_json = None
 
     def debug(self):
         self._compile()
@@ -175,6 +193,8 @@ class IOTracer:
         # Replace space with underscore in filename and comm
         output = f"{timestamp} {op_name} {event.pid} {comm.replace(' ','_')} {filename.replace(' ','_')} {event.inode} {size_val} {flags_str}"
         
+
+
         # if self.verbose:
         #     print(output)
         
@@ -182,23 +202,22 @@ class IOTracer:
         self.log_output += output + "\n"
         
         # Store JSON
-        if self.output_json:
-            json_event = {
-                "timestamp": timestamp,
-                "op": op_name,
-                "pid": event.pid,
-                "comm": comm,
-                "filename": filename,
-                "inode": event.inode,
-                "flags": flags_str
-            }
-            
-            if event.op in [1, 2]:  # READ/WRITE
-                json_event["size"] = event.size
-            else:
-                json_event["size"] = 0
-            
-            json_events.append(json_event)
+        json_event = {
+            "timestamp": timestamp,
+            "op": op_name,
+            "pid": event.pid,
+            "comm": comm,
+            "filename": filename,
+            "inode": event.inode,
+            "flags": flags_str
+        }
+        
+        if event.op in [1, 2]:  # READ/WRITE
+            json_event["size"] = event.size
+        else:
+            json_event["size"] = 0
+        
+        json_events.append(json_event)
 
     def _print_event_block(self, cpu, data, size):
         global event_count, args, running, json_block_events, last_event_time
@@ -216,20 +235,19 @@ class IOTracer:
         ops_str = self._format_flags(event.op, is_block=True)
         output = f"{timestamp} {pid} {comm.replace(' ','_')} {sector} {nr_sectors} {ops_str}"
          # write to file
+
         self.log_block_output += output + "\n"
         
         # Store JSON
-        if self.output_block_json:
-            json_event = {
-                "timestamp": timestamp,
-                "pid": event.pid,
-                "comm": comm,
-                "sector": sector,
-                "nr_sectors": nr_sectors,
-                "operation": ops_str
-            }
-            
-            json_block_events.append(json_event)
+        json_event = {
+            "timestamp": timestamp,
+            "pid": event.pid,
+            "comm": comm,
+            "sector": sector,
+            "nr_sectors": nr_sectors,
+            "operation": ops_str
+        }
+        json_block_events.append(json_event)
 
     def _format_flags(self, flags, is_block=False):
         if not is_block:
@@ -326,12 +344,13 @@ class IOTracer:
         log_output_copy = self.log_output
         log_block_output_copy = self.log_block_output
 
-        self._write_to_disk(
+        self.writer.write_to_disk(
             json_events_copy, 
             json_block_events_copy, 
             log_output_copy, 
             log_block_output_copy
         )
+
 
         json_events = []
         json_block_events = []
@@ -355,30 +374,6 @@ class IOTracer:
             except Exception as e:
                 logger("error", f"Error detaching {event}: {e}")
 
-    def _write_to_disk(self, json_events_copy, json_block_events_copy, log_output_copy, log_block_output_copy):
-        if self.output_json:
-            try:
-                with open(self.output_json, 'w') as f:
-                    json.dump(json_events_copy, f, indent=2)
-                if self.verbose:
-                    logger("WRITE", f"Saved {len(json_events_copy)} events to {self.output_json}")
-                with open(self.output_block_json, 'w') as f:
-                    json.dump(json_block_events_copy, f, indent=2)
-                if self.verbose:
-                    logger("WRITE", f"Saved {len(json_block_events_copy)} events to {self.output_block_json}")
-            except Exception as e:
-                logger("WRITE ERROR", f"Failed to save JSON data: {e}")
-
-            try:
-                self.outfile.write(log_output_copy)
-                if self.verbose:
-                    logger("WRITE", f"Saved log to {self.output}")
-                self.outfile_block.write(log_block_output_copy)          
-                if self.verbose:      
-                    logger("WRITE", f"Saved log block to {self.output_block}")
-            except Exception as e:
-                logger("WRITE ERROR", f"Failed to save log data: {e}")
-
     def _cleanup(self,signum, frame):
         global running, json_events, json_block_events
 
@@ -387,13 +382,15 @@ class IOTracer:
         # detach kprobes
         self._detach_kprobes()
                 
-        self._write_to_disk(
+        self.writer.write_to_disk(
             json_events,
             json_block_events,
             self.log_output,
             self.log_block_output
         )
-        
+
+        self.writer.close()
+
         if self.verbose:
             logger("CLEANUP", "Cleanup complete")
 
@@ -449,8 +446,7 @@ class IOTracer:
 
     def trace(self):
         global flushing,running, kprobes, json_events, json_outfile, event_count, last_event_time, polling_active
-        self._write_log()
-        self._write_json()
+        self._write_log_header()
         self._compile()
         self._attach_vfs_probes()
 
