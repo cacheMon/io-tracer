@@ -145,6 +145,10 @@ class IOTracer:
         if self.verbose:
             logger("CLEANUP", "Cleanup complete")
 
+    def _lost_cb(self,lost):
+        if lost > 0:
+            if self.verbose:
+                logger("warning", f"Lost {lost} events in kernel buffer")
 
     def trace(self):
         self.writer.write_log_header()
@@ -157,9 +161,17 @@ class IOTracer:
         logger("info", "IO tracer started")
         logger("info","Press Ctrl+C to exit")
 
+        self.b["events"].open_perf_buffer(
+            self._print_event, 
+            page_cnt=self.page_cnt, 
+            lost_cb=self._lost_cb
+        )
 
-        self.b["events"].open_perf_buffer(self._print_event, page_cnt=self.page_cnt)
-        self.b["bl_events"].open_perf_buffer(self._print_event_block, page_cnt=self.page_cnt)
+        self.b["bl_events"].open_perf_buffer(
+            self._print_event_block, 
+            page_cnt=self.page_cnt, 
+            lost_cb=self._lost_cb
+        )
 
         start = time.time()
         if self.duration is not None:
