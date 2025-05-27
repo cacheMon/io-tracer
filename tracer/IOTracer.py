@@ -14,7 +14,7 @@ class IOTracer:
     def __init__(
             self, 
             output_dir:         str,
-            bpf_file:           str = './tracer/vfs_prober.c',
+            bpf_file:           str = './tracer/prober/vfs_prober.c',
             page_cnt:           int = 8,
             verbose:            bool = False,
             duration:           int = None,

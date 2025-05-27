@@ -18,7 +18,7 @@ function print_usage {
     echo "  -v,     --verbose                   Log outputs"
     echo "  -h,     --help                      Show this help message"
     echo "  -tw,    --time-window,              Time window for matching PIDs (default 5_000_000 ns)"
-    echo "  -f,    --flush_interval,          Flush interval in seconds. Default is 60 second"
+    echo "  -f,    --flush_interval,            Buffered flush threshold in array length (default 5000)"
     exit 1
 }
 
@@ -68,7 +68,7 @@ done
 # else
 #     BPF_FILE="vfs_prober.c"
 # fi
-BPF_FILE="./tracer/vfs_prober.c"
+BPF_FILE="./tracer/prober/vfs_prober.c"
 
 # # Trace VFS calls
 # LOG_FILE="$OUTPUT_DIR/vfs_trace.log"
