@@ -25,7 +25,6 @@ class IOTracer:
 
         self.flushing           = False
         self.running            = True
-        self.bpf                = None
         self.verbose            = verbose
         self.duration           = duration
         self.flush_threshold    = flush_threshold
