@@ -3,278 +3,51 @@
 import signal
 from bcc import BPF
 import time
-import os
 import sys
-import argparse
-import json
-from pathlib import Path
-from datetime import datetime
 from .utils import logger
-import threading
-
-THRESHOLD_NS = 1000000
-
-class FlagMapper:
-    def __init__(self):
-        # https://github.com/analogdevicesinc/linux/blob/main/include/linux/blk_types.h#L370
-        self.flag_fs_map = {
-            0o00000000: "O_RDONLY",
-            0o00000001: "O_WRONLY", 
-            0o00000002: "O_RDWR",
-            0o00000100: "O_CREAT",
-            0o00000200: "O_EXCL",
-            0o00000400: "O_NOCTTY",
-            0o00001000: "O_TRUNC",
-            0o00002000: "O_APPEND",
-            0o00004000: "O_NONBLOCK",
-            0o00010000: "O_DSYNC",
-            0o00040000: "O_DIRECT",
-            0o00100000: "O_LARGEFILE",
-            0o00200000: "O_DIRECTORY",
-            0o00400000: "O_NOFOLLOW",
-            0o01000000: "O_NOATIME",
-            0o02000000: "O_CLOEXEC",
-            0o04010000: "O_SYNC",
-            0o010000000: "O_PATH",
-            0o020200000: "O_TMPFILE"
-        }
-
-        # https://elixir.bootlin.com/linux/v6.14.6/source/include/linux/blk_types.h#L312
-        self.op_block_types = {
-            0: "REQ_OP_READ",
-            1: "REQ_OP_WRITE",
-            2: "REQ_OP_FLUSH",
-            3: "REQ_OP_DISCARD",
-            5: "REQ_OP_SECURE_ERASE",
-            7: "REQ_OP_ZONE_APPEND",
-            9: "REQ_OP_WRITE_ZEROES",
-            10: "REQ_OP_ZONE_OPEN",
-            11: "REQ_OP_ZONE_CLOSE",
-            12: "REQ_OP_ZONE_FINISH",
-            13: "REQ_OP_ZONE_RESET",
-            15: "REQ_OP_ZONE_RESET_ALL",
-            34: "REQ_OP_DRV_IN",
-            35: "REQ_OP_DRV_OUT",
-            36: "REQ_OP_LAST"
-        }
-
-        self.op_fs_types = {
-            1: "READ",
-            2: "WRITE",
-            3: "OPEN",
-            4: "CLOSE",
-            5: "FSYNC"
-        }
-
-    def format_block_operation(self, flags):
-        result = [self.op_block_types.get(flags, f"[UNKNOWN_OP({flags})]")]
-        return "|".join(result) if result else "NO_FLAGS"
-
-    def format_fs_flags(self, flags):
-        # handle access mode specially
-        access_mode = flags & 0o3  # mask with 0b11 (3 in decimal)
-        access_str = None
-        if access_mode == 0o0:
-            access_str = "O_RDONLY"
-        elif access_mode == 0o1:
-            access_str = "O_WRONLY"
-        elif access_mode == 0o2:
-            access_str = "O_RDWR"
-            
-        result = []
-        if access_str:
-            result.append(access_str)
-            
-        # check for other flags
-        # skip the access mode flags we already handled
-        for flag, name in self.flag_fs_map.items():
-            if name in ["O_RDONLY", "O_WRONLY", "O_RDWR"]:
-                continue
-                
-            # special handling for O_SYNC because it includes O_DSYNC
-            if name == "O_SYNC" and flags & 0o04010000:
-                result.append(name)
-                continue
-                
-            # specil handling for O_TMPFILE coz it includes O_DIRECTORY
-            if name == "O_TMPFILE" and (flags & 0o020200000) == 0o020200000:
-                result.append(name)
-                # remove O_DIRECTORY if it's already in the list since it's part of O_TMPFILE
-                if "O_DIRECTORY" in result:
-                    result.remove("O_DIRECTORY")
-                continue
-                
-            # handle all other regular flags
-            if name not in ["O_SYNC", "O_TMPFILE"] and flags & flag:
-                result.append(name)
-        
-        return "|".join(result) if result else "NO_FLAGS"
-
-class WriteManager:
-    def __init__(self, output_dir: str | None):
-        self.output_dir = output_dir if output_dir else f"./result/vfs_trace_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        self.output_vfs_file = f"{self.output_dir}/vfs_trace.log"
-        self.output_vfs_json_file = f"{self.output_dir}/vfs_trace.json"
-        self.output_block_file = f"{self.output_dir}/block_trace.log"
-        self.output_block_json_file = f"{self.output_dir}/block_trace.json"
-
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir)
-        else:
-            logger("error", f"Output directory {self.output_dir} already exists. Please change the output directory to avoid overwriting files.")
-            sys.exit(1)
-
-        self._vfs_handle = None
-        self._block_handle = None
-        self._vfs_json_handle = None
-        self._block_json_handle = None
-
-    def _ensure_handles_open(self):
-        if self._vfs_handle is None:
-            self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
-        if self._block_handle is None:
-            self._block_handle = open(self.output_block_file, 'a', buffering=8192)
-        if self._vfs_json_handle is None:
-            self._vfs_json_handle = open(self.output_vfs_json_file, 'a', buffering=8192)
-        if self._block_json_handle is None:
-            self._block_json_handle = open(self.output_block_json_file, 'a', buffering=8192)
-
-    def write_log_vfs(self, log_output: str):
-        self._ensure_handles_open()
-        self._vfs_handle.write(log_output)
-
-    def write_log_vfs_json(self, log_output: any):
-        self._ensure_handles_open()
-        json.dump(log_output, self._vfs_json_handle, indent=2)
-
-    def write_log_block(self, log_output: str):
-        self._ensure_handles_open()
-        self._block_handle.write(log_output)
-
-    def write_log_block_json(self, log_output: any):
-        self._ensure_handles_open()
-        json.dump(log_output, self._block_json_handle, indent=2)
-
-    def write_to_disk(self, json_events: list, json_block_events: list, log_output: str, log_block_output: str):
-        t1 = threading.Thread(target=self.write_log_vfs, args=(log_output,))
-        t2 = threading.Thread(target=self.write_log_block, args=(log_block_output,))
-        t3 = threading.Thread(target=self.write_log_vfs_json, args=(json_events,))
-        t4 = threading.Thread(target=self.write_log_block_json, args=(json_block_events,))
-        t1.start()
-        t2.start()
-        t3.start()
-        t4.start()
-
-        t1.join()
-        t2.join()
-        t3.join()
-        t4.join()
-
+from .WriterManager import WriteManager
+from .FlagMapper import FlagMapper
+from .KernelProbeTracker import KernelProbeTracker
+from .PollingThread import PollingThread
 
 class IOTracer:
     def __init__(
             self, 
-            output_dir: str,
-            bpf_file: str = './tracer/vfs_prober.c',
-            page_cnt: int = 8,
-            analyze: bool = False,
-            verbose: bool = False,
-            duration: int = None,
-            # debouncing_duration: int = THRESHOLD_NS,
-            flush_threshold: int = 5000,
+            output_dir:         str,
+            bpf_file:           str = './tracer/vfs_prober.c',
+            page_cnt:           int = 8,
+            verbose:            bool = False,
+            duration:           int = None,
+            flush_threshold:    int = 5000,
         ):
-        global running, kprobes, json_events, json_block_events, json_outfile, event_count, last_event_time, flushing
-        flushing = False
-        running = True
-        kprobes = []
-        json_events = []
-        json_block_events = []
-        json_outfile = None
-        event_count = 0
-        last_event_time = 0
-        self.bpf = None
+        self.writer             = WriteManager(output_dir)
+        self.flag_mapper        = FlagMapper()
 
-        self.writer = WriteManager(output_dir)
-        self.flag_mapper = FlagMapper()
+        self.flushing           = False
+        self.running            = True
+        self.bpf                = None
+        self.verbose            = verbose
+        self.duration           = duration
+        self.flush_threshold    = flush_threshold
 
-        self.log_output = ''
-        self.log_block_output = ''
 
-        self.bpf_file = bpf_file
         if page_cnt is None or page_cnt <= 0:
             logger("error", f"Invalid page count: {page_cnt}. Page count must be a positive integer.")
             sys.exit(1)
         self.page_cnt = page_cnt
-        self.analyze = analyze
-        self.verbose = verbose
 
         if duration is not None and duration <= 0:
             logger("error", f"Invalid duration: {duration}. Duration must be a positive integer.")
             sys.exit(1)
 
-        self.duration = duration
-
-        self.flush_threshold = flush_threshold
-
-        self.op_names = {
-            1: "READ",
-            2: "WRITE",
-            3: "OPEN",
-            4: "CLOSE",
-            5: "FSYNC"
-        }
-
-        # Read the .c file
         try:
-            with open(self.bpf_file, 'r') as f:
-                self.bpf_text = f.read()
-        except IOError as e:
-            logger("error", f"could not read BPF file '{self.bpf_file}': {e}")
-            sys.exit(1)
-
-    # Compile the .c File
-    def _compile(self):
-        try:
-            self.b = BPF(text=self.bpf_text, cflags=["-Wno-duplicate-decl-specifier", "-Wno-macro-redefined"])
+            self.b = BPF(src_file=bpf_file, cflags=["-Wno-duplicate-decl-specifier", "-Wno-macro-redefined"])
+            self.probe_tracker = KernelProbeTracker(self.b)
         except Exception as e:
             logger("error", f"failed to initialize BPF: {e}")
             sys.exit(1)
 
-    def _attach_kprobe(self,event, fn_name):
-        global kprobes
-        try:
-            if self.verbose:
-                logger("info", f"Attaching kprobe {event} to {fn_name}")
-            k = self.b.attach_kprobe(event=event, fn_name=fn_name)
-            kprobes.append((event, k))
-            return True
-        except Exception as e:
-            logger("error", f"Failed to attach kprobe {event}: {e}")
-            return False
-        
-    def _write_log_header(self):
-        try:
-            self.writer.write_log_block(f"timestamp pid comm sector nr_sectors operation\n")
-            self.writer.write_log_vfs(f"timestamp op_name pid comm filename inode size_val flags_str\n")
-            if self.verbose:
-                logger("info", f"Logging to {self.output}")
-        except IOError as e:
-            logger("info", f"could not open output file '{self.output}': {e}")
-            sys.exit(1)
-
-    def debug(self):
-        self._compile()
-        self._attach_vfs_probes()
-        while True:
-            try:
-                (task, pid, cpu, flags, ts, msg) = self.b.trace_fields()
-                print("%-18.9f %-16s %-6d %s" % (ts, task, pid, msg))
-            except KeyboardInterrupt:
-                break
-
-    def _print_event(self, cpu, data, size):
-        global event_count, args, running, json_events, last_event_time
-        
+    def _print_event(self, cpu, data, size):        
         event = self.b["events"].event(data)
         op_name = self.flag_mapper.op_fs_types.get(event.op, "[unknown]")
         
@@ -284,9 +57,7 @@ class IOTracer:
             filename = "[decode_error]"
         
         flags_str = self.flag_mapper.format_fs_flags(event.flags)
-        
-        raw_time = event.ts
-        timestamp = raw_time
+        timestamp = event.ts
         
         try:
             comm = event.comm.decode()
@@ -294,26 +65,24 @@ class IOTracer:
             comm = "[decode_error]"
         
         size_val = event.size if event.size is not None else 0
-        # Replace space with underscore in filename and comm
         output = f"{timestamp} {op_name} {event.pid} {comm.replace(' ','_')} {filename.replace(' ','_')} {event.inode} {size_val} {flags_str}"
-        
 
 
         if self.verbose:
             print(output)
         
         # write to file
-        self.log_output += output + "\n"
+        self.writer.append_fs_log(output)
         
         # Store JSON
         json_event = {
-            "timestamp": timestamp,
-            "op": op_name,
-            "pid": event.pid,
-            "comm": comm,
-            "filename": filename,
-            "inode": event.inode,
-            "flags": flags_str
+            "timestamp" : timestamp,
+            "op"        : op_name,
+            "pid"       : event.pid,
+            "comm"      : comm,
+            "filename"  : filename,
+            "inode"     : event.inode,
+            "flags"     : flags_str
         }
         
         if event.op in [1, 2]:  # READ/WRITE
@@ -321,11 +90,9 @@ class IOTracer:
         else:
             json_event["size"] = 0
         
-        json_events.append(json_event)
+        self.writer.append_fs_json(json_event)
 
-    def _print_event_block(self, cpu, data, size):
-        global event_count, args, running, json_block_events, last_event_time
-        
+    def _print_event_block(self, cpu, data, size):        
         event = self.b["bl_events"].event(data)
         
         timestamp = event.ts
@@ -336,134 +103,52 @@ class IOTracer:
         ops_str = self.flag_mapper.format_block_operation(event.op)
         output = f"{timestamp} {pid} {comm.replace(' ','_')} {sector} {nr_sectors} {ops_str}"
 
-        self.log_block_output += output + "\n"
+        self.writer.append_block_log(output)
         
         # Store JSON
         json_event = {
-            "timestamp": timestamp,
-            "pid": event.pid,
-            "comm": comm,
-            "sector": sector,
-            "nr_sectors": nr_sectors,
-            "operation": ops_str
+            "timestamp"     : timestamp,
+            "pid"           : event.pid,
+            "comm"          : comm,
+            "sector"        : sector,
+            "nr_sectors"    : nr_sectors,
+            "operation"     : ops_str
         }
-        json_block_events.append(json_event)
 
+        self.writer.append_block_json(json_event)
 
-    def _flush(self):
-        global json_events, json_block_events, flushing
-        
+    def _flush(self):        
         logger("FLUSH", "Flushing data...", True)
-        json_events_copy = json_events
-        json_block_events_copy = json_block_events
-        log_output_copy = self.log_output
-        log_block_output_copy = self.log_block_output
-
-
-        self.writer.write_to_disk(
-            json_events_copy, 
-            json_block_events_copy, 
-            log_output_copy, 
-            log_block_output_copy
-        )
-
-
-        json_events.clear()
-        json_block_events.clear()
-        self.log_output = ''
-        self.log_block_output = ''
+        self.writer.write_to_disk()
         logger("FLUSH", f"Flushing complete!", True)
 
         if self.verbose:
             logger("FLUSH", f"Flushing complete!", True)
-        flushing = False
-        time.sleep(1)
-        
 
-    def _detach_kprobes(self):
-        global kprobes
-        # detach kprobes
-        for event, k in kprobes:
-            try:
-                self.b.detach_kprobe(event=event)
-                if self.verbose:
-                    logger("info", f"Detached kprobe: {event}")
-            except Exception as e:
-                logger("error", f"Error detaching {event}: {e}")
+        self.flushing = False
+        time.sleep(1)
+
+    def _is_time_to_flush(self):
+        if (self.writer.isEventsBigEnough(self.flush_threshold)) and (not self.flushing): 
+            self.flushing = True
+            self._flush()
 
     def _cleanup(self,signum, frame):
-        global running, json_events, json_block_events
-
-        running = False
-        
+        self.running = False
+    
         # detach kprobes
-        self._detach_kprobes()
+        self.probe_tracker.detach_kprobes()
                 
-        self.writer.write_to_disk(
-            json_events,
-            json_block_events,
-            self.log_output,
-            self.log_block_output
-        )
+        self.writer.write_to_disk()
+        self.writer.close_handles()
 
         if self.verbose:
             logger("CLEANUP", "Cleanup complete")
 
-    def _lost_cb(self,lost):
-        if lost > 0:
-            if self.verbose:
-                logger("warning", f"Lost {lost} events in kernel buffer")
-
-    def _attach_vfs_probes(self):
-        global kprobes
-
-        try:
-            self._attach_kprobe("vfs_read", "trace_vfs_read")
-            self._attach_kprobe("vfs_write", "trace_vfs_write")
-            self._attach_kprobe("vfs_open", "trace_vfs_open")
-            self._attach_kprobe("vfs_fsync", "trace_vfs_fsync")
-            self._attach_kprobe("submit_bio","trace_submit_bio")
-            if not self._attach_kprobe("vfs_fsync_range", "trace_vfs_fsync_range"):
-                logger("info", "vfs_fsync_range not found, using only vfs_fsync")
-            self._attach_kprobe("__fput", "trace_fput") 
-            
-            if not kprobes:
-                logger("error", "no kprobes attached successfully!")
-                sys.exit(1)   
-        except Exception as e:
-            logger("error", f"failed to attach to kernel functions: {e}")
-            sys.exit(1)
-
-    def _is_time_to_flush(self) -> bool:
-        global flushing, json_events, json_block_events
-        if (json_events and len(json_events) > self.flush_threshold) or (json_block_events and len(json_block_events) > self.flush_threshold):
-            flushing = True
-            return True
-        else:
-            return False
-
-    def _polling_thread(self):
-        global polling_active
-        while polling_active:
-            try:
-                self.b.perf_buffer_poll(timeout=50)
-            except Exception as e:
-                logger("error", f"Error in polling thread: {e}")
-                time.sleep(0.01)
-
-    def _create_thread(self):
-        global polling_active
-        polling_active = True
-
-        poller = threading.Thread(target=self._polling_thread)
-        poller.daemon = True
-        poller.start()
 
     def trace(self):
-        global flushing,running, kprobes, json_events, json_outfile, event_count, last_event_time, polling_active
-        self._write_log_header()
-        self._compile()
-        self._attach_vfs_probes()
+        self.writer.write_log_header()
+        self.probe_tracker.attach_kprobes()
 
 
         signal.signal(signal.SIGINT, self._cleanup)
@@ -471,12 +156,10 @@ class IOTracer:
 
         logger("info", "IO tracer started")
         logger("info","Press Ctrl+C to exit")
-        # if self.args.limit > 0:
-        #     logger("info", f"Limiting to {args.limit} events")
 
 
-        self.b["events"].open_perf_buffer(self._print_event, page_cnt=self.page_cnt, lost_cb=self._lost_cb)
-        self.b["bl_events"].open_perf_buffer(self._print_event_block, page_cnt=self.page_cnt, lost_cb=self._lost_cb)
+        self.b["events"].open_perf_buffer(self._print_event, page_cnt=self.page_cnt)
+        self.b["bl_events"].open_perf_buffer(self._print_event_block, page_cnt=self.page_cnt)
 
         start = time.time()
         if self.duration is not None:
@@ -486,13 +169,13 @@ class IOTracer:
         else:
             logger("info", "Tracing indefinitely. Ctrl + C to stop.")
 
-
-        self._create_thread()
+        self.polling_thread = PollingThread(self.b, True)
+        self.polling_thread.create_thread()
 
         try:
             if self.duration is not None:
                 remaining = duration_target
-                while remaining > 0 and running:
+                while remaining > 0 and self.running:
                     sleep_time = min(0.1, remaining)
                     time.sleep(sleep_time)
                     
@@ -500,7 +183,7 @@ class IOTracer:
                     remaining = end_time - current
 
                     self._is_time_to_flush()
-                    if flushing:
+                    if self.flushing:
                         self._flush()
                     
                     if self.verbose and int(current) > int(current - sleep_time):
@@ -509,21 +192,21 @@ class IOTracer:
                 self._cleanup(None, None)
             else:
                 # Cleanup on Ctrl+C
-                while running:
+                while self.running:
                     time.sleep(0.1)
                     self._is_time_to_flush()
-                    if flushing:
+                    if self.flushing:
                         self._flush()
                 if self.verbose:
                     logger("info", f"Main thread: time limit reached after {time.time() - start:.2f}s")
-            running = False
+            self.running = False
         except KeyboardInterrupt:
             logger("info", "Keyboard interrupt received")
-            running = False
+            self.running = False
         except Exception as e:
             logger("error", f"Main loop error: {e}")
         finally:
-            polling_active = False
+            self.polling_thread.polling_active = False
             
             time.sleep(0.2)
             
