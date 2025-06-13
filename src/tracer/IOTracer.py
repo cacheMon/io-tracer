@@ -4,7 +4,7 @@ import signal
 from bcc import BPF
 import time
 import sys
-from .utils import logger
+from ..utility.utils import logger
 from .WriterManager import WriteManager
 from .FlagMapper import FlagMapper
 from .KernelProbeTracker import KernelProbeTracker

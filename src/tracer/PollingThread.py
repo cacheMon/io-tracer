@@ -1,5 +1,5 @@
 import time
-from .utils import logger
+from ..utility.utils import logger
 import threading
 
 class PollingThread:

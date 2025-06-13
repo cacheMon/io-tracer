@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from tracer.utils import logger
+from ..utility.utils import logger
 
 def parse_trace_log(log_file):
     data = []

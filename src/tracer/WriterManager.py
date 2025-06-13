@@ -2,7 +2,7 @@ import os
 import sys
 import json
 from datetime import datetime
-from .utils import logger
+from ..utility.utils import logger
 import threading
 
 class WriteManager:

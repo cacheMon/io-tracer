@@ -2,15 +2,15 @@
 
 import argparse
 from pathlib import Path
-from tracer.utils import logger
-from analyzer.log_parser import parse_trace_log
-from analyzer.time_series_analysis import time_series_analysis    
-from analyzer.heatmap_file_access import heatmap_file_access   
-from analyzer.latency_analysis import latency_analysis
-from analyzer.throughput_analysis import throughput_analysis
-from analyzer.operation_frequency_analysis import operation_frequency_analysis
-from analyzer.lba_overtime_analysis import lba_overtime_analysis
-from analyzer.summary import generate_summary_stats
+from src.utility.utils import logger
+from src.analyzer.log_parser import parse_trace_log
+from src.analyzer.time_series_analysis import time_series_analysis    
+from src.analyzer.heatmap_file_access import heatmap_file_access   
+from src.analyzer.latency_analysis import latency_analysis
+from src.analyzer.throughput_analysis import throughput_analysis
+from src.analyzer.operation_frequency_analysis import operation_frequency_analysis
+from src.analyzer.lba_overtime_analysis import lba_overtime_analysis
+from src.analyzer.summary import generate_summary_stats
 
 
 def analyzer():

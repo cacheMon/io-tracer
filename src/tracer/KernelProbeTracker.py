@@ -1,6 +1,6 @@
 from bcc import BPF
 import sys
-from .utils import logger
+from ..utility.utils import logger
 
 class KernelProbeTracker:
     def __init__(self, b:BPF):

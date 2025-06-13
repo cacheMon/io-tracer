@@ -68,7 +68,7 @@ done
 # else
 #     BPF_FILE="vfs_prober.c"
 # fi
-BPF_FILE="./tracer/prober/vfs_prober.c"
+BPF_FILE="./src/tracer/prober/vfs_prober.c"
 
 # # Trace VFS calls
 # LOG_FILE="$OUTPUT_DIR/vfs_trace.log"

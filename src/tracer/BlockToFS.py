@@ -1,4 +1,4 @@
-from .utils import logger
+from ..utility.utils import logger
 import json
 
 class BlockToFS:
