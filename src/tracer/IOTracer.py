@@ -17,7 +17,7 @@ class IOTracer:
             bpf_file:           str = './tracer/prober/vfs_prober.c',
             page_cnt:           int = 8,
             verbose:            bool = False,
-            duration:           int = None,
+            duration:           int | None = None,
             flush_threshold:    int = 5000,
         ):
         self.writer             = WriteManager(output_dir)
