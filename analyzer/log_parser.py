@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from tracer.utils import logger
 
 def parse_trace_log(log_file):
     data = []
@@ -50,9 +51,9 @@ def parse_trace_log(log_file):
                     print(f"Warning: Error parsing line {line_number}: {line} - {str(e)}")
                 continue
     
-    if not data:
-        print("Warning: No valid data could be parsed from the log file")
-    else:
-        print(f"Successfully parsed {len(data)} log entries with {error_count} errors")
+    # if not data:
+    #     logger("warn","Warning: No valid data could be parsed from the log file")
+    # else:
+    #     logger("info",f"Successfully parsed {len(data)} log entries with {error_count} errors")
         
     return pd.DataFrame(data)

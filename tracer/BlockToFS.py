@@ -13,7 +13,7 @@ class BlockToFS:
         self.time_window = time_window
         self.json_output = []
 
-    def parse_block_log(self):
+    def _parse_block_log(self):
         with open(self.block_log, "r") as f:
             for line_number, line in enumerate(f, ):
                 if line_number == 0:
@@ -25,10 +25,11 @@ class BlockToFS:
                     'pid': parts[1],
                     'comm': parts[2],
                     'sector': parts[3], 
-                    'nr_sectors': parts[4]
+                    'nr_sectors': parts[4],
+                    'operation': parts[5],
                 })
 
-    def parse_vfs_log(self):
+    def _parse_vfs_log(self):
         with open(self.vfs_log, "r") as f:
             for line_number, line in enumerate(f, ):
                 if line_number == 0:
@@ -47,14 +48,18 @@ class BlockToFS:
                     'flags_str': parts[7],
                 })
 
-    def find_matching_pid(self):
+    def _find_matching_pid(self):
         """
-            Find matching PIDs between block and VFS data within a time window.
+        Perform a union operation between block and VFS data.
+        Includes all records from both data sources.
         """
         
-        output = "timestamp op_name pid comm filename inode size_val sector flags_str\n"
-        logger("info","Finding the matching PID between block and vfs data with time window...")
-
+        self._find_optimal_time_window()
+        output = "timestamp vfs_op_name pid comm filename inode size_val sector flags_str blk_operation\n"
+        logger("info","Performing union between block and vfs data...")
+        
+        processed_blocks = set()
+        
         # Group VFS operations by PID
         vfs_by_pid = {}
         for dvfs in self.data_vfs:
@@ -62,66 +67,117 @@ class BlockToFS:
             if pid not in vfs_by_pid:
                 vfs_by_pid[pid] = []
             vfs_by_pid[pid].append(dvfs)
-
-        # Process each block operation
-        for dblock in self.data_block:
+        
+        # Process each block operation for matches
+        for i, dblock in enumerate(self.data_block):
             block_pid = dblock['pid']
             block_timestamp = float(dblock['timestamp'])
             
-            # Skip if this pid doesn't exist in vfs data
-            if block_pid not in vfs_by_pid:
-                continue
-            
-            # Find the closest VFS operation within our time window
-            closest_vfs = None
-            min_time_diff = float('inf')
-            
-            for dvfs in vfs_by_pid[block_pid]:
-                vfs_timestamp = float(dvfs['timestamp'])
+            if block_pid in vfs_by_pid:
+                closest_vfs = None
+                min_time_diff = float('inf')
                 
-                # Calculate time difference (absolute value)
-                time_diff = abs(block_timestamp - vfs_timestamp)
+                for dvfs in vfs_by_pid[block_pid]:
+                    vfs_timestamp = float(dvfs['timestamp'])
+                    
+                    time_diff = abs(block_timestamp - vfs_timestamp)
+                    
+                    if time_diff <= self._adaptive_time_window(dvfs):
+                        if time_diff < min_time_diff:
+                            min_time_diff = time_diff
+                            closest_vfs = dvfs
                 
-                # Only consider operations within our time window
-                if time_diff <= self.adaptive_time_window(dvfs):
-                    # Track the closest operation
-                    if time_diff < min_time_diff:
-                        min_time_diff = time_diff
-                        closest_vfs = dvfs
-            
-            # If we found a matching VFS operation within the time window
-            if closest_vfs:
-                dvfs = closest_vfs
-                timestamp = int((block_timestamp + float(dvfs['timestamp'])) // 2)
-                
-                n_opname = dvfs['op_name']
-                n_vfs_pid = dvfs['pid']
-                n_blk_comm = dblock['comm']
-                n_size = dvfs['size_val']
-                n_flags = dvfs['flags_str']
-                n_filename = dvfs['filename']
-                n_inode = dvfs['inode'] 
-                n_sector = dblock['sector']
+                if closest_vfs:
+                    dvfs = closest_vfs
+                    timestamp = int((block_timestamp + float(dvfs['timestamp'])) // 2)
+                    
+                    n_vfs_opname = dvfs['op_name']
+                    n_vfs_pid = dvfs['pid']
+                    n_blk_comm = dblock['comm']
+                    n_size = dvfs['size_val']
+                    n_flags = dvfs['flags_str']
+                    n_filename = dvfs['filename']
+                    n_inode = dvfs['inode'] 
+                    n_sector = dblock['sector']
+                    n_blk_operation = dblock['operation']
+                    
+                    json_data = {
+                        'timestamp': timestamp,
+                        'op_name': n_vfs_opname,
+                        'pid': n_vfs_pid,
+                        'comm': n_blk_comm,
+                        'filename': n_filename,
+                        'inode': n_inode,
+                        'size_val': n_size,
+                        'sector': n_sector,
+                        'flags_str': n_flags,
+                        'blk_operation': n_blk_operation
+                    }
+
+                    self.json_output.append(json_data)
+                    output += f"{timestamp} {n_vfs_opname} {n_vfs_pid} {n_blk_comm} {n_filename} {n_inode} {n_size} {n_sector} {n_flags} {n_blk_operation}\n"
+                    
+                    # Mark this block as processed
+                    processed_blocks.add(i)
+        
+        # Now add remaining unmatched block operations
+        for i, dblock in enumerate(self.data_block):
+            if i not in processed_blocks:
+                timestamp = float(dblock['timestamp'])
                 
                 json_data = {
-                    'timestamp': timestamp,
-                    'op_name': n_opname,
-                    'pid': n_vfs_pid,
-                    'comm': n_blk_comm,
-                    'filename': n_filename,
-                    'inode': n_inode,
-                    'size_val': n_size,
-                    'sector': n_sector,
-                    'flags_str': n_flags
+                    'timestamp': int(timestamp),
+                    'op_name': "[none]",  # No matching VFS operation
+                    'pid': dblock['pid'],
+                    'comm': dblock['comm'],
+                    'filename': "[unknown]",
+                    'inode': "0",
+                    'size_val': dblock['nr_sectors'],  # Use sectors as size
+                    'sector': dblock['sector'],
+                    'flags_str': "[none]",
+                    'blk_operation': dblock['operation']
                 }
-
+                
                 self.json_output.append(json_data)
-                output += f"{timestamp} {n_opname} {n_vfs_pid} {n_blk_comm} {n_filename} {n_inode} {n_size} {n_sector} {n_flags}\n"
-
-        self.find_optimal_time_window()
+                output += f"{int(timestamp)} [none] {dblock['pid']} {dblock['comm']} [unknown] 0 {dblock['nr_sectors']} {dblock['sector']} [none] {dblock['operation']}\n"
+        
+        # Finally, add unmatched VFS operations
+        matched_vfs = set()
+        for entry in self.json_output:
+            if entry['op_name'] != "[none]":  # This is a matched VFS entry
+                # Create a tuple of identifying information to track which VFS ops we've used
+                vfs_key = (entry['pid'], entry['op_name'], entry['filename'], entry['inode'])
+                matched_vfs.add(vfs_key)
+        
+        for dvfs in self.data_vfs:
+            vfs_key = (dvfs['pid'], dvfs['op_name'], dvfs['filename'], dvfs['inode'])
+            if vfs_key not in matched_vfs:
+                timestamp = float(dvfs['timestamp'])
+                
+                json_data = {
+                    'timestamp': int(timestamp),
+                    'op_name': dvfs['op_name'],
+                    'pid': dvfs['pid'],
+                    'comm': dvfs['comm'],
+                    'filename': dvfs['filename'],
+                    'inode': dvfs['inode'],
+                    'size_val': dvfs['size_val'],
+                    'sector': "0",  # No matching block operation
+                    'flags_str': dvfs['flags_str'],
+                    'blk_operation': "[none]"
+                }
+                
+                self.json_output.append(json_data)
+                output += f"{int(timestamp)} {dvfs['op_name']} {dvfs['pid']} {dvfs['comm']} {dvfs['filename']} {dvfs['inode']} {dvfs['size_val']} 0 {dvfs['flags_str']} [none]\n"
+        
+        self.json_output.sort(key=lambda x: x['timestamp'])
+        
+        output = "timestamp vfs_op_name pid comm filename inode size_val sector flags_str blk_operation\n"
+        for entry in self.json_output:
+            output += f"{entry['timestamp']} {entry['op_name']} {entry['pid']} {entry['comm']} {entry['filename']} {entry['inode']} {entry['size_val']} {entry['sector']} {entry['flags_str']} {entry['blk_operation']}\n"
         return output
     
-    def write_output(self, output):
+    def _write_output(self, output):
         try:
             outfile = open(self.output_file, 'w', buffering=1)
             outfile.write(output)
@@ -132,7 +188,7 @@ class BlockToFS:
         except Exception as e:
             print(f"Error: {e}")
 
-    def find_optimal_time_window(self):
+    def _find_optimal_time_window(self):
         windows_to_test = [
             1_000_000,      # 1ms
             5_000_000,      # 5ms
@@ -203,11 +259,11 @@ class BlockToFS:
         if self.verbose:
             print(f"Optimal time window: {best_window[1]['window_ms']}ms with score {best_window[1]['score']:.3f}")
         if(self.time_window != int(best_window[1]['window_ms'])*1000000):
-            print(f"Try running with flag -tw: {int(best_window[1]['window_ms'])}000000 for better results")
+            logger("info",f"Try running with flag -tw: {int(best_window[1]['window_ms'])}000000 for better results")
         
-        return best_window[0]
+        self.time_window = int(best_window[1]['window_ms']) * 1_000_000
 
-    def adaptive_time_window(self, vfs_op):
+    def _adaptive_time_window(self, vfs_op):
         base_window = self.time_window
         
         op_type = vfs_op['op_name']
@@ -232,8 +288,8 @@ class BlockToFS:
 
     def run(self):
         logger("info", "Mapping block-level traces to file-level traces..")
-        self.parse_block_log()
-        self.parse_vfs_log()
-        output = self.find_matching_pid()
-        self.write_output(output)
+        self._parse_block_log()
+        self._parse_vfs_log()
+        output = self._find_matching_pid()
+        self._write_output(output)
         logger("info", "Mapping completed. Output written to: " + self.output_file)

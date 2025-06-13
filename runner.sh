@@ -10,14 +10,15 @@ VERBOSE=0
 function print_usage {
     echo "Usage: $0 [options]"
     echo "Options:"
-    echo "  -d,     --duration <seconds>    Duration to trace, including compiling (default: 30 seconds)"
-    echo "  -o,     --output <directory>    Output directory (default: vfs_trace_analysis_timestamp)"
+    echo "  -d,     --duration <seconds>        Duration to trace, including compiling (default: 30 seconds)"
+    echo "  -o,     --output <directory>        Output directory (default: vfs_trace_analysis_timestamp)"
     # echo "  -l, --limit <count>        Limit number of events to capture (default: unlimited)"
     # echo "  -p, --pid <pid>            Filter tracing to specific PID"
     # echo "  -w, --workload <command>   Run a specific workload while tracing"
-    echo "  -v,     --verbose               Log outputs"
-    echo "  -h,     --help                  Show this help message"
-    echo "  -tw,    --time-window,         Time window for matching PIDs (default 5_000_000 ns)"
+    echo "  -v,     --verbose                   Log outputs"
+    echo "  -h,     --help                      Show this help message"
+    echo "  -tw,    --time-window,              Time window for matching PIDs (default 5_000_000 ns)"
+    echo "  -f,    --flush_interval,            Buffered flush threshold in array length (default 5000)"
     exit 1
 }
 
@@ -31,8 +32,12 @@ while [[ $# -gt 0 ]]; do
             OUTPUT_DIR="$2"
             shift 2
             ;;
-        -tw|--time-window)
+        -tw|--flush_interval)
             TIME_WINDOW="$2"
+            shift 2
+            ;;
+        -f|--time-window)
+            FLUSH_INTERVAL="$2"
             shift 2
             ;;
         # -w|--workload)
@@ -63,7 +68,7 @@ done
 # else
 #     BPF_FILE="vfs_prober.c"
 # fi
-BPF_FILE="./tracer/vfs_prober.c"
+BPF_FILE="./tracer/prober/vfs_prober.c"
 
 # # Trace VFS calls
 # LOG_FILE="$OUTPUT_DIR/vfs_trace.log"
@@ -91,6 +96,10 @@ fi
 
 if [ -v TIME_WINDOW ] || [ -n "$TIME_WINDOW" ]; then
     PARAMS="$PARAMS -tw $TIME_WINDOW"
+fi
+
+if [ -v FLUSH_INTERVAL ] || [ -n "$FLUSH_INTERVAL" ]; then
+    PARAMS="$PARAMS -f $FLUSH_INTERVAL"
 fi
 
 if [ $VERBOSE -eq 1 ]; then

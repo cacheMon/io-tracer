@@ -2,6 +2,7 @@
 
 import argparse
 from pathlib import Path
+from tracer.utils import logger
 from analyzer.log_parser import parse_trace_log
 from analyzer.time_series_analysis import time_series_analysis    
 from analyzer.heatmap_file_access import heatmap_file_access   
@@ -21,43 +22,45 @@ def analyzer():
     output_dir = Path(args.output)
     output_dir.mkdir(exist_ok=True)
     
-    print(f"Analyzing trace file: {args.log_file}")
-    print(f"Output directory: {output_dir}")
+    logger("info",f"Analyzing trace file: {args.log_file}")
+    logger("info",f"Output directory: {output_dir}")
     
     df = parse_trace_log(args.log_file)
     
     if df.empty:
-        print("No valid trace data found in the log file")
+        logger("warning","No valid trace data found in the log file for data analysis.")
+        logger("info","Exiting analysis...")
         return
     
-    print(f"Parsed {len(df)} VFS operations")
+    logger("info",f"Parsed {len(df)} traces")
     
     charts_dir = output_dir / "charts"
     charts_dir.mkdir(exist_ok=True)
     
-    print("Generating time-series analysis...")
+    logger("info","Generating time-series analysis...")
     time_series_analysis(df, charts_dir)
     
-    print("Generating file access heatmaps...")
+    logger("info","Generating file access heatmaps...")
     heatmap_file_access(df, charts_dir)
     
     # print("Analyzing latency distribution...")
     # latency_analysis(df, charts_dir)
     
-    print("Calculating throughput...")
+    logger("info","Calculating throughput...")
     throughput_analysis(df, charts_dir)
     
-    print("Analyzing operation frequency...")
+    logger("info","Analyzing operation frequency...")
     operation_frequency_analysis(df, charts_dir)
     
-    print("Analyzing Logical Block Address Overtime...")
+    logger("info", "Analyzing Logical Block Address Overtime...")
     lba_overtime_analysis(df, charts_dir)
 
-    print("Generating summary statistics...")
+    logger("info","Generating summary statistics...")
     generate_summary_stats(df, output_dir)
     
-    print(f"Analysis complete. Results saved to {output_dir}/")
-    print(f"Charts can be found in {charts_dir}/")
+    logger("info","Analysis complete.")
+    logger("info",f"Results saved to {output_dir}/")
+    logger("info",f"Charts can be found in {charts_dir}/")
 
 if __name__ == "__main__":
     analyzer()

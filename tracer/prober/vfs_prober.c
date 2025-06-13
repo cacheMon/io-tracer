@@ -59,6 +59,7 @@ struct bio_data_t {
     u32 nr_sectors;    // Number of sectors
     u32 rwbs;          // Read/write/discard/flush flags
     // u64 ino;           // Attempt to get inode if possible
+    u32 op;            // Operation type
 };
 
 BPF_HASH(file_positions, u64, u64, 1024);
@@ -66,9 +67,16 @@ BPF_HASH(file_positions, u64, u64, 1024);
 BPF_PERF_OUTPUT(events);
 BPF_PERF_OUTPUT(bl_events);
 
+static u64 get_file_inode(struct file *file) {
+    u64 inode = 0;
+    if (file && file->f_path.dentry && file->f_path.dentry->d_inode) {
+        inode = file->f_path.dentry->d_inode->i_ino;
+    }
+    return inode;
+}
+
 static int get_file_path(struct file *file, char *buf, int size) {
     struct dentry *dentry;
-    u64 inode = 0;
     
     // Safety check for file pointer
     if (!file) {
@@ -83,9 +91,7 @@ static int get_file_path(struct file *file, char *buf, int size) {
         return 0;
     }
     
-    // Get inode if available
-    if (dentry->d_inode)
-        inode = dentry->d_inode->i_ino;
+
     
     // Try to detect special filesystem types
     struct super_block *sb = dentry->d_sb;
@@ -130,13 +136,16 @@ static int get_file_path(struct file *file, char *buf, int size) {
     }
     
     // Log the filename with error handling (don't use direct pointer access)
-    bpf_trace_printk("Filename: %s, inode: %lu, fs_magic: 0x%lx\n", buf, inode, magic);
-    
-    return inode;
+    // bpf_trace_printk("Filename: %s, inode: %lu, fs_magic: 0x%lx\n", buf, inode, magic);
+    return 0;
 }
 
 // submit event data
-static void submit_event(struct pt_regs *ctx, struct file *file, size_t size, loff_t *pos, enum op_type op) {
+static int submit_event(struct pt_regs *ctx, struct file *file, size_t size, loff_t *pos, enum op_type op) {
+    if (file == NULL) {
+        return 0;
+    }
+
     struct data_t data = {};
     u32 pid;
     u64 file_inode = 0;
@@ -152,8 +161,8 @@ static void submit_event(struct pt_regs *ctx, struct file *file, size_t size, lo
     data.op = op;
     
     if (file) {
-        file_inode = get_file_path(file, data.filename, sizeof(data.filename));
-        data.inode = file_inode;
+        data.inode = get_file_inode(file);
+        get_file_path(file, data.filename, sizeof(data.filename));
         data.size = size;
         
         // Try to read position from pos pointer if available
@@ -182,6 +191,7 @@ static void submit_event(struct pt_regs *ctx, struct file *file, size_t size, lo
     }
     
     events.perf_submit(ctx, &data, sizeof(data));
+    return 0;
 }
 
 int trace_vfs_read(struct pt_regs *ctx, struct file *file, char __user *buf, size_t count, loff_t *pos) {
@@ -234,7 +244,7 @@ int trace_submit_bio(struct pt_regs *ctx, struct bio *bio) {
     bpf_probe_read_kernel(&data.sector, sizeof(data.sector), &bio->bi_iter.bi_sector);
     data.nr_sectors = bio->bi_iter.bi_size >> 9; 
 
-    data.rwbs = bio->bi_opf; 
+    data.op = bio->bi_opf & REQ_OP_MASK; 
     
     
     bl_events.perf_submit(ctx, &data, sizeof(data));
