@@ -46,6 +46,7 @@ def io_benchmark(duration):
         # Delete test
         os.unlink(filename)
         operations += 1
+    os.remove(directory_path)
     
     actual_duration = time.time() - start_time
     return {{
