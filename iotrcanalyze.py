@@ -14,9 +14,9 @@ from src.analyzer.summary import generate_summary_stats
 
 
 def analyzer():
-    parser = argparse.ArgumentParser(description='Analyze VFS trace logs')
-    parser.add_argument('log_file', type=str, help='VFS trace log file to analyze')
-    parser.add_argument('-o', '--output', type=str, default='vfs_analysis', help='Output directory for analysis results')
+    parser = argparse.ArgumentParser(description='Analyze trace logs')
+    parser.add_argument('log_file', type=str, help='Trace log file to analyze')
+    parser.add_argument('-o', '--output', type=str, default='analysis', help='Output directory for analysis results')
     args = parser.parse_args()
     
     output_dir = Path(args.output)

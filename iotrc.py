@@ -6,7 +6,7 @@ from src.tracer.IOTracer import IOTracer
 from src.tracer.BlockToFS import BlockToFS
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Trace VFS syscalls')
+    parser = argparse.ArgumentParser(description='Trace IO syscalls')
     parser.add_argument('-o', '--output', type=str, default="./result", help='Output Directory for logging, must be new!')
     parser.add_argument('-b', '--bpf-file', type=str, default='./src/tracer/prober/vfs_prober.c', help='BPF C source file path')
     parser.add_argument('-p', '--page-cnt', type=int, default=8, help='Number of pages for perf buffer (default 8)')

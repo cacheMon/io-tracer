@@ -5,7 +5,7 @@ import argparse
 from src.tracer.BlockToFS import BlockToFS
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Trace VFS syscalls')
+    parser = argparse.ArgumentParser(description='Parse block and vfs logs to match PIDs')
     parser.add_argument('-o', '--output', type=str, default="./result", help='Output Directory for mapper')
     parser.add_argument('-vfs', '--vfs-log', type=str, help='vfs log path')
     parser.add_argument('-blk', '--blk-log', type=str, help='block log path')
