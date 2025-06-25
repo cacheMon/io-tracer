@@ -7,7 +7,7 @@ from src.tracer.BlockToFS import BlockToFS
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Trace VFS syscalls')
-    parser.add_argument('-o', '--output', type=str, default="./result", help='Output Directory for logging')
+    parser.add_argument('-o', '--output', type=str, default="./result", help='Output Directory for logging, must be new!')
     parser.add_argument('-b', '--bpf-file', type=str, default='./src/tracer/prober/vfs_prober.c', help='BPF C source file path')
     parser.add_argument('-p', '--page-cnt', type=int, default=8, help='Number of pages for perf buffer (default 8)')
     parser.add_argument('-v', '--verbose', type=bool, default=False, help='Print verbose output')
@@ -32,5 +32,3 @@ if __name__ == "__main__":
     log_block = tracer.writer.output_block_file
     time_window = parse_args.time_window
 
-    BlockToFS(block_log=log_block, vfs_log=log_output, output_dir=output_dir, time_window=time_window).run()
-    # BlockToFS(block_log=log_block, vfs_log=log_output, output_file=output_dir+"/trace.log", time_window=time_window).find_optimal_time_window()

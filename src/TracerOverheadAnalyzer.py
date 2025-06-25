@@ -89,20 +89,6 @@ class TracerOverheadAnalyzer:
         print("  Running I/O benchmark with tracer...")
         tracer_results['io_benchmark'] = self.benchmark.run_io_intensive_benchmark(30)
         
-        # Collect tracer process stats
-        tracer_stats = []
-        for _ in range(10):  # Sample tracer stats 10 times
-            stat = self.monitor.monitor_process(tracer_pid)
-            if stat:
-                tracer_stats.append(stat)
-            time.sleep(1)
-        
-        # Stop tracer
-        # tracer_process.terminate()
-        # try:
-        #     tracer_process.wait(timeout=10)
-        # except subprocess.TimeoutExpired:
-        #     tracer_process.kill()
         try:
             os.killpg(os.getpgid(tracer_process.pid), signal.SIGTERM)
             tracer_process.wait(timeout=10)
@@ -118,7 +104,6 @@ class TracerOverheadAnalyzer:
             'memory_usage': self.monitor.measurements['memory_usage'].copy(),
             'disk_io': self.monitor.measurements['disk_io'].copy()
         }
-        tracer_results['tracer_process_stats'] = tracer_stats
         
         return tracer_results
     
@@ -161,27 +146,18 @@ class TracerOverheadAnalyzer:
                 'overhead_percent': statistics.mean(tracer_cpu) - statistics.mean(base_cpu)
             }
         
-        # Tracer process resource usage
-        # if 'tracer_process_stats' in with_tracer and with_tracer['tracer_process_stats']:
-        #     tracer_stats = with_tracer['tracer_process_stats']
-        #     analysis['tracer_resource_usage'] = {
-        #         'avg_cpu_percent': statistics.mean([s['cpu_percent'] for s in tracer_stats if s['cpu_percent']]),
-        #         'avg_memory_mb': statistics.mean([s['memory_info']['rss'] / (1024*1024) for s in tracer_stats]),
-        #         'max_memory_mb': max([s['memory_info']['rss'] / (1024*1024) for s in tracer_stats])
-        #     }
-        
         return analysis
     
     def run_full_analysis(self, duration=120):
         """Run complete overhead analysis"""
         print("Starting comprehensive tracer overhead analysis...")
         print(f"Total estimated time: {duration*2} seconds")
+
+        # Run with tracer
+        with_tracer = self.run_with_tracer_measurement(duration)
         
         # Run baseline
         baseline = self.run_baseline_measurement(duration)
-        
-        # Run with tracer
-        with_tracer = self.run_with_tracer_measurement(duration)
         
         # Analyze results
         analysis = self.analyze_overhead(baseline, with_tracer)
@@ -207,7 +183,6 @@ class TracerOverheadAnalyzer:
         return results
     
     def generate_report(self, analysis, output_file):
-        """Generate human-readable overhead report"""
         with open(output_file, 'w') as f:
             f.write("VFS TRACER OVERHEAD ANALYSIS REPORT\n")
             f.write("=" * 50 + "\n\n")
@@ -232,51 +207,19 @@ class TracerOverheadAnalyzer:
                 f.write(f"  Baseline Average: {sys_cpu['baseline_avg']:.2f}%\n")
                 f.write(f"  With Tracer Average: {sys_cpu['tracer_avg']:.2f}%\n")
                 f.write(f"  Additional CPU Overhead: {sys_cpu['overhead_percent']:.2f}%\n\n")
-            
-            if 'tracer_resource_usage' in analysis:
-                tracer = analysis['tracer_resource_usage']
-                f.write(f"Tracer Process Resource Usage:\n")
-                f.write(f"  Average CPU: {tracer['avg_cpu_percent']:.2f}%\n")
-                f.write(f"  Average Memory: {tracer['avg_memory_mb']:.2f} MB\n")
-                f.write(f"  Peak Memory: {tracer['max_memory_mb']:.2f} MB\n\n")
-            
-            f.write("RECOMMENDATIONS:\n")
-            f.write("-" * 20 + "\n")
-            
-            # Generate recommendations based on overhead levels
-            if 'cpu_slowdown' in analysis:
-                slowdown = analysis['cpu_slowdown']['slowdown_percent']
-                if slowdown < 5:
-                    f.write("✓ CPU overhead is acceptable (<5%)\n")
-                elif slowdown < 15:
-                    f.write("⚠ CPU overhead is moderate (5-15%) - consider optimizing\n")
-                else:
-                    f.write("⚠ CPU overhead is high (>15%) - optimization needed\n")
-            
-            if 'io_slowdown' in analysis:
-                io_slowdown = analysis['io_slowdown']['slowdown_percent']
-                if io_slowdown < 10:
-                    f.write("✓ I/O overhead is acceptable (<10%)\n")
-                elif io_slowdown < 25:
-                    f.write("⚠ I/O overhead is moderate (10-25%) - consider optimizing\n")
-                else:
-                    f.write("⚠ I/O overhead is high (>25%) - optimization needed\n")
 
 if __name__ == "__main__":
-    # Example usage
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    tracer_cmd = f"sudo python3 tracer.py -d 60 -o /tmp/tracer_test_{timestamp}"
-    
-    analyzer = TracerOverheadAnalyzer(tracer_cmd)
-    results = analyzer.run_full_analysis(duration=60)
-    
-    print("\nQuick Summary:")
-    if 'analysis' in results:
-        analysis = results['analysis']
-        if 'cpu_slowdown' in analysis:
-            print(f"CPU Slowdown: {analysis['cpu_slowdown']['slowdown_percent']:.2f}%")
-        if 'io_slowdown' in analysis:
-            print(f"I/O Slowdown: {analysis['io_slowdown']['slowdown_percent']:.2f}%")
-        if 'tracer_resource_usage' in analysis:
-            print(f"Tracer CPU Usage: {analysis['tracer_resource_usage']['avg_cpu_percent']:.2f}%")
-            print(f"Tracer Memory Usage: {analysis['tracer_resource_usage']['avg_memory_mb']:.2f} MB")
+    durations = [240, 300, 360, 420, 480, 540, 600]
+    for duration in durations:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        tracer_cmd = f"sudo python3 tracer.py -d {duration} -o /tmp/tracer_test_{timestamp}"
+
+        analyzer = TracerOverheadAnalyzer(tracer_cmd)
+        print("+"*50)
+        results = analyzer.run_full_analysis(duration=duration)
+        if 'analysis' in results:
+            analysis = results['analysis']
+            if 'cpu_slowdown' in analysis:
+                print(f"CPU Slowdown: {analysis['cpu_slowdown']['slowdown_percent']:.2f}%")
+            if 'io_slowdown' in analysis:
+                print(f"I/O Slowdown: {analysis['io_slowdown']['slowdown_percent']:.2f}%")

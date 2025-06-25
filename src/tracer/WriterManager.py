@@ -40,16 +40,16 @@ class WriteManager:
             # if self.verbose:
             #     logger("info", f"Logging to {self.output}")
         except IOError as e:
-            logger("info", f"could not open output file '{self.output}': {e}")
+            logger("info", f"could not open output file': {e}")
             sys.exit(1)
 
-    def append_fs_json(self, json_event: any):
+    def append_fs_json(self, json_event: dict):
         if isinstance(json_event, dict):
             self.json_events.append(json_event)
         else:
             logger("error", "Invalid JSON event format. Expected a dictionary.")
 
-    def append_block_json(self, json_event: any):
+    def append_block_json(self, json_event: dict):
         if isinstance(json_event, dict):
             self.json_block_events.append(json_event)
         else:
@@ -73,16 +73,6 @@ class WriteManager:
         self.log_output = ''
         self.log_block_output = ''
 
-    def _ensure_handles_open(self):
-        if self._vfs_handle is None:
-            self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
-        if self._block_handle is None:
-            self._block_handle = open(self.output_block_file, 'a', buffering=8192)
-        if self._vfs_json_handle is None:
-            self._vfs_json_handle = open(self.output_vfs_json_file, 'a', buffering=8192)
-        if self._block_json_handle is None:
-            self._block_json_handle = open(self.output_block_json_file, 'a', buffering=8192)
-
     def close_handles(self):
         if self._vfs_handle:
             self._vfs_handle.close()
@@ -98,19 +88,22 @@ class WriteManager:
             self._block_json_handle = None
 
     def write_log_vfs(self, log_output: str):
-        self._ensure_handles_open()
+        if self._vfs_handle is None:
+            self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
         self._vfs_handle.write(log_output)
 
-    def write_log_vfs_json(self, log_output: any):
-        self._ensure_handles_open()
+    def write_log_vfs_json(self, log_output: any): # type: ignore
+        if self._vfs_json_handle is None:
+            self._vfs_json_handle = open(self.output_vfs_json_file, 'a', buffering=8192)
         json.dump(log_output, self._vfs_json_handle, indent=2)
-
     def write_log_block(self, log_output: str):
-        self._ensure_handles_open()
+        if self._block_handle is None:
+            self._block_handle = open(self.output_block_file, 'a', buffering=8192)
         self._block_handle.write(log_output)
 
-    def write_log_block_json(self, log_output: any):
-        self._ensure_handles_open()
+    def write_log_block_json(self, log_output: any): # type: ignore
+        if self._block_json_handle is None:
+            self._block_json_handle = open(self.output_block_json_file, 'a', buffering=8192)
         json.dump(log_output, self._block_json_handle, indent=2)
 
     def write_to_disk(self):

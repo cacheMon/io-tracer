@@ -15,7 +15,7 @@ class IOTracer:
             self, 
             output_dir:         str,
             bpf_file:           str = './tracer/prober/vfs_prober.c',
-            page_cnt:           int = 8,
+            page_cnt:           int = 64,
             verbose:            bool = False,
             duration:           int | None = None,
             flush_threshold:    int = 5000,
@@ -65,10 +65,6 @@ class IOTracer:
         
         size_val = event.size if event.size is not None else 0
         output = f"{timestamp} {op_name} {event.pid} {comm.replace(' ','_')} {filename.replace(' ','_')} {event.inode} {size_val} {flags_str}"
-
-
-        if self.verbose:
-            print(output)
         
         # write to file
         self.writer.append_fs_log(output)
@@ -153,7 +149,6 @@ class IOTracer:
         self.writer.write_log_header()
         self.probe_tracker.attach_kprobes()
 
-
         signal.signal(signal.SIGINT, self._cleanup)
         signal.signal(signal.SIGTERM, self._cleanup)
 
@@ -223,6 +218,6 @@ class IOTracer:
             
             if self.verbose:
                 actual_duration = time.time() - start
-                logger("info", f"Trace completed after {actual_duration:.2f} seconds (target: {duration_target}s)")
+                logger("info", f"Trace completed after {actual_duration:.2f} seconds")
             print()
             logger("info", "Exiting...")

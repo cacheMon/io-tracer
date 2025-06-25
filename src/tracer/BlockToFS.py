@@ -1,3 +1,4 @@
+import os
 from ..utility.utils import logger
 import json
 
@@ -12,6 +13,9 @@ class BlockToFS:
         self.data_vfs = []
         self.time_window = time_window
         self.json_output = []
+
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
 
     def _parse_block_log(self):
         with open(self.block_log, "r") as f:

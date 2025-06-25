@@ -23,27 +23,29 @@ def io_benchmark(duration):
     operations = 0
     bytes_written = 0
     bytes_read = 0
+
+    directory_path = "./bin"
+    os.makedirs(directory_path, exist_ok=True)
     
-    with tempfile.TemporaryDirectory() as tmpdir:
-        while time.time() - start_time < duration:
-            # Write test
-            filename = os.path.join(tmpdir, f"test_{{operations}}.txt")
-            data = b"x" * random.randint(1024, 8192)  # 1-8KB chunks
-            
-            with open(filename, 'wb') as f:
-                f.write(data)
-                f.flush()
-                os.fsync(f.fileno())
-            bytes_written += len(data)
-            
-            # Read test
-            with open(filename, 'rb') as f:
-                read_data = f.read()
-            bytes_read += len(read_data)
-            
-            # Delete test
-            os.unlink(filename)
-            operations += 1
+    while time.time() - start_time < duration:
+        # Write test
+        filename = os.path.join(directory_path, f"test_{{operations}}.txt")
+        data = b"x" * random.randint(1024, 8192)  # 1-8KB chunks
+        
+        with open(filename, 'wb') as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        bytes_written += len(data)
+        
+        # Read test
+        with open(filename, 'rb') as f:
+            read_data = f.read()
+        bytes_read += len(read_data)
+        
+        # Delete test
+        os.unlink(filename)
+        operations += 1
     
     actual_duration = time.time() - start_time
     return {{
@@ -57,11 +59,9 @@ def io_benchmark(duration):
     }}
 
 if __name__ == "__main__":
-    print("AAAAAAAAAAAAAA")
     result = io_benchmark({duration})
     print(f"BENCHMARK_RESULT:{{result}}")
 """
-        
         # Run benchmark and capture output
         try:
             result = subprocess.run([sys.executable, '-c', benchmark_script], 
