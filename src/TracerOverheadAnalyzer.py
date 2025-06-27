@@ -35,15 +35,13 @@ class TracerOverheadAnalyzer:
         # CPU benchmark
         print("  Running CPU benchmark...")
         baseline_results['cpu_benchmark'] = self.benchmark.run_cpu_intensive_benchmark(30)
-        print("  CPU benchmark completed")
         
         # I/O benchmark  
         print("  Running I/O benchmark...")
         baseline_results['io_benchmark'] = self.benchmark.run_io_intensive_benchmark(30)
-        print("  I/O benchmark completed")
         
         # Let system monitoring run a bit longer
-        time.sleep(duration - 60)
+        # time.sleep(duration - 60)
         
         self.monitor.stop_system_monitoring()
         
@@ -74,7 +72,7 @@ class TracerOverheadAnalyzer:
             self.tracer_command, 
             shell=True, 
             preexec_fn=os.setsid, 
-            stdout=subprocess.DEVNULL
+            # stdout=subprocess.DEVNULL
             )
         
         # Monitor tracer process
@@ -109,6 +107,7 @@ class TracerOverheadAnalyzer:
     
     def analyze_overhead(self, baseline, with_tracer):
         """Analyze overhead by comparing baseline vs tracer measurements"""
+        print("Analyzing overhead between baseline and tracer measurements...")
         analysis = {}
         
         # CPU overhead analysis
@@ -177,7 +176,7 @@ class TracerOverheadAnalyzer:
             json.dump(results, f, indent=2, default=str)
         
         # Generate report
-        self.generate_report(analysis, self.output_dir / f"overhead_report_{timestamp}.txt")
+        self.generate_report(analysis, self.output_dir / f"overhead_report_fix_{timestamp}.txt")
         
         print(f"Analysis complete! Results saved to {output_file}")
         return results
@@ -210,16 +209,36 @@ class TracerOverheadAnalyzer:
 
 if __name__ == "__main__":
     durations = [240, 300, 360, 420, 480, 540, 600]
+    # durations = [12000]
+    print("="*50 +" PARSER "+"="*50)
     for duration in durations:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        tracer_cmd = f"sudo python3 tracer.py -d {duration} -o /tmp/tracer_test_{timestamp}"
+        tracer_cmd = f"sudo ./iotrcparse.py -o ./tmp/tracer_test_{timestamp}  -vfs ./result/IO_trace_analysis_20250623_094415/vfs_trace.log -blk ./result/IO_trace_analysis_20250623_094415/block_trace.log"
 
         analyzer = TracerOverheadAnalyzer(tracer_cmd)
-        print("+"*50)
         results = analyzer.run_full_analysis(duration=duration)
         if 'analysis' in results:
             analysis = results['analysis']
+            print("+"*50)
             if 'cpu_slowdown' in analysis:
                 print(f"CPU Slowdown: {analysis['cpu_slowdown']['slowdown_percent']:.2f}%")
             if 'io_slowdown' in analysis:
                 print(f"I/O Slowdown: {analysis['io_slowdown']['slowdown_percent']:.2f}%")
+            print("-"*50)
+            
+    print("="*50 +" TRACER "+"="*50)
+    for duration in durations:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        tracer_cmd = f"sudo ./iotrc.py -d {duration} -o /tmp/tracer_test_{timestamp}"
+
+        analyzer = TracerOverheadAnalyzer(tracer_cmd)
+        results = analyzer.run_full_analysis(duration=duration)
+        if 'analysis' in results:
+            analysis = results['analysis']
+            print("+"*50)
+            if 'cpu_slowdown' in analysis:
+                print(f"CPU Slowdown: {analysis['cpu_slowdown']['slowdown_percent']:.2f}%")
+            if 'io_slowdown' in analysis:
+                print(f"I/O Slowdown: {analysis['io_slowdown']['slowdown_percent']:.2f}%")
+            print("-"*50)
+            
