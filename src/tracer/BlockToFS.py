@@ -53,11 +53,6 @@ class BlockToFS:
                 })
 
     def _find_matching_pid(self):
-        """
-        Perform a union operation between block and VFS data.
-        Includes all records from both data sources.
-        """
-        
         self._find_optimal_time_window()
         output = "timestamp vfs_op_name pid comm filename inode size_val sector flags_str blk_operation\n"
         logger("info","Performing union between block and vfs data...")
@@ -135,8 +130,8 @@ class BlockToFS:
                     'pid': dblock['pid'],
                     'comm': dblock['comm'],
                     'filename': "[unknown]",
-                    'inode': "0",
-                    'size_val': dblock['nr_sectors'],  # Use sectors as size
+                    'inode': "[none]", # no inode
+                    'size_val': int(dblock['nr_sectors']) * 512,  # Use sectors as size
                     'sector': dblock['sector'],
                     'flags_str': "[none]",
                     'blk_operation': dblock['operation']
@@ -166,7 +161,7 @@ class BlockToFS:
                     'filename': dvfs['filename'],
                     'inode': dvfs['inode'],
                     'size_val': dvfs['size_val'],
-                    'sector': "0",  # No matching block operation
+                    'sector': "[none]",  # No matching block operation
                     'flags_str': dvfs['flags_str'],
                     'blk_operation': "[none]"
                 }

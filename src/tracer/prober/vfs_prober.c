@@ -269,7 +269,10 @@ int trace_submit_bio(struct pt_regs *ctx, struct bio *bio) {
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
     
     bpf_probe_read_kernel(&data.sector, sizeof(data.sector), &bio->bi_iter.bi_sector);
-    data.nr_sectors = bio->bi_iter.bi_size >> 9; 
+
+    unsigned int size;
+    bpf_probe_read_kernel(&size, sizeof(size), &bio->bi_iter.bi_size);
+    data.nr_sectors = size >> 9;
 
     data.op = bio->bi_opf & REQ_OP_MASK; 
     

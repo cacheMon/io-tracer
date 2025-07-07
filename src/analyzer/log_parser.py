@@ -21,9 +21,9 @@ def parse_trace_log(log_file):
                 pid = int(parts[2])
                 comm = parts[3]
                 filename = parts[4]
-                inode = int(parts[5])
+                inode = parts[5]
                 size = int(parts[6])
-                lba = int(parts[7])
+                lba = parts[7]
                 flags = parts[8]
                 
                 try:

@@ -4,7 +4,10 @@ import numpy as np
 import seaborn as sns
 from pathlib import Path
 
-def heatmap_file_access(df, output_dir):
+def heatmap_file_access(df_raw, output_dir):
+    df = df_raw.copy()
+    df['lba'] = pd.to_numeric(df['lba'], errors='coerce')  
+    df = df[df['lba'].notna()] 
     if 'READ' not in df['op'].values and 'WRITE' not in df['op'].values:
         print("No READ/WRITE operations found for heatmap")
         return
