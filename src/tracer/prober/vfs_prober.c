@@ -4,6 +4,7 @@
 #include <linux/dcache.h>
 #include <linux/fs_struct.h>
 #include <linux/blk_types.h>
+#include <linux/stat.h>
 
 #define FILENAME_MAX_LEN 256
 #define PROC_SUPER_MAGIC      0x9fa0      // procfs
@@ -75,6 +76,48 @@ static u64 get_file_inode(struct file *file) {
     return inode;
 }
 
+static bool is_regular_file(struct file *file) {
+    bool is_reg, is_virtual;
+    if (!file || !file->f_path.dentry || !file->f_path.dentry->d_inode || !file->f_path.dentry->d_sb) {
+        return false;
+    }
+    umode_t mode;
+    bpf_probe_read_kernel(&mode, sizeof(mode), &file->f_path.dentry->d_inode->i_mode);
+    is_reg = S_ISREG(mode);
+
+    struct super_block *sb = file->f_path.dentry->d_sb;
+    unsigned long magic = 0;
+    bpf_probe_read_kernel(&magic, sizeof(magic), &sb->s_magic);
+
+    switch (magic) {
+        case PROC_SUPER_MAGIC:
+        case SYSFS_MAGIC:
+        case TMPFS_MAGIC:
+        case SOCKFS_MAGIC:
+        case DEBUGFS_MAGIC:
+        case DEVPTS_SUPER_MAGIC:
+        case DEVTMPFS_MAGIC:
+        case PIPEFS_MAGIC:
+        case CGROUP_SUPER_MAGIC:
+        case SELINUX_MAGIC:
+        // case MQUEUE_MAGIC:
+        case FUTEXFS_SUPER_MAGIC:
+        // case EVENTPOLLFS_MAGIC:
+        case INOTIFYFS_SUPER_MAGIC:
+        // case AIO_RING_MAGIC:
+        case XENFS_SUPER_MAGIC:
+        case RPCAUTH_GSSMAGIC:
+        case TRACEFS_MAGIC:
+        case 0x19800202:
+            is_virtual = true;
+            break;
+        default:
+            is_virtual = false;
+    }
+
+    return is_reg && !is_virtual;
+}
+
 static int get_file_path(struct file *file, char *buf, int size) {
     struct dentry *dentry;
     
@@ -91,8 +134,6 @@ static int get_file_path(struct file *file, char *buf, int size) {
         return 0;
     }
     
-
-    
     // Try to detect special filesystem types
     struct super_block *sb = dentry->d_sb;
     unsigned long magic = 0;
@@ -106,10 +147,10 @@ static int get_file_path(struct file *file, char *buf, int size) {
     
     if (name_ptr) {
         // Try to read the name
-        bpf_probe_read_kernel_str(buf, size, name_ptr);
-        
+        ssize_t len = bpf_probe_read_kernel_str(buf, size, name_ptr);
+        volatile char first_char = buf[0];
         // Check if we got anything
-        if (buf[0] == '\0') {
+        if (len <= 0 | first_char == '\0') {
             // Check for specific filesystems based on magic number
             switch (magic) {
                 case 0x9fa0: // PROCFS_MAGIC
@@ -160,37 +201,23 @@ static int submit_event(struct pt_regs *ctx, struct file *file, size_t size, lof
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
     data.op = op;
     
-    if (file) {
+    if (is_regular_file(file)) {
         data.inode = get_file_inode(file);
-        get_file_path(file, data.filename, sizeof(data.filename));
         data.size = size;
+        get_file_path(file, data.filename, sizeof(data.filename));
+
         
         // Try to read position from pos pointer if available
         if (pos) {
             bpf_probe_read_kernel(&position, sizeof(position), pos);
         }
         
-        // bpf_trace_printk("Pos: %d\n",*pos);
-
-        // Try to get current tracked position if we don't have a current position
-        if (position == 0) {
-            u64 *current_pos = file_positions.lookup(&file_inode);
-            if (current_pos) {
-                position = *current_pos;
-            }
-        }
-        
-        // Update position for next operation (for READ and WRITE)
-        if (op == OP_READ || op == OP_WRITE) {
-            next_position = position + size;
-            file_positions.update(&file_inode, &next_position);
-        }
-        
         // Read flags
         bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
+        events.perf_submit(ctx, &data, sizeof(data));
     }
+
     
-    events.perf_submit(ctx, &data, sizeof(data));
     return 0;
 }
 

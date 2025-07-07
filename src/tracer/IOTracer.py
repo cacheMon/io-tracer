@@ -40,7 +40,7 @@ class IOTracer:
             sys.exit(1)
 
         try:
-            self.b = BPF(src_file=bpf_file, cflags=["-Wno-duplicate-decl-specifier", "-Wno-macro-redefined"])
+            self.b = BPF(src_file=bpf_file.encode(), cflags=["-Wno-duplicate-decl-specifier", "-Wno-macro-redefined"])
             self.probe_tracker = KernelProbeTracker(self.b)
         except Exception as e:
             logger("error", f"failed to initialize BPF: {e}")
