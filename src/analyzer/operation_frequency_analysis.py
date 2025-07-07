@@ -1,7 +1,12 @@
 import matplotlib.pyplot as plt
+import pandas as pd
 
 def operation_frequency_analysis(df, output_dir):
-    op_counts = df['op'].value_counts()
+    filtered_op = df['op'][df['op'] != '[none]']
+    filtered_op_blk = df['op_blk'][df['op_blk'] != '[none]']
+
+    op_combined = pd.concat([filtered_op, filtered_op_blk], ignore_index=True)
+    op_counts = op_combined.value_counts()
     
     plt.figure(figsize=(10, 6))
     op_counts.plot(kind='bar')

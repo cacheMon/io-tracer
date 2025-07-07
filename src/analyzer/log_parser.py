@@ -25,6 +25,7 @@ def parse_trace_log(log_file):
                 size = int(parts[6])
                 lba = parts[7]
                 flags = parts[8]
+                op_blk = parts[9]
                 
                 try:
                     timestamp = np.datetime64(timestamp_ns, 'ns')
@@ -43,7 +44,8 @@ def parse_trace_log(log_file):
                     'inode': inode,
                     'size': size,
                     'lba': lba,
-                    'flags': flags
+                    'flags': flags,
+                    'op_blk': op_blk
                 })
             except Exception as e:
                 error_count += 1
