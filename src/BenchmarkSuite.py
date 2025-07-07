@@ -27,17 +27,20 @@ def io_benchmark(duration):
     directory_path = "./bin"
     os.makedirs(directory_path, exist_ok=True)
     
+    data = b"x" * random.randint(1024, 8192) 
     while time.time() - start_time < duration:
         # Write test
         filename = os.path.join(directory_path, f"test_{{operations}}.txt")
-        data = b"x" * random.randint(1024, 8192)  # 1-8KB chunks
-        
+
+        idx_start = random.randint(0, len(data)-1)
+        idx_end = random.randint(idx_start, len(data))
+        data_sliced = data[idx_start:idx_end]
         with open(filename, 'wb') as f:
-            f.write(data)
+            f.write(data_sliced)
             f.flush()
             os.fsync(f.fileno())
-        bytes_written += len(data)
-        
+        bytes_written += len(data_sliced)
+
         # Read test
         with open(filename, 'rb') as f:
             read_data = f.read()
