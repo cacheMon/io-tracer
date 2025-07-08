@@ -54,7 +54,7 @@ class BlockToFS:
 
     def _find_matching_pid(self):
         self._find_optimal_time_window()
-        output = "timestamp vfs_op_name pid comm filename inode size_val sector flags_str blk_operation\n"
+        output = "timestamp vfs_op pid comm filename inode size_val sector flags_str blk_op\n"
         logger("info","Performing union between block and vfs data...")
         
         processed_blocks = set()

@@ -63,7 +63,7 @@ def lba_overtime_analysis(df_raw, output_dir):
                 max_timestamp = file_df['timestamp'].max()
     
     if top_files:
-        plt.figure(figsize=(14, 10))
+        plt.figure(figsize=(16, 10))
         
         for i, file in enumerate(top_files):
             file_df = io_df[io_df['filename'] == file]
