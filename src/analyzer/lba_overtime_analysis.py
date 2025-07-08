@@ -21,32 +21,6 @@ def lba_overtime_analysis(df_raw, output_dir):
     # Sort by timestamp to see progression over time
     io_df = io_df.sort_values('timestamp')
     
-    # # Create a time-based scatter plot of LBA accesses
-    # plt.figure(figsize=(14, 8))
-    
-    # # Plot LBA vs time, colored by operation type
-    # for op_type in ['READ', 'WRITE']:
-    #     op_df = io_df[io_df['op'] == op_type]
-    #     if not op_df.empty:
-    #         plt.scatter(
-    #             op_df['timestamp'], 
-    #             op_df['lba'],
-    #             label=op_type,
-    #             alpha=0.7,
-    #             s=op_df['size'] / 1024,  # Size of point based on I/O size (KB)
-    #             edgecolors='w',
-    #             linewidths=0.5
-    #         )
-    
-    # plt.title('LBA Access Patterns Over Time')
-    # plt.xlabel('Time')
-    # plt.ylabel('Logical Block Address (LBA)')
-    # plt.yscale('log')  # Log scale often helps visualize the full range of LBAs
-    # plt.legend()
-    # plt.grid(True, which="both", ls="--", alpha=0.3)
-    # plt.tight_layout()
-    # plt.savefig(f"{output_dir}/lba_overtime_scatter.png")
-    
     # Create a visualization showing access patterns for top files
     top_files = io_df['filename'].value_counts().head(5).index.tolist()
 
@@ -96,24 +70,20 @@ def lba_overtime_analysis(df_raw, output_dir):
         plt.tight_layout()
         plt.savefig(f"{output_dir}/top_files_lba_overtime.png")
     
-    # Calculate sequential vs. random access statistics
-    # Group by file and order by timestamp
+
     sequential_stats = {}
     
-    for file in io_df['filename'].unique():
+    for file in io_df['filename'].value_counts().head(10).index.unique():
         file_io = io_df[io_df['filename'] == file].sort_values('timestamp')
         
         if len(file_io) < 2:
             continue
             
-        # Calculate differences between consecutive LBAs
         file_io.loc[:,'next_lba'] = file_io['lba'].shift(-1)
         file_io.loc[:,'lba_diff'] = file_io['next_lba'] - file_io['lba']
-        
-        # Count accesses that seem sequential (diff = size or small positive value)
-        # This is an approximation - true sequentiality would need more context
+
         sequential_count = len(file_io[(file_io['lba_diff'] > 0) & (file_io['lba_diff'] < 1000)])
-        random_count = len(file_io) - sequential_count - 1  # -1 for the last row with NaN
+        random_count = len(file_io) - sequential_count - 1  
         
         if sequential_count + random_count > 0:
             sequential_pct = sequential_count / (sequential_count + random_count) * 100
@@ -123,7 +93,6 @@ def lba_overtime_analysis(df_raw, output_dir):
                 'sequential_percentage': sequential_pct
             }
     
-    # Save sequential vs random statistics
     if sequential_stats:
         with open(f"{output_dir}/sequential_access_stats.json", 'w') as f:
             json.dump(sequential_stats, f, indent=4)
