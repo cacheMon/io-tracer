@@ -1,5 +1,12 @@
 # IO-Tracer
+
+## Installation
+```
+sudo apt-get install bpfcc-tools linux-headers-$(uname -r)
+```
+
 ## iotrc
+| Need sudo privilege
 ```
 usage: iotrc.py [-h] [-o OUTPUT] [-b BPF_FILE] [-p PAGE_CNT] [-v VERBOSE] [-d DURATION] [-f FLUSH_THRESHOLD] [-tw TIME_WINDOW]
 
@@ -23,6 +30,7 @@ options:
                         Time window for matching PIDs (default 5_000_000 ns)
 ```
 ## iotrcparse
+| Need sudo privilege
 ```
 usage: iotrcparse.py [-h] [-o OUTPUT] [-vfs VFS_LOG] [-blk BLK_LOG] [-tw TIME_WINDOW]
 
