@@ -48,7 +48,7 @@ options:
                         Time window for matching PIDs (default 5_000_000 ns)
 ```
 ## iotrcanalyze
-Need to use library from requirement.txt
+| Need to use library from requirement.txt
 ```
 usage: iotrcanalyze.py [-h] [-o OUTPUT] log_file
 
