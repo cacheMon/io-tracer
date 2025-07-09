@@ -1,10 +1,11 @@
 #!/usr/bin/python3
 
+import shutil
 import signal
 from bcc import BPF
 import time
 import sys
-from ..utility.utils import logger
+from ..utility.utils import logger, create_tar_gz
 from .WriterManager import WriteManager
 from .FlagMapper import FlagMapper
 from .KernelProbeTracker import KernelProbeTracker
@@ -19,10 +20,10 @@ class IOTracer:
             verbose:            bool = False,
             duration:           int | None = None,
             flush_threshold:    int = 5000,
+            split_threshold:   int = 3600 * 24 # 1 day
         ):
-        self.writer             = WriteManager(output_dir)
+        self.writer             = WriteManager(output_dir, split_threshold)
         self.flag_mapper        = FlagMapper()
-
         self.flushing           = False
         self.running            = True
         self.verbose            = verbose
@@ -220,4 +221,9 @@ class IOTracer:
                 actual_duration = time.time() - start
                 logger("info", f"Trace completed after {actual_duration:.2f} seconds")
             print()
+            create_tar_gz(f"{self.writer.output_dir}/raw_trace_{time.strftime('%Y%m%d_%H%M%S')}.tar.gz", [f"{self.writer.output_dir}/block", f"{self.writer.output_dir}/vfs"])
+
+            # delete file
+            shutil.rmtree(f"{self.writer.output_dir}/block")
+            shutil.rmtree(f"{self.writer.output_dir}/vfs")
             logger("info", "Exiting...")

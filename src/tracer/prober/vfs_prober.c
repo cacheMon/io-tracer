@@ -64,6 +64,7 @@ struct bio_data_t {
 };
 
 BPF_HASH(file_positions, u64, u64, 1024);
+BPF_HASH(tracer_config, u32, u32, 1);
 
 BPF_PERF_OUTPUT(events);
 BPF_PERF_OUTPUT(bl_events);
@@ -195,6 +196,13 @@ static int submit_event(struct pt_regs *ctx, struct file *file, size_t size, lof
     u64 lba_value = 0;
     
     pid = bpf_get_current_pid_tgid() >> 32;
+        
+    // filter the tracer process
+    u32 config_key = 0;  // 0 = tracer_pid
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;  // Skip tracing our own process
+    }
     
     data.pid = pid;
     data.ts = bpf_ktime_get_ns();

@@ -1,59 +1,99 @@
+from datetime import datetime
 import os
-from ..utility.utils import logger
+import tarfile
+from ..utility.utils import logger, create_tar_gz
 import json
 
 class BlockToFS:
-    def __init__(self, block_log:str, vfs_log:str, output_dir:str, time_window:int=50_000_000, verbose:bool=False):
+    def __init__(self, raw_file: str, output_dir: str, time_window: int = 50_000_000, verbose: bool = False):
         self.verbose = verbose
-        self.block_log = block_log
-        self.vfs_log = vfs_log
-        self.output_file = output_dir+"/trace.log"
-        self.output_json_file = output_dir+"/trace.json"
+        self.raw_file = raw_file
+        self.output_dir = output_dir
+        self.output_file = os.path.join(output_dir, "trace.log")
+        self.output_json_file = os.path.join(output_dir, "trace.json")
         self.data_block = []
         self.data_vfs = []
         self.time_window = time_window
         self.json_output = []
-
+        
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
+        
+        self.tar = tarfile.open(self.raw_file, 'r:gz')
+        
+        if self.verbose:
+            print(f"Opened tar.gz file: {self.raw_file}")
 
     def _parse_block_log(self):
-        with open(self.block_log, "r") as f:
-            for line_number, line in enumerate(f, ):
-                if line_number == 0:
-                    continue
-                line = line.strip()
-                parts = line.split()
-                self.data_block.append({
-                    'timestamp': parts[0],
-                    'pid': parts[1],
-                    'comm': parts[2],
-                    'sector': parts[3], 
-                    'nr_sectors': parts[4],
-                    'operation': parts[5],
-                })
+        block_members = [m for m in self.tar.getmembers() if m.name.startswith('block/') and m.isfile()]
+        
+        for member in block_members:
+            if self.verbose:
+                print(f"Parsing block log file: {member.name}")
+            
+            file_obj = self.tar.extractfile(member)
+            if file_obj:
+                content = file_obj.read().decode('utf-8')
+                lines = content.strip().split('\n')
+                
+                for line_number, line in enumerate(lines, 1):
+                    if line_number == 1:  
+                        continue
+                    line = line.strip()
+                    if line:  
+                        parts = line.split()
+                        if len(parts) >= 6:  
+                            self.data_block.append({
+                                'timestamp': parts[0],
+                                'pid': parts[1],
+                                'comm': parts[2],
+                                'sector': parts[3], 
+                                'nr_sectors': parts[4],
+                                'operation': parts[5],
+                            })
 
     def _parse_vfs_log(self):
-        with open(self.vfs_log, "r") as f:
-            for line_number, line in enumerate(f, ):
-                if line_number == 0:
-                    continue
-                line = line.strip()
-                parts = line.split()
+        vfs_members = [m for m in self.tar.getmembers() if m.name.startswith('vfs/') and m.isfile()]
+        
+        for member in vfs_members:
+            if self.verbose:
+                print(f"Parsing VFS log file: {member.name}")
+            
+            file_obj = self.tar.extractfile(member)
+            if file_obj:
+                content = file_obj.read().decode('utf-8')
+                lines = content.strip().split('\n')
+                
+                for line_number, line in enumerate(lines, 1):
+                    if line_number == 1: 
+                        continue
+                    line = line.strip()
+                    if line:  
+                        parts = line.split()
+                        if len(parts) >= 8:  
+                            self.data_vfs.append({
+                                'timestamp': parts[0], 
+                                'op_name': parts[1], 
+                                'pid': parts[2], 
+                                'comm': parts[3], 
+                                'filename': parts[4], 
+                                'inode': parts[5], 
+                                'size_val': parts[6], 
+                                'flags_str': parts[7],
+                            })
 
-                self.data_vfs.append({
-                    'timestamp': parts[0], 
-                    'op_name': parts[1], 
-                    'pid': parts[2], 
-                    'comm': parts[3], 
-                    'filename': parts[4], 
-                    'inode': parts[5], 
-                    'size_val': parts[6], 
-                    'flags_str': parts[7],
-                })
+    def close(self):
+        """Close the tar file"""
+        if hasattr(self, 'tar'):
+            self.tar.close()
+            if self.verbose:
+                print(f"Closed tar.gz file: {self.raw_file}")
+
+    def __del__(self):
+        """Destructor to ensure tar file is closed"""
+        self.close()
 
     def _find_matching_pid(self):
-        self._find_optimal_time_window()
         output = "timestamp vfs_op pid comm filename inode size_val sector flags_str blk_op\n"
         logger("info","Performing union between block and vfs data...")
         
@@ -291,4 +331,7 @@ class BlockToFS:
         self._parse_vfs_log()
         output = self._find_matching_pid()
         self._write_output(output)
+        create_tar_gz(f"{self.output_dir}/trace_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tar.gz", [self.output_file, self.output_json_file])
+        os.remove(self.output_file)
+        os.remove(self.output_json_file)
         logger("info", "Mapping completed. Output written to: " + self.output_file)

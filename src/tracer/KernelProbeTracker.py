@@ -1,3 +1,5 @@
+import ctypes
+import os
 from bcc import BPF
 import sys
 from ..utility.utils import logger
@@ -6,6 +8,12 @@ class KernelProbeTracker:
     def __init__(self, b:BPF):
         self.kprobes = []
         self.b = b
+
+        tracer_pid = os.getpid()
+        config_key = ctypes.c_uint32(0) 
+        pid_value = ctypes.c_uint32(tracer_pid)
+        self.b["tracer_config"][config_key] = pid_value
+
 
     def add_kprobe(self, event, kprobe):
         try:
