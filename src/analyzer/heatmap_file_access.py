@@ -28,7 +28,7 @@ def heatmap_file_access(df_raw, output_dir):
     
     plt.figure(figsize=(10, 8))
     sns.heatmap(heatmap_data, annot=True, cmap='viridis', fmt='d')
-    plt.title('File Access Patterns by Block Operation Type')
+    plt.title('File Access Patterns by VFS Operation Type')
     plt.tight_layout()
     plt.savefig(f"{output_dir}/file_access_heatmap_vfs.png")
     plt.close()
@@ -39,7 +39,7 @@ def heatmap_file_access(df_raw, output_dir):
 
     plt.figure(figsize=(10, 8))
     sns.heatmap(heatmap_data, annot=True, cmap='viridis', fmt='d')
-    plt.title('File Access Patterns by Operation Type')
+    plt.title('File Access Patterns by Block Operation Type')
     plt.tight_layout()
     plt.savefig(f"{output_dir}/file_access_heatmap_blk.png")
     plt.close()

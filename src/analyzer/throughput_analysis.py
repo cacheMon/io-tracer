@@ -16,7 +16,6 @@ def throughput_analysis(df, output_dir):
         return
     
     io_df['size'] = io_df['size'].astype('float64')
-    print(f"Converted size column to float64 to prevent overflow")
     
     total_duration = (df['timestamp'].max() - df['timestamp'].min()).total_seconds()
     
