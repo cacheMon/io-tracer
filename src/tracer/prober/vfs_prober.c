@@ -51,16 +51,20 @@ struct data_t {
     enum op_type op;
 };
 
-struct bio_data_t {
-    u32 pid;
+struct block_event {
     u64 ts;
+    u32 pid;
     char comm[TASK_COMM_LEN];
-    // dev_t dev;
-    u64 sector;        // Starting sector
-    u32 nr_sectors;    // Number of sectors
-    u32 rwbs;          // Read/write/discard/flush flags
-    // u64 ino;           // Attempt to get inode if possible
-    u32 op;            // Operation type
+    u64 sector;
+    u32 nr_sectors;
+    u32 op;
+    
+    u32 tid;                   
+    u32 cpu_id;                 
+    u32 ppid;                  
+    char parent_comm[TASK_COMM_LEN]; 
+    u32 flags;               
+    u64 bio_size;              
 };
 
 BPF_HASH(file_positions, u64, u64, 1024);
@@ -135,24 +139,19 @@ static int get_file_path(struct file *file, char *buf, int size) {
         return 0;
     }
     
-    // Try to detect special filesystem types
     struct super_block *sb = dentry->d_sb;
     unsigned long magic = 0;
     if (sb) {
         bpf_probe_read_kernel(&magic, sizeof(magic), &sb->s_magic);
     }
     
-    // Check if name is available
     const unsigned char *name_ptr;
     bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &dentry->d_name.name);
     
     if (name_ptr) {
-        // Try to read the name
         ssize_t len = bpf_probe_read_kernel_str(buf, size, name_ptr);
         volatile char first_char = buf[0];
-        // Check if we got anything
         if (len <= 0 | first_char == '\0') {
-            // Check for specific filesystems based on magic number
             switch (magic) {
                 case 0x9fa0: // PROCFS_MAGIC
                     __builtin_memcpy(buf, "[procfs]", 9);
@@ -177,12 +176,9 @@ static int get_file_path(struct file *file, char *buf, int size) {
         __builtin_memcpy(buf, "[no_name]", 10);
     }
     
-    // Log the filename with error handling (don't use direct pointer access)
-    // bpf_trace_printk("Filename: %s, inode: %lu, fs_magic: 0x%lx\n", buf, inode, magic);
     return 0;
 }
 
-// submit event data
 static int submit_event(struct pt_regs *ctx, struct file *file, size_t size, loff_t *pos, enum op_type op) {
     if (file == NULL) {
         return 0;
@@ -197,7 +193,6 @@ static int submit_event(struct pt_regs *ctx, struct file *file, size_t size, lof
     
     pid = bpf_get_current_pid_tgid() >> 32;
         
-    // filter the tracer process
     u32 config_key = 0;  // 0 = tracer_pid
     u32 *tracer_pid = tracer_config.lookup(&config_key);
     if (tracer_pid && pid == *tracer_pid) {
@@ -215,7 +210,6 @@ static int submit_event(struct pt_regs *ctx, struct file *file, size_t size, lof
         get_file_path(file, data.filename, sizeof(data.filename));
 
         
-        // Try to read position from pos pointer if available
         if (pos) {
             bpf_probe_read_kernel(&position, sizeof(position), pos);
         }
@@ -270,21 +264,39 @@ int trace_fput(struct pt_regs *ctx, struct file *file) {
 }
 
 int trace_submit_bio(struct pt_regs *ctx, struct bio *bio) {
-    struct bio_data_t data = {};
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
     
-    data.pid = bpf_get_current_pid_tgid() >> 32;
-    data.ts = bpf_ktime_get_ns();
-    bpf_get_current_comm(&data.comm, sizeof(data.comm));
-    
-    bpf_probe_read_kernel(&data.sector, sizeof(data.sector), &bio->bi_iter.bi_sector);
+    // Skip our own tracer
+    u32 tracer_pid_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&tracer_pid_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
 
-    unsigned int size;
-    bpf_probe_read_kernel(&size, sizeof(size), &bio->bi_iter.bi_size);
-    data.nr_sectors = size >> 9;
-
-    data.op = bio->bi_opf & REQ_OP_MASK; 
+    struct block_event event = {};
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     
+    event.ts = bpf_ktime_get_ns();
+    event.pid = pid;
+    event.tid = bpf_get_current_pid_tgid();  // Full PID/TID
+    event.cpu_id = bpf_get_smp_processor_id(); // Current CPU
     
-    bl_events.perf_submit(ctx, &data, sizeof(data));
+    bpf_get_current_comm(&event.comm, sizeof(event.comm));
+    
+    if (task && task->real_parent) {
+        event.ppid = task->real_parent->tgid;
+        bpf_probe_read_kernel_str(event.parent_comm, sizeof(event.parent_comm), 
+                                task->real_parent->comm);
+    }
+    
+    if (bio) {
+        event.sector = bio->bi_iter.bi_sector;
+        event.nr_sectors = bio->bi_iter.bi_size >> 9; // Convert to sectors
+        event.op = bio->bi_opf & REQ_OP_MASK;
+        event.flags = bio->bi_opf;  // Full flags
+        event.bio_size = bio->bi_iter.bi_size;
+    }
+    
+    bl_events.perf_submit(ctx, &event, sizeof(event));
     return 0;
 }

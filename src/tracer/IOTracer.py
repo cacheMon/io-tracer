@@ -93,22 +93,36 @@ class IOTracer:
         
         timestamp = event.ts
         pid = event.pid
+        tid = event.tid
         comm = event.comm.decode('utf-8', errors='replace')
         sector = event.sector
         nr_sectors = event.nr_sectors
         ops_str = self.flag_mapper.format_block_operation(event.op)
-        output = f"{timestamp} {pid} {comm.replace(' ','_')} {sector} {nr_sectors} {ops_str}"
+        cpu_id = event.cpu_id
+        ppid = event.ppid
+        parent_comm = event.parent_comm.decode('utf-8', errors='replace')
+        bio_size = event.bio_size
+            
+        output = (f"{timestamp} {pid} {tid} {comm.replace(' ','_')} {sector} "
+                f"{nr_sectors} {ops_str} "
+                f"cpu:{cpu_id} ppid:{ppid}({parent_comm}) "
+                f"{bio_size}")
 
         self.writer.append_block_log(output)
         
-        # Store JSON
         json_event = {
-            "timestamp"     : timestamp,
-            "pid"           : event.pid,
-            "comm"          : comm,
-            "sector"        : sector,
-            "nr_sectors"    : nr_sectors,
-            "operation"     : ops_str
+            "timestamp": timestamp,
+            "pid": pid,
+            "tid": tid,
+            "comm": comm,
+            "sector": sector,
+            "nr_sectors": nr_sectors,
+            "operation": ops_str,
+            "cpu_id": cpu_id,
+            "parent_pid": ppid,
+            "parent_comm": parent_comm,
+            "bio_size": bio_size,
+            "flags": event.flags
         }
 
         self.writer.append_block_json(json_event)
