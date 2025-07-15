@@ -94,21 +94,21 @@ class BlockChartGenerator:
         return fig
 
     def create_lba_region_distribution_chart(self, save_path: str = None):
-        """Create a bar chart showing access distribution across LBA regions."""
+        
         if self.block_df is None:
             print("Block data not available, skipping LBA region chart.")
             return None
-
+        
         fig, ax = plt.subplots(1, 1, figsize=(12, 8))
         
-        min_lba = self.block_df['lba'].min()
-        max_lba = self.block_df['lba'].max()
+        min_lba = self.block_df['sector'].min()
+        max_lba = self.block_df['sector'].max()
         lba_range = max_lba - min_lba
-
+        
         if lba_range <= 0:
             print("LBA range is zero, skipping region distribution chart.")
             return None
-
+        
         num_regions = 20
         region_size = lba_range / num_regions
         self.block_df['lba_region'] = ((self.block_df['lba'] - min_lba) / region_size).astype(int)

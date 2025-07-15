@@ -23,8 +23,8 @@ class DataParser:
         
         for member in block_members:
             count += 1
-            if count > 1:
-                break
+            # if count > 1:
+            #     break
             print(f"Completed block log: {count}/{len(block_members)}")
                         
             file_obj = self.tar.extractfile(member)
@@ -43,10 +43,10 @@ class DataParser:
                             chunk.append({
                                 'timestamp': parts[0],
                                 'pid': parts[1],
-                                'comm': parts[2],
-                                'sector': parts[3], 
-                                'nr_sectors': parts[4],
-                                'operation': parts[5],
+                                'comm': parts[3],
+                                'sector': parts[4], 
+                                'nr_sectors': parts[5],
+                                'operation': parts[6],
                             })
                             
                             # Process chunk when it reaches size limit
@@ -71,8 +71,8 @@ class DataParser:
         
         for member in vfs_members:
             count += 1
-            if count > 1:
-                break
+            # if count > 1:
+            #     break
             print(f"Completed fs log: {count}/{len(vfs_members)}")
             
             file_obj = self.tar.extractfile(member)
@@ -112,9 +112,9 @@ class DataParser:
     def _optimize_block_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         # Optimize data types
         df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
-        df['pid'] = pd.to_numeric(df['pid'], errors='coerce', downcast='integer')
-        df['sector'] = pd.to_numeric(df['sector'], errors='coerce', downcast='integer')
-        df['nr_sectors'] = pd.to_numeric(df['nr_sectors'], errors='coerce', downcast='integer')
+        df['pid'] = pd.to_numeric(df['pid'], errors='coerce', downcast=None)
+        df['sector'] = pd.to_numeric(df['sector'], errors='coerce', downcast=None)
+        df['nr_sectors'] = pd.to_numeric(df['nr_sectors'], errors='coerce', downcast=None)
         
         # Calculate derived columns
         df['io_size_bytes'] = df['nr_sectors'] * 512

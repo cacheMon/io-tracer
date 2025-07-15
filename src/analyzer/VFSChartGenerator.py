@@ -175,7 +175,11 @@ class VFSChartGenerator:
         
         unique_ops = rw_ops['op_name'].unique()
         colors = ['skyblue' if op == 'READ' else 'salmon' for op in unique_ops]
-        sns.boxenplot(x='op_name', y='size_log10', data=rw_ops, ax=ax, palette=colors)
+        sns.boxenplot(data=rw_ops, x='op_name', y='size_log10', ax=ax)
+
+        for i, patch in enumerate(ax.artists):
+            if i < len(colors):
+                patch.set_facecolor(colors[i])
         
         y_ticks = np.log10([4096, 16384, 65536, 262144, 1048576, 4194304])
         y_labels = ['4KB', '16KB', '64KB', '256KB', '1MB', '4MB']
