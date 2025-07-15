@@ -3,6 +3,6 @@ __pycache__
 venv
 .venv
 experiment
-result
+result*
 overhead_analysis
 bin

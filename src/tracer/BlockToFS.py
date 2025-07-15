@@ -50,6 +50,9 @@ class BlockToFS:
                                 'sector': parts[3], 
                                 'nr_sectors': parts[4],
                                 'operation': parts[5],
+                                'cpu_id': parts[6],
+                                'parent_process': parts[7],
+                                'bio_size': parts[8]
                             })
 
     def _parse_vfs_log(self):
