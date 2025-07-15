@@ -25,7 +25,6 @@ class DataParser:
             count += 1
             # if count > 1:
             #     break
-            print(f"Completed block log: {count}/{len(block_members)}")
                         
             file_obj = self.tar.extractfile(member)
             if file_obj:
@@ -34,6 +33,8 @@ class DataParser:
                 
                 chunk = []
                 for line_number, line in enumerate(lines, 1):
+                    if (line_number % 100 == 0):
+                        print(f"Completed block log, lines {line_number}/{len(lines)}, files {count}/{len(block_members)}")
                     if line_number == 1:  # Skip header
                         continue
                     line = line.strip()
@@ -73,7 +74,6 @@ class DataParser:
             count += 1
             # if count > 1:
             #     break
-            print(f"Completed fs log: {count}/{len(vfs_members)}")
             
             file_obj = self.tar.extractfile(member)
             if file_obj:
@@ -82,6 +82,8 @@ class DataParser:
                 
                 chunk = []
                 for line_number, line in enumerate(lines, 1):
+                    if (line_number % 100 == 0):
+                        print(f"Completed fs log, lines {line_number}/{len(lines)}, files {count}/{len(vfs_members)}")
                     if line_number == 1:  # Skip header
                         continue
                     line = line.strip()
