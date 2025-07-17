@@ -4,6 +4,7 @@
 #include <linux/dcache.h>
 #include <linux/fs_struct.h>
 #include <linux/blk_types.h>
+#include <linux/blkdev.h>
 #include <linux/stat.h>
 
 #define FILENAME_MAX_LEN 256
@@ -263,62 +264,51 @@ int trace_fput(struct pt_regs *ctx, struct file *file) {
     return 0;
 }
 
-int trace_submit_bio(struct pt_regs *ctx, struct bio *bio) {
+int trace_blk_mq_start_request(struct pt_regs *ctx, struct request *rq) {
     u32 pid = bpf_get_current_pid_tgid() >> 32;
     
-    // Skip our own tracer
     u32 tracer_pid_key = 0;
     u32 *tracer_pid = tracer_config.lookup(&tracer_pid_key);
     if (tracer_pid && pid == *tracer_pid) {
         return 0;
     }
 
+    if (!rq) {
+        return 0;
+    }
+
     struct block_event event = {};
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    
     event.ts = bpf_ktime_get_ns();
     event.pid = pid;
-    event.tid = bpf_get_current_pid_tgid();  // Full PID/TID
-    event.cpu_id = bpf_get_smp_processor_id(); // Current CPU
+    event.tid = bpf_get_current_pid_tgid();
+    event.cpu_id = bpf_get_smp_processor_id();
     
     bpf_get_current_comm(&event.comm, sizeof(event.comm));
     
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     if (task && task->real_parent) {
         event.ppid = task->real_parent->tgid;
         bpf_probe_read_kernel_str(event.parent_comm, sizeof(event.parent_comm), 
                                 task->real_parent->comm);
     }
     
-    if (bio) {
-        // Use bpf_probe_read_kernel for safer memory access
-        u64 sector = 0;
-        u32 bio_size = 0;
-        u32 bio_opf = 0;
-        
-        // Safely read bio fields
-        if (bpf_probe_read_kernel(&sector, sizeof(sector), &bio->bi_iter.bi_sector) == 0) {
-            event.sector = sector;
-        } else {
-            event.sector = 0;  // Mark as invalid
-        }
-        
-        if (bpf_probe_read_kernel(&bio_size, sizeof(bio_size), &bio->bi_iter.bi_size) == 0) {
-            event.nr_sectors = bio_size >> 9; // Convert bytes to sectors
-            event.bio_size = bio_size;
-        } else {
-            event.nr_sectors = 0;
-            event.bio_size = 0;
-        }
-        
-        if (bpf_probe_read_kernel(&bio_opf, sizeof(bio_opf), &bio->bi_opf) == 0) {
-            event.op = bio_opf & REQ_OP_MASK;
-            event.flags = bio_opf;
-        } else {
-            event.op = 0;
-            event.flags = 0;
-        }
+    // These fields are more stable at request start time
+    bpf_probe_read_kernel(&event.sector, sizeof(event.sector), &rq->__sector);
+    
+    u32 data_len = 0;
+    bpf_probe_read_kernel(&data_len, sizeof(data_len), &rq->__data_len);
+    event.bio_size = data_len;
+    event.nr_sectors = data_len >> 9;
+    
+    u32 cmd_flags = 0;
+    bpf_probe_read_kernel(&cmd_flags, sizeof(cmd_flags), &rq->cmd_flags);
+    event.op = cmd_flags & REQ_OP_MASK;
+    event.flags = cmd_flags;
+    
+    // Validate before submitting
+    if (event.bio_size > 0 && event.sector > 0) {
+        bl_events.perf_submit(ctx, &event, sizeof(event));
     }
     
-    bl_events.perf_submit(ctx, &event, sizeof(event));
     return 0;
 }
