@@ -290,11 +290,33 @@ int trace_submit_bio(struct pt_regs *ctx, struct bio *bio) {
     }
     
     if (bio) {
-        event.sector = bio->bi_iter.bi_sector;
-        event.nr_sectors = bio->bi_iter.bi_size >> 9; // Convert to sectors
-        event.op = bio->bi_opf & REQ_OP_MASK;
-        event.flags = bio->bi_opf;  // Full flags
-        event.bio_size = bio->bi_iter.bi_size;
+        // Use bpf_probe_read_kernel for safer memory access
+        u64 sector = 0;
+        u32 bio_size = 0;
+        u32 bio_opf = 0;
+        
+        // Safely read bio fields
+        if (bpf_probe_read_kernel(&sector, sizeof(sector), &bio->bi_iter.bi_sector) == 0) {
+            event.sector = sector;
+        } else {
+            event.sector = 0;  // Mark as invalid
+        }
+        
+        if (bpf_probe_read_kernel(&bio_size, sizeof(bio_size), &bio->bi_iter.bi_size) == 0) {
+            event.nr_sectors = bio_size >> 9; // Convert bytes to sectors
+            event.bio_size = bio_size;
+        } else {
+            event.nr_sectors = 0;
+            event.bio_size = 0;
+        }
+        
+        if (bpf_probe_read_kernel(&bio_opf, sizeof(bio_opf), &bio->bi_opf) == 0) {
+            event.op = bio_opf & REQ_OP_MASK;
+            event.flags = bio_opf;
+        } else {
+            event.op = 0;
+            event.flags = 0;
+        }
     }
     
     bl_events.perf_submit(ctx, &event, sizeof(event));

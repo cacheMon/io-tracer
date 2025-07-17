@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Any
+from tqdm import tqdm
 
 
 class DataParser:
@@ -21,7 +22,10 @@ class DataParser:
         count = 0
         chunk_size = 10000  # Process in chunks to manage memory
         
-        for member in block_members:
+        lba_zero = []
+
+        # Progress bar for files
+        for member in tqdm(block_members, desc="Processing block log files", unit="file"):
             count += 1
             # if count > 1:
             #     break
@@ -32,14 +36,15 @@ class DataParser:
                 lines = content.strip().split('\n')
                 
                 chunk = []
-                for line_number, line in enumerate(lines, 1):
-                    if (line_number % 100 == 0):
-                        print(f"Completed block log, lines {line_number}/{len(lines)}, files {count}/{len(block_members)}")
+                # Progress bar for lines within each file
+                for line_number, line in enumerate(tqdm(lines, desc=f"Processing lines in file {count}", unit="line", leave=False), 1):
                     if line_number == 1:  # Skip header
                         continue
                     line = line.strip()
                     if line:  
                         parts = line.split()
+                        if (parts[4] == 0 and parts[5] == 0) or (parts[4] == '0' and parts[5] == '0'):
+                            lba_zero.append(line)
                         if len(parts) >= 6:  
                             chunk.append({
                                 'timestamp': parts[0],
@@ -70,7 +75,8 @@ class DataParser:
         count = 0
         chunk_size = 10000
         
-        for member in vfs_members:
+        # Progress bar for files
+        for member in tqdm(vfs_members, desc="Processing VFS log files", unit="file"):
             count += 1
             # if count > 1:
             #     break
@@ -81,9 +87,8 @@ class DataParser:
                 lines = content.strip().split('\n')
                 
                 chunk = []
-                for line_number, line in enumerate(lines, 1):
-                    if (line_number % 100 == 0):
-                        print(f"Completed fs log, lines {line_number}/{len(lines)}, files {count}/{len(vfs_members)}")
+                # Progress bar for lines within each file
+                for line_number, line in enumerate(tqdm(lines, desc=f"Processing lines in file {count}", unit="line", leave=False), 1):
                     if line_number == 1:  # Skip header
                         continue
                     line = line.strip()

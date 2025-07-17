@@ -108,6 +108,12 @@ class IOTracer:
                 f"cpu:{cpu_id} ppid:{ppid}({parent_comm}) "
                 f"{bio_size}")
 
+        if (sector == 0 and nr_sectors == 0) or (sector == '0' and nr_sectors == '0'):
+            print("="*50)
+            print("There is LBA 0 in the block")
+            print(output)
+            print("="*50)
+
         self.writer.append_block_log(output)
         
         json_event = {
