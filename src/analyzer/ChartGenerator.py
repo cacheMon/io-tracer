@@ -137,7 +137,7 @@ class ChartGenerator:
                 color='green', linewidth=2, alpha=0.8)
         ax.set_xlabel('Time', fontsize=12, fontweight='bold')
         ax.set_ylabel('Throughput (MB/s)', fontsize=12, fontweight='bold')
-        ax.set_title(f'I/O Throughput Over Time ({time_window} windows) - {self.workload_name}', 
+        ax.set_title(f'Block I/O Throughput Over Time ({time_window} windows) - {self.workload_name}', 
                     fontsize=14, fontweight='bold')
         ax.grid(True, alpha=0.3)
         
@@ -182,7 +182,7 @@ class ChartGenerator:
                 color='blue', linewidth=2, alpha=0.8)
         ax.set_xlabel('Time', fontsize=12, fontweight='bold')
         ax.set_ylabel('IOPS', fontsize=12, fontweight='bold')
-        ax.set_title(f'I/O Operations Per Second Over Time ({time_window} windows) - {self.workload_name}', 
+        ax.set_title(f'Block I/O Operations Per Second Over Time ({time_window} windows) - {self.workload_name}', 
                     fontsize=14, fontweight='bold')
         ax.grid(True, alpha=0.3)
         
@@ -214,7 +214,7 @@ class ChartGenerator:
         bars = ax.barh(range(len(process_io_mb)), process_io_mb.values, color='coral')
         ax.set_xlabel('Total I/O (MB)', fontsize=12, fontweight='bold')
         ax.set_ylabel('Process', fontsize=12, fontweight='bold')
-        ax.set_title(f'Top 15 Processes by I/O Volume - {self.workload_name}', 
+        ax.set_title(f'Top 15 Block Processes by I/O Volume - {self.workload_name}', 
                     fontsize=14, fontweight='bold')
         ax.set_yticks(range(len(process_io_mb)))
         ax.set_yticklabels(process_io_mb.index)
@@ -245,7 +245,7 @@ class ChartGenerator:
         bars = ax.barh(range(len(process_ops)), process_ops.values, color='lightblue')
         ax.set_xlabel('Number of Operations', fontsize=12, fontweight='bold')
         ax.set_ylabel('Process', fontsize=12, fontweight='bold')
-        ax.set_title(f'Top 15 Processes by Operation Count - {self.workload_name}', 
+        ax.set_title(f'Top 15 Processes by Block Operation Count - {self.workload_name}', 
                     fontsize=14, fontweight='bold')
         ax.set_yticks(range(len(process_ops)))
         ax.set_yticklabels(process_ops.index)
@@ -279,7 +279,7 @@ class ChartGenerator:
         
         bars = ax.bar(op_labels, op_counts, color=colors, edgecolor='black')
         ax.set_ylabel('Number of Operations', fontsize=12, fontweight='bold')
-        ax.set_title(f'Read vs Write Operations Count - {self.workload_name}', 
+        ax.set_title(f'Block Read vs Write Operations Count - {self.workload_name}', 
                     fontsize=14, fontweight='bold')
         ax.grid(True, alpha=0.3)
         
@@ -318,7 +318,7 @@ class ChartGenerator:
         
         bars = ax.bar(volume_labels, volume_data, color=colors, edgecolor='black')
         ax.set_ylabel('Data Volume (GB)', fontsize=12, fontweight='bold')
-        ax.set_title(f'Read vs Write Data Volume - {self.workload_name}', 
+        ax.set_title(f'Block Read vs Write Data Volume - {self.workload_name}', 
                     fontsize=14, fontweight='bold')
         ax.grid(True, alpha=0.3)
         

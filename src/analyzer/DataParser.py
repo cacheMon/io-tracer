@@ -43,8 +43,9 @@ class DataParser:
                     line = line.strip()
                     if line:  
                         parts = line.split()
-                        if (parts[4] == 0 and parts[5] == 0) or (parts[4] == '0' and parts[5] == '0'):
-                            lba_zero.append(line)
+                        # if (parts[4] == '18446744073709551615' or parts[4] == 18446744073709551615):
+                        #     print(parts[4])
+                        #     print(line)
                         if len(parts) >= 6:  
                             chunk.append({
                                 'timestamp': parts[0],

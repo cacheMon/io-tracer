@@ -73,8 +73,12 @@ class BlockChartGenerator:
             return None
             
         fig, ax = plt.subplots(1, 1, figsize=(12, 8))
-
-        lba_access_counts = self.block_df['lba'].value_counts().head(20)
+        valid_df = self.block_df[
+            (self.block_df['sector'] != 18446744073709551615) &  # Filter invalid sectors
+            (self.block_df['nr_sectors'] > 0) &                   # Filter zero-sector ops
+            (~self.block_df['operation'].str.contains('DRV'))     # Filter driver ops
+        ]
+        lba_access_counts = valid_df['lba'].value_counts().head(20)
         
         bars = ax.bar(range(len(lba_access_counts)), lba_access_counts.values, color='coral', edgecolor='darkred')
         ax.set_xlabel('LBA Rank (Most to Least Accessed)', fontsize=12, fontweight='bold')
