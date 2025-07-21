@@ -1,10 +1,11 @@
 #!/usr/bin/python3
 
+import shutil
 import signal
 from bcc import BPF
 import time
 import sys
-from .utils import logger
+from ..utility.utils import logger, create_tar_gz
 from .WriterManager import WriteManager
 from .FlagMapper import FlagMapper
 from .KernelProbeTracker import KernelProbeTracker
@@ -15,14 +16,14 @@ class IOTracer:
             self, 
             output_dir:         str,
             bpf_file:           str = './tracer/prober/vfs_prober.c',
-            page_cnt:           int = 8,
+            page_cnt:           int = 64,
             verbose:            bool = False,
-            duration:           int = None,
+            duration:           int | None = None,
             flush_threshold:    int = 5000,
+            split_threshold:   int = 3600 * 24 # 1 day
         ):
-        self.writer             = WriteManager(output_dir)
+        self.writer             = WriteManager(output_dir, split_threshold)
         self.flag_mapper        = FlagMapper()
-
         self.flushing           = False
         self.running            = True
         self.verbose            = verbose
@@ -40,7 +41,7 @@ class IOTracer:
             sys.exit(1)
 
         try:
-            self.b = BPF(src_file=bpf_file, cflags=["-Wno-duplicate-decl-specifier", "-Wno-macro-redefined"])
+            self.b = BPF(src_file=bpf_file.encode(), cflags=["-Wno-duplicate-decl-specifier", "-Wno-macro-redefined"])
             self.probe_tracker = KernelProbeTracker(self.b)
         except Exception as e:
             logger("error", f"failed to initialize BPF: {e}")
@@ -65,10 +66,6 @@ class IOTracer:
         
         size_val = event.size if event.size is not None else 0
         output = f"{timestamp} {op_name} {event.pid} {comm.replace(' ','_')} {filename.replace(' ','_')} {event.inode} {size_val} {flags_str}"
-
-
-        if self.verbose:
-            print(output)
         
         # write to file
         self.writer.append_fs_log(output)
@@ -96,22 +93,42 @@ class IOTracer:
         
         timestamp = event.ts
         pid = event.pid
+        tid = event.tid
         comm = event.comm.decode('utf-8', errors='replace')
         sector = event.sector
         nr_sectors = event.nr_sectors
         ops_str = self.flag_mapper.format_block_operation(event.op)
-        output = f"{timestamp} {pid} {comm.replace(' ','_')} {sector} {nr_sectors} {ops_str}"
+        cpu_id = event.cpu_id
+        ppid = event.ppid
+        parent_comm = event.parent_comm.decode('utf-8', errors='replace')
+        bio_size = event.bio_size
+            
+        output = (f"{timestamp} {pid} {tid} {comm.replace(' ','_')} {sector} "
+                f"{nr_sectors} {ops_str} "
+                f"cpu:{cpu_id} ppid:{ppid}({parent_comm}) "
+                f"{bio_size}")
+
+        if (sector == 0 and nr_sectors == 0) or (sector == '0' and nr_sectors == '0'):
+            print("="*50)
+            print("There is LBA 0 in the block")
+            print(output)
+            print("="*50)
 
         self.writer.append_block_log(output)
         
-        # Store JSON
         json_event = {
-            "timestamp"     : timestamp,
-            "pid"           : event.pid,
-            "comm"          : comm,
-            "sector"        : sector,
-            "nr_sectors"    : nr_sectors,
-            "operation"     : ops_str
+            "timestamp": timestamp,
+            "pid": pid,
+            "tid": tid,
+            "comm": comm,
+            "sector": sector,
+            "nr_sectors": nr_sectors,
+            "operation": ops_str,
+            "cpu_id": cpu_id,
+            "parent_pid": ppid,
+            "parent_comm": parent_comm,
+            "bio_size": bio_size,
+            "flags": event.flags
         }
 
         self.writer.append_block_json(json_event)
@@ -152,7 +169,6 @@ class IOTracer:
     def trace(self):
         self.writer.write_log_header()
         self.probe_tracker.attach_kprobes()
-
 
         signal.signal(signal.SIGINT, self._cleanup)
         signal.signal(signal.SIGTERM, self._cleanup)
@@ -223,6 +239,11 @@ class IOTracer:
             
             if self.verbose:
                 actual_duration = time.time() - start
-                logger("info", f"Trace completed after {actual_duration:.2f} seconds (target: {duration_target}s)")
+                logger("info", f"Trace completed after {actual_duration:.2f} seconds")
             print()
+            create_tar_gz(f"{self.writer.output_dir}/raw_trace_{time.strftime('%Y%m%d_%H%M%S')}.tar.gz", [f"{self.writer.output_dir}/block", f"{self.writer.output_dir}/vfs"])
+
+            # delete file
+            shutil.rmtree(f"{self.writer.output_dir}/block")
+            shutil.rmtree(f"{self.writer.output_dir}/vfs")
             logger("info", "Exiting...")

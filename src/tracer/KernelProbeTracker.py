@@ -1,11 +1,19 @@
+import ctypes
+import os
 from bcc import BPF
 import sys
-from .utils import logger
+from ..utility.utils import logger
 
 class KernelProbeTracker:
     def __init__(self, b:BPF):
         self.kprobes = []
         self.b = b
+
+        tracer_pid = os.getpid()
+        config_key = ctypes.c_uint32(0) 
+        pid_value = ctypes.c_uint32(tracer_pid)
+        self.b["tracer_config"][config_key] = pid_value
+
 
     def add_kprobe(self, event, kprobe):
         try:
@@ -33,7 +41,8 @@ class KernelProbeTracker:
             self.add_kprobe("vfs_write", "trace_vfs_write")
             self.add_kprobe("vfs_open", "trace_vfs_open")
             self.add_kprobe("vfs_fsync", "trace_vfs_fsync")
-            self.add_kprobe("submit_bio","trace_submit_bio")
+            # self.add_kprobe("submit_bio","trace_submit_bio")
+            self.add_kprobe("blk_mq_start_request", "trace_blk_mq_start_request")
             if not self.add_kprobe("vfs_fsync_range", "trace_vfs_fsync_range"):
                 logger("info", "vfs_fsync_range not found, using only vfs_fsync")
             self.add_kprobe("__fput", "trace_fput") 

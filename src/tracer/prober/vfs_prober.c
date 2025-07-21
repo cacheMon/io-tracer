@@ -4,6 +4,8 @@
 #include <linux/dcache.h>
 #include <linux/fs_struct.h>
 #include <linux/blk_types.h>
+#include <linux/blkdev.h>
+#include <linux/stat.h>
 
 #define FILENAME_MAX_LEN 256
 #define PROC_SUPER_MAGIC      0x9fa0      // procfs
@@ -50,19 +52,24 @@ struct data_t {
     enum op_type op;
 };
 
-struct bio_data_t {
-    u32 pid;
+struct block_event {
     u64 ts;
+    u32 pid;
     char comm[TASK_COMM_LEN];
-    // dev_t dev;
-    u64 sector;        // Starting sector
-    u32 nr_sectors;    // Number of sectors
-    u32 rwbs;          // Read/write/discard/flush flags
-    // u64 ino;           // Attempt to get inode if possible
-    u32 op;            // Operation type
+    u64 sector;
+    u32 nr_sectors;
+    u32 op;
+    
+    u32 tid;                   
+    u32 cpu_id;                 
+    u32 ppid;                  
+    char parent_comm[TASK_COMM_LEN]; 
+    u32 flags;               
+    u64 bio_size;              
 };
 
 BPF_HASH(file_positions, u64, u64, 1024);
+BPF_HASH(tracer_config, u32, u32, 1);
 
 BPF_PERF_OUTPUT(events);
 BPF_PERF_OUTPUT(bl_events);
@@ -73,6 +80,48 @@ static u64 get_file_inode(struct file *file) {
         inode = file->f_path.dentry->d_inode->i_ino;
     }
     return inode;
+}
+
+static bool is_regular_file(struct file *file) {
+    bool is_reg, is_virtual;
+    if (!file || !file->f_path.dentry || !file->f_path.dentry->d_inode || !file->f_path.dentry->d_sb) {
+        return false;
+    }
+    umode_t mode;
+    bpf_probe_read_kernel(&mode, sizeof(mode), &file->f_path.dentry->d_inode->i_mode);
+    is_reg = S_ISREG(mode);
+
+    struct super_block *sb = file->f_path.dentry->d_sb;
+    unsigned long magic = 0;
+    bpf_probe_read_kernel(&magic, sizeof(magic), &sb->s_magic);
+
+    switch (magic) {
+        case PROC_SUPER_MAGIC:
+        case SYSFS_MAGIC:
+        case TMPFS_MAGIC:
+        case SOCKFS_MAGIC:
+        case DEBUGFS_MAGIC:
+        case DEVPTS_SUPER_MAGIC:
+        case DEVTMPFS_MAGIC:
+        case PIPEFS_MAGIC:
+        case CGROUP_SUPER_MAGIC:
+        case SELINUX_MAGIC:
+        // case MQUEUE_MAGIC:
+        case FUTEXFS_SUPER_MAGIC:
+        // case EVENTPOLLFS_MAGIC:
+        case INOTIFYFS_SUPER_MAGIC:
+        // case AIO_RING_MAGIC:
+        case XENFS_SUPER_MAGIC:
+        case RPCAUTH_GSSMAGIC:
+        case TRACEFS_MAGIC:
+        case 0x19800202:
+            is_virtual = true;
+            break;
+        default:
+            is_virtual = false;
+    }
+
+    return is_reg && !is_virtual;
 }
 
 static int get_file_path(struct file *file, char *buf, int size) {
@@ -91,26 +140,19 @@ static int get_file_path(struct file *file, char *buf, int size) {
         return 0;
     }
     
-
-    
-    // Try to detect special filesystem types
     struct super_block *sb = dentry->d_sb;
     unsigned long magic = 0;
     if (sb) {
         bpf_probe_read_kernel(&magic, sizeof(magic), &sb->s_magic);
     }
     
-    // Check if name is available
     const unsigned char *name_ptr;
     bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &dentry->d_name.name);
     
     if (name_ptr) {
-        // Try to read the name
-        bpf_probe_read_kernel_str(buf, size, name_ptr);
-        
-        // Check if we got anything
-        if (buf[0] == '\0') {
-            // Check for specific filesystems based on magic number
+        ssize_t len = bpf_probe_read_kernel_str(buf, size, name_ptr);
+        volatile char first_char = buf[0];
+        if (len <= 0 | first_char == '\0') {
             switch (magic) {
                 case 0x9fa0: // PROCFS_MAGIC
                     __builtin_memcpy(buf, "[procfs]", 9);
@@ -135,12 +177,9 @@ static int get_file_path(struct file *file, char *buf, int size) {
         __builtin_memcpy(buf, "[no_name]", 10);
     }
     
-    // Log the filename with error handling (don't use direct pointer access)
-    // bpf_trace_printk("Filename: %s, inode: %lu, fs_magic: 0x%lx\n", buf, inode, magic);
     return 0;
 }
 
-// submit event data
 static int submit_event(struct pt_regs *ctx, struct file *file, size_t size, loff_t *pos, enum op_type op) {
     if (file == NULL) {
         return 0;
@@ -154,43 +193,34 @@ static int submit_event(struct pt_regs *ctx, struct file *file, size_t size, lof
     u64 lba_value = 0;
     
     pid = bpf_get_current_pid_tgid() >> 32;
+        
+    u32 config_key = 0;  // 0 = tracer_pid
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;  // Skip tracing our own process
+    }
     
     data.pid = pid;
     data.ts = bpf_ktime_get_ns();
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
     data.op = op;
     
-    if (file) {
+    if (is_regular_file(file)) {
         data.inode = get_file_inode(file);
-        get_file_path(file, data.filename, sizeof(data.filename));
         data.size = size;
+        get_file_path(file, data.filename, sizeof(data.filename));
+
         
-        // Try to read position from pos pointer if available
         if (pos) {
             bpf_probe_read_kernel(&position, sizeof(position), pos);
         }
         
-        // bpf_trace_printk("Pos: %d\n",*pos);
-
-        // Try to get current tracked position if we don't have a current position
-        if (position == 0) {
-            u64 *current_pos = file_positions.lookup(&file_inode);
-            if (current_pos) {
-                position = *current_pos;
-            }
-        }
-        
-        // Update position for next operation (for READ and WRITE)
-        if (op == OP_READ || op == OP_WRITE) {
-            next_position = position + size;
-            file_positions.update(&file_inode, &next_position);
-        }
-        
         // Read flags
         bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
+        events.perf_submit(ctx, &data, sizeof(data));
     }
+
     
-    events.perf_submit(ctx, &data, sizeof(data));
     return 0;
 }
 
@@ -234,19 +264,51 @@ int trace_fput(struct pt_regs *ctx, struct file *file) {
     return 0;
 }
 
-int trace_submit_bio(struct pt_regs *ctx, struct bio *bio) {
-    struct bio_data_t data = {};
+int trace_blk_mq_start_request(struct pt_regs *ctx, struct request *rq) {
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
     
-    data.pid = bpf_get_current_pid_tgid() >> 32;
-    data.ts = bpf_ktime_get_ns();
-    bpf_get_current_comm(&data.comm, sizeof(data.comm));
-    
-    bpf_probe_read_kernel(&data.sector, sizeof(data.sector), &bio->bi_iter.bi_sector);
-    data.nr_sectors = bio->bi_iter.bi_size >> 9; 
+    u32 tracer_pid_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&tracer_pid_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
 
-    data.op = bio->bi_opf & REQ_OP_MASK; 
+    if (!rq) {
+        return 0;
+    }
+
+    struct block_event event = {};
+    event.ts = bpf_ktime_get_ns();
+    event.pid = pid;
+    event.tid = bpf_get_current_pid_tgid();
+    event.cpu_id = bpf_get_smp_processor_id();
     
+    bpf_get_current_comm(&event.comm, sizeof(event.comm));
     
-    bl_events.perf_submit(ctx, &data, sizeof(data));
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    if (task && task->real_parent) {
+        event.ppid = task->real_parent->tgid;
+        bpf_probe_read_kernel_str(event.parent_comm, sizeof(event.parent_comm), 
+                                task->real_parent->comm);
+    }
+    
+    // These fields are more stable at request start time
+    bpf_probe_read_kernel(&event.sector, sizeof(event.sector), &rq->__sector);
+    
+    u32 data_len = 0;
+    bpf_probe_read_kernel(&data_len, sizeof(data_len), &rq->__data_len);
+    event.bio_size = data_len;
+    event.nr_sectors = data_len >> 9;
+    
+    u32 cmd_flags = 0;
+    bpf_probe_read_kernel(&cmd_flags, sizeof(cmd_flags), &rq->cmd_flags);
+    event.op = cmd_flags & REQ_OP_MASK;
+    event.flags = cmd_flags;
+    
+    // Validate before submitting
+    if (event.bio_size > 0 && event.sector > 0) {
+        bl_events.perf_submit(ctx, &event, sizeof(event));
+    }
+    
     return 0;
 }
