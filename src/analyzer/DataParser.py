@@ -14,6 +14,7 @@ class DataParser:
         self.tar = None
         self.block_data = []
         self.vfs_data = []
+        self.cache_data = []
     
     def _parse_block_log(self):
         block_members = [m for m in self.tar.getmembers() if m.name.startswith('block/log') and m.isfile()]
@@ -143,6 +144,59 @@ class DataParser:
         df['flags_str'] = df['flags_str'].astype('category')
         
         return df
+
+    def _parse_cache_log(self):
+        cache_members = [m for m in self.tar.getmembers() if m.name.startswith('cache/log') and m.isfile()]
+        print(f"Parsing {len(cache_members)} cache log files...")
+        
+        count = 0
+        chunk_size = 10000
+        
+        # Progress bar for files
+        for member in tqdm(cache_members, desc="Processing cache log files", unit="file"):
+            count += 1
+            
+            file_obj = self.tar.extractfile(member)
+            if file_obj:
+                content = file_obj.read().decode('utf-8')
+                lines = content.strip().split('\n')
+                
+                chunk = []
+                for line_number, line in enumerate(tqdm(lines, desc=f"Processing lines in file {count}", unit="line", leave=False), 1):
+                    if line_number == 1:  # Skip header
+                        continue
+                    line = line.strip()
+                    if line:  
+                        parts = line.split()
+                        if len(parts) >= 5:  # timestamp pid comm index status
+                            chunk.append({
+                                'timestamp': parts[0],
+                                'pid': parts[1], 
+                                'comm': parts[2],
+                                'index': parts[3],
+                                'status': parts[4],
+                            })
+                            
+                            if len(chunk) >= chunk_size:
+                                self.cache_data.extend(chunk)
+                                chunk = []
+                
+                if chunk:
+                    self.cache_data.extend(chunk)
+                
+                del content, lines
+                gc.collect()
+
+    def _optimize_cache_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
+        df['pid'] = pd.to_numeric(df['pid'], errors='coerce', downcast='integer')
+        df['index'] = pd.to_numeric(df['index'], errors='coerce', downcast='integer')
+        df['datetime'] = pd.to_datetime(df['timestamp'], unit='ns')
+        
+        df['comm'] = df['comm'].astype('category')
+        df['status'] = df['status'].astype('category')
+        
+        return df
     
     def parse(self) -> tuple[pd.DataFrame, pd.DataFrame]:
         print("Opening tar file...")
@@ -154,6 +208,7 @@ class DataParser:
         try:
             self._parse_block_log()
             self._parse_vfs_log()
+            self._parse_cache_log()
             print("Finished parsing tar file")
             
             if self.block_data:
@@ -165,10 +220,17 @@ class DataParser:
                 print("Creating VFS DataFrame...")
                 vfs_df = pd.DataFrame(self.vfs_data)
                 vfs_df = self._optimize_vfs_dataframe(vfs_df)
+
+            if self.cache_data:
+                print("Creating cache DataFrame...")
+                cache_df = pd.DataFrame(self.cache_data)
+                cache_df = self._optimize_cache_dataframe(cache_df)
+
                 
             # Clear raw data to free memory
             self.block_data = []
             self.vfs_data = []
+            self.cache_data = []
             gc.collect()
             
             print("DataFrames prepared successfully")
@@ -177,4 +239,4 @@ class DataParser:
             if self.tar:
                 self.tar.close()
         
-        return block_df, vfs_df
+        return block_df, vfs_df, cache_df

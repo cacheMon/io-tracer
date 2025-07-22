@@ -7,6 +7,7 @@ from ..utility.utils import logger
 class KernelProbeTracker:
     def __init__(self, b:BPF):
         self.kprobes = []
+        self.kretprobes = []
         self.b = b
 
         tracer_pid = os.getpid()
@@ -25,6 +26,17 @@ class KernelProbeTracker:
             logger("error", f"Failed to attach kprobe {event}: {e}")
             sys.exit(1)
             return False
+
+    def add_kretprobe(self, event, kprobe):
+        try:
+            # logger("info", f"Attaching kprobe {event} to {kprobe}")
+            k = self.b.attach_kretprobe(event=event, fn_name=kprobe)
+            self.kretprobes.append((event, k))
+            return True
+        except Exception as e:
+            logger("error", f"Failed to attach kretprobe {event}: {e}")
+            sys.exit(1)
+            return False
         
     def detach_kprobes(self):
         # detach kprobes
@@ -35,13 +47,30 @@ class KernelProbeTracker:
             except Exception as e:
                 logger("error", f"Error detaching {event}: {e}")
 
-    def attach_kprobes(self):
+        for event, k in self.kretprobes:
+            try:
+                self.b.detach_kretprobe(event=event)
+                # logger("info", f"Detached kretprobe: {event}")
+            except Exception as e:
+                logger("error", f"Error detaching {event}: {e}")
+
+    def detach_kretprobes(self):
+        # detach kretprobes
+        for event, k in self.kprobes:
+            try:
+                self.b.detach_kretprobe(event=event)
+                # logger("info", f"Detached kretprobe: {event}")
+            except Exception as e:
+                logger("error", f"Error detaching {event}: {e}")
+
+    def attach_probes(self):
         try:
             self.add_kprobe("vfs_read", "trace_vfs_read")
             self.add_kprobe("vfs_write", "trace_vfs_write")
             self.add_kprobe("vfs_open", "trace_vfs_open")
             self.add_kprobe("vfs_fsync", "trace_vfs_fsync")
-            # self.add_kprobe("submit_bio","trace_submit_bio")
+            self.add_kprobe("pagecache_get_page", "trace_pagecache_get_page_entry")
+            self.add_kretprobe("pagecache_get_page", "trace_pagecache_get_page_return")
             self.add_kprobe("blk_mq_start_request", "trace_blk_mq_start_request")
             if not self.add_kprobe("vfs_fsync_range", "trace_vfs_fsync_range"):
                 logger("info", "vfs_fsync_range not found, using only vfs_fsync")

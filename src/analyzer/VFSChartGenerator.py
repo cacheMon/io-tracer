@@ -168,18 +168,24 @@ class VFSChartGenerator:
         if rw_ops.empty:
             print("No VFS READ or WRITE operations with positive size found.")
             return None
-        
+
         rw_ops['size_log10'] = np.log10(rw_ops['size_val'])
+        
+        rw_ops['op_name'] = rw_ops['op_name'].astype(str)
 
         fig, ax = plt.subplots(1, 1, figsize=(12, 8))
-        
-        unique_ops = sorted(rw_ops['op_name'].unique())
+
         color_map = {'READ': 'skyblue', 'WRITE': 'salmon'}
-        colors = [color_map.get(op, 'lightgray') for op in unique_ops]
-        
-        sns.boxenplot(x='op_name', y='size_log10', hue='op_name', data=rw_ops, ax=ax, 
-                     palette=colors, legend=False)
-        
+        sns.boxenplot(
+            x='op_name', 
+            y='size_log10', 
+            hue='op_name',              
+            data=rw_ops, 
+            ax=ax,
+            palette=color_map,          
+            legend=False
+        )
+
         y_ticks = np.log10([4096, 16384, 65536, 262144, 1048576, 4194304])
         y_labels = ['4KB', '16KB', '64KB', '256KB', '1MB', '4MB']
         ax.set_yticks(y_ticks)
@@ -192,12 +198,13 @@ class VFSChartGenerator:
         ax.grid(True, axis='y', linestyle='--', alpha=0.6)
 
         plt.tight_layout()
-        
+
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
             print(f"VFS Read/Write size distribution chart saved to: {save_path}")
-            
+
         return fig
+
 
     def create_vfs_top_processes_chart(self, save_path: str = None):
         if self.vfs_df is None:

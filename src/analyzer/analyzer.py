@@ -8,6 +8,7 @@ from .ChartGenerator import ChartGenerator
 from .BlockChartGenerator import BlockChartGenerator
 from .VFSChartGenerator import VFSChartGenerator
 from .ReportGenerator import ReportGenerator
+from .CacheChartGenerator import CacheChartGenerator
 
 
 class IOTraceAnalyzer:
@@ -21,13 +22,14 @@ class IOTraceAnalyzer:
         self.chart_generator = None
         self.block_chart_generator = None
         self.vfs_chart_generator = None
+        self.cache_chart_generator = None
         self.report_generator = None
         
         print(f"Initializing analysis for workload: {self.workload_name}")
         self._prepare_dataframes()
 
     def _prepare_dataframes(self):
-        self.block_df, self.vfs_df = self.data_parser.parse()
+        self.block_df, self.vfs_df, self.cache_df = self.data_parser.parse()
         
         self.chart_generator = ChartGenerator(self.workload_name, self.block_df, self.vfs_df)
         
@@ -37,7 +39,11 @@ class IOTraceAnalyzer:
         if self.vfs_df is not None:
             self.vfs_chart_generator = VFSChartGenerator(self.workload_name, self.vfs_df)
         
-        self.report_generator = ReportGenerator(self.workload_name, self.raw_file, self.block_df, self.vfs_df)
+        if self.cache_df is not None:
+            self.cache_chart_generator = CacheChartGenerator(self.workload_name, self.cache_df)
+        
+        self.report_generator = ReportGenerator(self.workload_name, self.raw_file, 
+                                              self.block_df, self.vfs_df, self.cache_df)
 
     def extract_workload_characteristics(self) -> Dict:
         if self.report_generator:
@@ -174,6 +180,31 @@ class IOTraceAnalyzer:
             return self.block_chart_generator.create_block_process_io_volume_breakdown_chart(save_path)
         return None
 
+    def create_cache_hit_ratio_chart(self, save_path: str = None):
+        if self.cache_chart_generator:
+            return self.cache_chart_generator.create_cache_hit_ratio_chart(save_path)
+        return None
+
+    def create_cache_hit_ratio_over_time_chart(self, save_path: str = None):
+        if self.cache_chart_generator:
+            return self.cache_chart_generator.create_cache_hit_ratio_over_time_chart(save_path)
+        return None
+
+    def create_cache_operations_by_process_chart(self, save_path: str = None):
+        if self.cache_chart_generator:
+            return self.cache_chart_generator.create_cache_operations_by_process_chart(save_path)
+        return None
+
+    def create_cache_hotspots_chart(self, save_path: str = None):
+        if self.cache_chart_generator:
+            return self.cache_chart_generator.create_cache_hotspots_chart(save_path)
+        return None
+
+    def create_cache_performance_stats_image(self, save_path: str = None):
+        if self.cache_chart_generator:
+            return self.cache_chart_generator.create_cache_performance_stats_image(save_path)
+        return None
+
     def create_all_charts(self, output_dir: str = "."):
         output_dir = Path(output_dir)
         output_dir.mkdir(exist_ok=True)
@@ -219,8 +250,22 @@ class IOTraceAnalyzer:
             "vfs_top_processes": self.create_vfs_top_processes_chart,  
             "vfs_process_breakdown": self.create_vfs_process_operation_breakdown_chart,  
         }
+
+        cache_chart_functions = {
+            "cache_hit_ratio": self.create_cache_hit_ratio_chart,
+            "cache_hit_ratio_over_time": self.create_cache_hit_ratio_over_time_chart,
+            "cache_operations_by_process": self.create_cache_operations_by_process_chart,
+            "cache_hotspots": self.create_cache_hotspots_chart,
+            "cache_performance_stats": self.create_cache_performance_stats_image,
+        }
         
         all_chart_functions = {**basic_chart_functions, **block_chart_functions}
+        
+        if self.vfs_df is not None:
+            all_chart_functions.update(vfs_chart_functions)
+        
+        if self.cache_df is not None:
+            all_chart_functions.update(cache_chart_functions)
         
         if self.vfs_df is not None:
             all_chart_functions.update(vfs_chart_functions)
