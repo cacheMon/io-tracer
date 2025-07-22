@@ -123,12 +123,12 @@ class VFSChartGenerator:
         fig, ax = plt.subplots(1, 1, figsize=(16, 8))
 
         duration = (self.vfs_df['timestamp'].max() - self.vfs_df['timestamp'].min()) / 1e9
-        if duration > 3600:  # > 1 hour
-            time_window = '1min'  # 1 minute
-        elif duration > 300:  # > 5 minutes
-            time_window = '10s' # 10 seconds
+        if duration > 3600: 
+            time_window = '1min'  
+        elif duration > 300:
+            time_window = '10s'
         else:
-            time_window = '1s'  # 1 second
+            time_window = '1s'
 
         window_seconds = pd.Timedelta(time_window).total_seconds()
         vfs_iops = self.vfs_df.groupby(pd.Grouper(key='datetime', freq=time_window))['op_name'].count() / window_seconds
@@ -173,12 +173,10 @@ class VFSChartGenerator:
 
         fig, ax = plt.subplots(1, 1, figsize=(12, 8))
         
-        # Create a proper color palette for all unique operations
         unique_ops = sorted(rw_ops['op_name'].unique())
         color_map = {'READ': 'skyblue', 'WRITE': 'salmon'}
         colors = [color_map.get(op, 'lightgray') for op in unique_ops]
         
-        # Use hue parameter and set legend=False to avoid the deprecation warning
         sns.boxenplot(x='op_name', y='size_log10', hue='op_name', data=rw_ops, ax=ax, 
                      palette=colors, legend=False)
         
@@ -202,17 +200,14 @@ class VFSChartGenerator:
         return fig
 
     def create_vfs_top_processes_chart(self, save_path: str = None):
-        """Create a chart showing top processes by VFS operations count."""
         if self.vfs_df is None:
             print("VFS data not available, skipping VFS top processes chart.")
             return None
             
         fig, ax = plt.subplots(1, 1, figsize=(12, 10))
         
-        # Group by process (comm) and count operations
         process_ops = self.vfs_df.groupby('comm', observed=True)['op_name'].count().sort_values(ascending=False).head(15)
         
-        # Create horizontal bar chart
         bars = ax.barh(range(len(process_ops)), process_ops.values, color='mediumpurple', edgecolor='darkslateblue')
         ax.set_xlabel('Number of VFS Operations', fontsize=12, fontweight='bold')
         ax.set_ylabel('Process', fontsize=12, fontweight='bold')
@@ -223,7 +218,6 @@ class VFSChartGenerator:
         ax.invert_yaxis()  # Highest values at the top
         ax.grid(True, alpha=0.3, axis='x')
         
-        # Add value labels on bars
         for i, bar in enumerate(bars):
             width = bar.get_width()
             ax.text(width + width*0.01, bar.get_y() + bar.get_height()/2.,
@@ -238,24 +232,19 @@ class VFSChartGenerator:
         return fig
 
     def create_vfs_process_operation_breakdown_chart(self, save_path: str = None):
-        """Create a stacked bar chart showing VFS operation types breakdown by top processes."""
         if self.vfs_df is None:
             print("VFS data not available, skipping VFS process operation breakdown chart.")
             return None
             
         fig, ax = plt.subplots(1, 1, figsize=(14, 10))
         
-        # Get top 10 processes by total operations
         top_processes = self.vfs_df.groupby('comm', observed=True)['op_name'].count().sort_values(ascending=False).head(10).index
         
-        # Filter data for top processes and create pivot table
         top_process_data = self.vfs_df[self.vfs_df['comm'].isin(top_processes)]
         operation_breakdown = top_process_data.groupby(['comm', 'op_name'], observed=True).size().unstack(fill_value=0)
         
-        # Reorder by total operations
         operation_breakdown = operation_breakdown.loc[top_processes]
         
-        # Create stacked bar chart
         colors = plt.cm.Set3(np.linspace(0, 1, len(operation_breakdown.columns)))
         operation_breakdown.plot(kind='barh', stacked=True, ax=ax, color=colors, edgecolor='black', linewidth=0.5)
         

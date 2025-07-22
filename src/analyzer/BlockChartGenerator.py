@@ -11,7 +11,6 @@ class BlockChartGenerator:
         self.workload_name = workload_name
         self.block_df = block_df
         
-        # Ensure 'lba' column exists
         if 'lba' not in self.block_df.columns:
             self.block_df['lba'] = self.block_df['sector']
 
@@ -94,7 +93,6 @@ class BlockChartGenerator:
         return fig
 
     def create_lba_region_distribution_chart(self, save_path: str = None):
-        """Create a bar chart showing access distribution across LBA regions."""
         if self.block_df is None:
             print("Block data not available, skipping LBA region chart.")
             return None
@@ -272,17 +270,15 @@ class BlockChartGenerator:
         return fig
 
     def create_block_top_processes_chart(self, save_path: str = None):
-        """Create a chart showing top processes by block operations count."""
         if self.block_df is None:
             print("Block data not available, skipping block top processes chart.")
             return None
             
         fig, ax = plt.subplots(1, 1, figsize=(12, 10))
         
-        # Group by process (comm) and count operations
         process_ops = self.block_df.groupby('comm', observed=True)['operation'].count().sort_values(ascending=False).head(15)
         
-        # Create horizontal bar chart
+        # create horizontal bar chart
         bars = ax.barh(range(len(process_ops)), process_ops.values, color='steelblue', edgecolor='darkblue')
         ax.set_xlabel('Number of Block Operations', fontsize=12, fontweight='bold')
         ax.set_ylabel('Process', fontsize=12, fontweight='bold')
@@ -290,10 +286,9 @@ class BlockChartGenerator:
                     fontsize=14, fontweight='bold')
         ax.set_yticks(range(len(process_ops)))
         ax.set_yticklabels(process_ops.index)
-        ax.invert_yaxis()  # Highest values at the top
+        ax.invert_yaxis()  # highest values at the top
         ax.grid(True, alpha=0.3, axis='x')
         
-        # Add value labels on bars
         for i, bar in enumerate(bars):
             width = bar.get_width()
             ax.text(width + width*0.01, bar.get_y() + bar.get_height()/2.,
@@ -308,24 +303,23 @@ class BlockChartGenerator:
         return fig
 
     def create_block_process_operation_breakdown_chart(self, save_path: str = None):
-        """Create a stacked bar chart showing block operation types breakdown by top processes."""
         if self.block_df is None:
             print("Block data not available, skipping block process operation breakdown chart.")
             return None
             
         fig, ax = plt.subplots(1, 1, figsize=(14, 10))
         
-        # Get top 10 processes by total operations
+        # top 10 processes by total operations
         top_processes = self.block_df.groupby('comm', observed=True)['operation'].count().sort_values(ascending=False).head(10).index
         
-        # Filter data for top processes and create pivot table
+        # filter data for top processes and create pivot table
         top_process_data = self.block_df[self.block_df['comm'].isin(top_processes)]
         operation_breakdown = top_process_data.groupby(['comm', 'operation'], observed=True).size().unstack(fill_value=0)
         
-        # Reorder by total operations
+        # reorder by total operations
         operation_breakdown = operation_breakdown.loc[top_processes]
         
-        # Create stacked bar chart
+        # create stacked bar chart
         colors = plt.cm.Set1(np.linspace(0, 1, len(operation_breakdown.columns)))
         operation_breakdown.plot(kind='barh', stacked=True, ax=ax, color=colors, edgecolor='black', linewidth=0.5)
         
@@ -345,27 +339,25 @@ class BlockChartGenerator:
         return fig
 
     def create_block_process_io_volume_breakdown_chart(self, save_path: str = None):
-        """Create a stacked bar chart showing I/O volume breakdown by top processes."""
         if self.block_df is None:
             print("Block data not available, skipping block process I/O volume breakdown chart.")
             return None
             
         fig, ax = plt.subplots(1, 1, figsize=(14, 10))
         
-        # Get top 10 processes by total I/O volume
+        # get top 10 processes by total I/O volume
         top_processes = self.block_df.groupby('comm', observed=True)['io_size_bytes'].sum().sort_values(ascending=False).head(10).index
         
-        # Filter data for top processes and create pivot table for I/O volume
+        # filter data for top processes and create pivot table 
         top_process_data = self.block_df[self.block_df['comm'].isin(top_processes)]
         volume_breakdown = top_process_data.groupby(['comm', 'operation'], observed=True)['io_size_bytes'].sum().unstack(fill_value=0)
         
-        # Convert bytes to MB for better readability
+        # convert bytes to MB 
         volume_breakdown = volume_breakdown / (1024**2)
         
-        # Reorder by total I/O volume
+        # reorder by total I/O volume
         volume_breakdown = volume_breakdown.loc[top_processes]
         
-        # Create stacked bar chart
         colors = plt.cm.Set1(np.linspace(0, 1, len(volume_breakdown.columns)))
         volume_breakdown.plot(kind='barh', stacked=True, ax=ax, color=colors, edgecolor='black', linewidth=0.5)
         
