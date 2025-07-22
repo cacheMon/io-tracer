@@ -7,11 +7,13 @@ from typing import Dict, Any, Optional
 
 class ReportGenerator:
     
-    def __init__(self, workload_name: str, raw_file: str, block_df: pd.DataFrame = None, vfs_df: pd.DataFrame = None):
+    def __init__(self, workload_name: str, raw_file: str, block_df: pd.DataFrame = None, 
+             vfs_df: pd.DataFrame = None, cache_df: pd.DataFrame = None):
         self.workload_name = workload_name
         self.raw_file = raw_file
         self.block_df = block_df
         self.vfs_df = vfs_df
+        self.cache_df = cache_df
         self.workload_summary = {}
 
     def extract_workload_characteristics(self) -> Dict:
@@ -20,6 +22,7 @@ class ReportGenerator:
             'total_duration_seconds': 0,
             'block_stats': {},
             'vfs_stats': {},
+            'cache_stats': {}, 
             'io_patterns': {},
             'performance_metrics': {}
         }
@@ -63,6 +66,25 @@ class ReportGenerator:
                 'open_ops': len(self.vfs_df[self.vfs_df['op_name'] == 'OPEN']),
             }
         
+        if hasattr(self, 'cache_df') and self.cache_df is not None and len(self.cache_df) > 0:
+            cache_duration = (self.cache_df['timestamp'].max() - self.cache_df['timestamp'].min()) / 1e9
+            total_ops = len(self.cache_df)
+            hits = len(self.cache_df[self.cache_df['status'] == 'HIT'])
+            misses = len(self.cache_df[self.cache_df['status'] == 'MISS'])
+            
+            characteristics['cache_stats'] = {
+                'total_operations': total_ops,
+                'cache_hits': hits,
+                'cache_misses': misses,
+                'hit_ratio': (hits / total_ops) if total_ops > 0 else 0,
+                'miss_ratio': (misses / total_ops) if total_ops > 0 else 0,
+                'operations_per_second': total_ops / cache_duration if cache_duration > 0 else 0,
+                'unique_indices': self.cache_df['index'].nunique(),
+                'unique_processes': self.cache_df['comm'].nunique(),
+                'most_active_process': self.cache_df['comm'].value_counts().index[0] if total_ops > 0 else None,
+                'most_accessed_index': self.cache_df['index'].value_counts().index[0] if total_ops > 0 else None
+            }
+        
         self.workload_summary = characteristics
         return characteristics
 
@@ -90,7 +112,6 @@ class ReportGenerator:
             report.append(f"Unique Processes: {block_stats['unique_processes']}")
             report.append("")
             
-            # I/O Patterns
             report.append("I/O PATTERNS")
             report.append("-" * 40)
             report.append(f"Read Ratio: {block_stats['read_ratio']:.1%}")
@@ -122,40 +143,37 @@ class ReportGenerator:
             report.append(f"Open Operations: {vfs_stats['open_ops']:,}")
             report.append("")
         
+        if 'cache_stats' in characteristics and characteristics['cache_stats']:
+            cache_stats = characteristics['cache_stats']
+            report.append("PAGE CACHE OPERATIONS")
+            report.append("-" * 40)
+            report.append(f"Total Cache Operations: {cache_stats['total_operations']:,}")
+            report.append(f"Cache Hits: {cache_stats['cache_hits']:,}")
+            report.append(f"Cache Misses: {cache_stats['cache_misses']:,}")
+            report.append(f"Cache Hit Ratio: {cache_stats['hit_ratio']:.1%}")
+            report.append(f"Cache Operations/sec: {cache_stats['operations_per_second']:.1f}")
+            report.append(f"Unique Cache Indices: {cache_stats['unique_indices']:,}")
+            report.append(f"Most Active Process: {cache_stats['most_active_process']}")
+            report.append("")
+        
         report.append("PERFORMANCE CHARACTERISTICS")
         report.append("-" * 40)
         report.append("This workload can be characterized as:")
         
-        if 'block_stats' in characteristics and characteristics['block_stats']:
-            block_stats = characteristics['block_stats']
-            avg_io_size = block_stats['avg_io_size']
-            iops = block_stats['operations_per_second']
+        if 'cache_stats' in characteristics and characteristics['cache_stats']:
+            cache_stats = characteristics['cache_stats']
+            hit_ratio = cache_stats['hit_ratio']
             
-            if avg_io_size < 8192:
-                io_type = "Small I/O intensive"
-            elif avg_io_size > 262144:
-                io_type = "Large I/O intensive"
+            if hit_ratio > 0.9:
+                cache_behavior = "Excellent cache locality"
+            elif hit_ratio > 0.7:
+                cache_behavior = "Good cache locality"
+            elif hit_ratio > 0.5:
+                cache_behavior = "Moderate cache locality"
             else:
-                io_type = "Mixed I/O size"
+                cache_behavior = "Poor cache locality"
             
-            if iops > 1000:
-                io_intensity = "High IOPS"
-            elif iops > 100:
-                io_intensity = "Medium IOPS"
-            else:
-                io_intensity = "Low IOPS"
-            
-            read_ratio = block_stats['read_ratio']
-            if read_ratio > 0.8:
-                rw_pattern = "Read-heavy"
-            elif read_ratio < 0.2:
-                rw_pattern = "Write-heavy"
-            else:
-                rw_pattern = "Mixed read/write"
-            
-            report.append(f"- {io_type} workload")
-            report.append(f"- {io_intensity} workload")
-            report.append(f"- {rw_pattern} workload")
+            report.append(f"- {cache_behavior} (Hit ratio: {hit_ratio:.1%})")
             report.append("")
         
         return "\n".join(report)
