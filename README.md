@@ -2,7 +2,11 @@
 
 ## Installation
 ```
-sudo apt-get install bpfcc-tools linux-headers-$(uname -r)
+# Install are analyzing tools
+pip install -r requirement.txt
+
+# Install tracer
+[sudo] apt-get install bpfcc-tools linux-headers-$(uname -r)
 ```
 
 ## iotrc
@@ -50,15 +54,16 @@ options:
 ## iotrcanalyze
 | Need to use library from requirement.txt
 ```
-usage: iotrcanalyze.py [-h] [-o OUTPUT] log_file
+usage: iotrcanalyze.py [-h] -rf RAW_FILE [-n NAME] [-o OUTPUT] [--all]
 
-Analyze trace logs
-
-positional arguments:
-  log_file              Trace log file to analyze
+Analyze I/O tracing data optimized for workload comparison
 
 options:
   -h, --help            show this help message and exit
+  -rf RAW_FILE, --raw-file RAW_FILE
+                        Compressed raw file to parse
+  -n NAME, --name NAME  Workload name for identification
   -o OUTPUT, --output OUTPUT
-                        Output directory for analysis results
+                        Output directory
+  --all                 Create all charts and reports
 ```
