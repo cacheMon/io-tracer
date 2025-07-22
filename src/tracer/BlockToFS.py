@@ -86,14 +86,12 @@ class BlockToFS:
                             })
 
     def close(self):
-        """Close the tar file"""
         if hasattr(self, 'tar'):
             self.tar.close()
             if self.verbose:
                 print(f"Closed tar.gz file: {self.raw_file}")
 
     def __del__(self):
-        """Destructor to ensure tar file is closed"""
         self.close()
 
     def _find_matching_pid(self):
@@ -102,7 +100,6 @@ class BlockToFS:
         
         processed_blocks = set()
         
-        # Group VFS operations by PID
         vfs_by_pid = {}
         for dvfs in self.data_vfs:
             pid = dvfs['pid']
@@ -110,7 +107,6 @@ class BlockToFS:
                 vfs_by_pid[pid] = []
             vfs_by_pid[pid].append(dvfs)
         
-        # Process each block operation for matches
         for i, dblock in enumerate(self.data_block):
             block_pid = dblock['pid']
             block_timestamp = float(dblock['timestamp'])
@@ -159,22 +155,20 @@ class BlockToFS:
                     self.json_output.append(json_data)
                     output += f"{timestamp} {n_vfs_opname} {n_vfs_pid} {n_blk_comm} {n_filename} {n_inode} {n_size} {n_sector} {n_flags} {n_blk_operation}\n"
                     
-                    # Mark this block as processed
                     processed_blocks.add(i)
         
-        # Now add remaining unmatched block operations
         for i, dblock in enumerate(self.data_block):
             if i not in processed_blocks:
                 timestamp = float(dblock['timestamp'])
                 
                 json_data = {
                     'timestamp': int(timestamp),
-                    'op_name': "[none]",  # No matching VFS operation
+                    'op_name': "[none]",  
                     'pid': dblock['pid'],
                     'comm': dblock['comm'],
                     'filename': "[unknown]",
-                    'inode': "[none]", # no inode
-                    'size_val': int(dblock['nr_sectors']) * 512,  # Use sectors as size
+                    'inode': "[none]", 
+                    'size_val': int(dblock['nr_sectors']) * 512, 
                     'sector': dblock['sector'],
                     'flags_str': "[none]",
                     'blk_operation': dblock['operation']
@@ -183,11 +177,9 @@ class BlockToFS:
                 self.json_output.append(json_data)
                 output += f"{int(timestamp)} [none] {dblock['pid']} {dblock['comm']} [unknown] 0 {dblock['nr_sectors']} {dblock['sector']} [none] {dblock['operation']}\n"
         
-        # Finally, add unmatched VFS operations
         matched_vfs = set()
         for entry in self.json_output:
-            if entry['op_name'] != "[none]":  # This is a matched VFS entry
-                # Create a tuple of identifying information to track which VFS ops we've used
+            if entry['op_name'] != "[none]":  
                 vfs_key = (entry['pid'], entry['op_name'], entry['filename'], entry['inode'])
                 matched_vfs.add(vfs_key)
         
@@ -204,7 +196,7 @@ class BlockToFS:
                     'filename': dvfs['filename'],
                     'inode': dvfs['inode'],
                     'size_val': dvfs['size_val'],
-                    'sector': "[none]",  # No matching block operation
+                    'sector': "[none]",
                     'flags_str': dvfs['flags_str'],
                     'blk_operation': "[none]"
                 }
@@ -258,7 +250,6 @@ class BlockToFS:
                 vfs_pid = vfs_op['pid']
                 vfs_size = int(vfs_op.get('size_val', 0))
                 
-                # Find block operations within this time window
                 matching_blocks = [
                     block for block in self.data_block
                     if block['pid'] == vfs_pid
@@ -268,18 +259,15 @@ class BlockToFS:
                 if matching_blocks:
                     matches += 1
                     
-                    # Calculate total block size for WRITE/READ operations
                     if vfs_op['op_name'] in ['READ', 'WRITE'] and vfs_size > 0:
                         total_block_bytes = sum(
                             int(block['nr_sectors']) * 512 
                             for block in matching_blocks
                         )
                         
-                        # If sizes differ by more than 20%, might be a false positive
                         if not (0.8 <= total_block_bytes / vfs_size <= 1.2):
                             false_positives += 1
             
-            # Calculate match rate and false positive rate
             match_rate = matches / len(direct_io_ops) if direct_io_ops else 0
             false_positive_rate = false_positives / matches if matches else 0
             
@@ -289,14 +277,13 @@ class BlockToFS:
                 'match_rate': match_rate,
                 'false_positives': false_positives,
                 'false_positive_rate': false_positive_rate,
-                'score': match_rate * (1 - false_positive_rate)  # Combined score
+                'score': match_rate * (1 - false_positive_rate)
             }
             if self.verbose:
                 print(f"Window {window/1_000_000}ms: {match_rate:.2f} match rate, "
                     f"{false_positive_rate:.2f} false positive rate, "
                     f"Score: {match_rate * (1 - false_positive_rate):.3f}")
         
-        # Find the window with the best score
         best_window = max(results.items(), key=lambda x: x[1]['score'])
         if self.verbose:
             print(f"Optimal time window: {best_window[1]['window_ms']}ms with score {best_window[1]['score']:.3f}")
@@ -313,18 +300,18 @@ class BlockToFS:
         
         if op_type == 'READ':
             if is_direct:
-                return base_window * 0.5  # Direct reads are faster
+                return base_window * 0.5  
             else:
-                return base_window * 2  # Buffered reads may have caching effects
+                return base_window * 2 
         
         elif op_type == 'WRITE':
             if is_direct:
-                return base_window  # Direct writes fairly predictable
+                return base_window 
             else:
-                return base_window * 10  # Buffered writes can be delayed significantly
+                return base_window * 10  
         
         elif op_type in ['OPEN', 'CLOSE']:
-            return base_window * 5  # Metadata operations have variable timing
+            return base_window * 5  
         
         return base_window
 

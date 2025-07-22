@@ -149,6 +149,31 @@ class IOTraceAnalyzer:
             return self.vfs_chart_generator.create_vfs_rw_size_distribution_chart(save_path)
         return None
 
+    def create_vfs_top_processes_chart(self, save_path: str = None):
+        if self.vfs_chart_generator:
+            return self.vfs_chart_generator.create_vfs_top_processes_chart(save_path)
+        return None
+
+    def create_vfs_process_operation_breakdown_chart(self, save_path: str = None):
+        if self.vfs_chart_generator:
+            return self.vfs_chart_generator.create_vfs_process_operation_breakdown_chart(save_path)
+        return None
+
+    def create_block_top_processes_chart(self, save_path: str = None):
+        if self.block_chart_generator:
+            return self.block_chart_generator.create_block_top_processes_chart(save_path)
+        return None
+
+    def create_block_process_operation_breakdown_chart(self, save_path: str = None):
+        if self.block_chart_generator:
+            return self.block_chart_generator.create_block_process_operation_breakdown_chart(save_path)
+        return None
+
+    def create_block_process_io_volume_breakdown_chart(self, save_path: str = None):
+        if self.block_chart_generator:
+            return self.block_chart_generator.create_block_process_io_volume_breakdown_chart(save_path)
+        return None
+
     def create_all_charts(self, output_dir: str = "."):
         output_dir = Path(output_dir)
         output_dir.mkdir(exist_ok=True)
@@ -179,6 +204,9 @@ class IOTraceAnalyzer:
             "access_pattern": self.create_access_pattern_chart,
             "io_size_pattern": self.create_io_size_pattern_chart,
             "performance_stats": self.create_performance_stats_image,
+            "block_top_processes": self.create_block_top_processes_chart, 
+            "block_process_breakdown": self.create_block_process_operation_breakdown_chart,  
+            "block_process_io_volume": self.create_block_process_io_volume_breakdown_chart,
         }
         
         # VFS-specific charts from VFSChartGenerator
@@ -188,6 +216,8 @@ class IOTraceAnalyzer:
             "vfs_open_flags": self.create_vfs_open_flags_chart,
             "vfs_iops": self.create_vfs_iops_chart,
             "vfs_rw_size_distribution": self.create_vfs_rw_size_distribution_chart,
+            "vfs_top_processes": self.create_vfs_top_processes_chart,  
+            "vfs_process_breakdown": self.create_vfs_process_operation_breakdown_chart,  
         }
         
         all_chart_functions = {**basic_chart_functions, **block_chart_functions}

@@ -123,12 +123,12 @@ class VFSChartGenerator:
         fig, ax = plt.subplots(1, 1, figsize=(16, 8))
 
         duration = (self.vfs_df['timestamp'].max() - self.vfs_df['timestamp'].min()) / 1e9
-        if duration > 3600:  # > 1 hour
-            time_window = '1min'  # 1 minute
-        elif duration > 300:  # > 5 minutes
-            time_window = '10s' # 10 seconds
+        if duration > 3600: 
+            time_window = '1min'  
+        elif duration > 300:
+            time_window = '10s'
         else:
-            time_window = '1s'  # 1 second
+            time_window = '1s'
 
         window_seconds = pd.Timedelta(time_window).total_seconds()
         vfs_iops = self.vfs_df.groupby(pd.Grouper(key='datetime', freq=time_window))['op_name'].count() / window_seconds
@@ -173,13 +173,12 @@ class VFSChartGenerator:
 
         fig, ax = plt.subplots(1, 1, figsize=(12, 8))
         
-        unique_ops = rw_ops['op_name'].unique()
-        colors = ['skyblue' if op == 'READ' else 'salmon' for op in unique_ops]
-        sns.boxenplot(data=rw_ops, x='op_name', y='size_log10', ax=ax)
-
-        for i, patch in enumerate(ax.artists):
-            if i < len(colors):
-                patch.set_facecolor(colors[i])
+        unique_ops = sorted(rw_ops['op_name'].unique())
+        color_map = {'READ': 'skyblue', 'WRITE': 'salmon'}
+        colors = [color_map.get(op, 'lightgray') for op in unique_ops]
+        
+        sns.boxenplot(x='op_name', y='size_log10', hue='op_name', data=rw_ops, ax=ax, 
+                     palette=colors, legend=False)
         
         y_ticks = np.log10([4096, 16384, 65536, 262144, 1048576, 4194304])
         y_labels = ['4KB', '16KB', '64KB', '256KB', '1MB', '4MB']
@@ -197,5 +196,69 @@ class VFSChartGenerator:
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
             print(f"VFS Read/Write size distribution chart saved to: {save_path}")
+            
+        return fig
+
+    def create_vfs_top_processes_chart(self, save_path: str = None):
+        if self.vfs_df is None:
+            print("VFS data not available, skipping VFS top processes chart.")
+            return None
+            
+        fig, ax = plt.subplots(1, 1, figsize=(12, 10))
+        
+        process_ops = self.vfs_df.groupby('comm', observed=True)['op_name'].count().sort_values(ascending=False).head(15)
+        
+        bars = ax.barh(range(len(process_ops)), process_ops.values, color='mediumpurple', edgecolor='darkslateblue')
+        ax.set_xlabel('Number of VFS Operations', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Process', fontsize=12, fontweight='bold')
+        ax.set_title(f'Top 15 Processes by VFS Operations Count - {self.workload_name}', 
+                    fontsize=14, fontweight='bold')
+        ax.set_yticks(range(len(process_ops)))
+        ax.set_yticklabels(process_ops.index)
+        ax.invert_yaxis()  # Highest values at the top
+        ax.grid(True, alpha=0.3, axis='x')
+        
+        for i, bar in enumerate(bars):
+            width = bar.get_width()
+            ax.text(width + width*0.01, bar.get_y() + bar.get_height()/2.,
+                    f'{int(width):,}', ha='left', va='center', fontweight='bold')
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"VFS top processes chart saved to: {save_path}")
+            
+        return fig
+
+    def create_vfs_process_operation_breakdown_chart(self, save_path: str = None):
+        if self.vfs_df is None:
+            print("VFS data not available, skipping VFS process operation breakdown chart.")
+            return None
+            
+        fig, ax = plt.subplots(1, 1, figsize=(14, 10))
+        
+        top_processes = self.vfs_df.groupby('comm', observed=True)['op_name'].count().sort_values(ascending=False).head(10).index
+        
+        top_process_data = self.vfs_df[self.vfs_df['comm'].isin(top_processes)]
+        operation_breakdown = top_process_data.groupby(['comm', 'op_name'], observed=True).size().unstack(fill_value=0)
+        
+        operation_breakdown = operation_breakdown.loc[top_processes]
+        
+        colors = plt.cm.Set3(np.linspace(0, 1, len(operation_breakdown.columns)))
+        operation_breakdown.plot(kind='barh', stacked=True, ax=ax, color=colors, edgecolor='black', linewidth=0.5)
+        
+        ax.set_xlabel('Number of VFS Operations', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Process', fontsize=12, fontweight='bold')
+        ax.set_title(f'VFS Operation Types by Top 10 Processes - {self.workload_name}', 
+                    fontsize=14, fontweight='bold')
+        ax.grid(True, alpha=0.3, axis='x')
+        ax.legend(title='VFS Operation Type', bbox_to_anchor=(1.05, 1), loc='upper left')
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"VFS process operation breakdown chart saved to: {save_path}")
             
         return fig
