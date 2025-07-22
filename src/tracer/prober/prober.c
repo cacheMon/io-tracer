@@ -6,32 +6,35 @@
 #include <linux/blk_types.h>
 #include <linux/blkdev.h>
 #include <linux/stat.h>
+#include <linux/fs.h>
+#include <linux/mm.h>
+#include <linux/sched.h>
 
 #define FILENAME_MAX_LEN 256
-#define PROC_SUPER_MAGIC      0x9fa0      // procfs
-#define SYSFS_MAGIC           0x62656572  // sysfs
-#define TMPFS_MAGIC           0x01021994  // tmpfs
-#define SOCKFS_MAGIC          0x9fa2      // sockfs
-#define DEBUGFS_MAGIC         0x64626720  // debugfs
-#define DEVPTS_SUPER_MAGIC    0x1cd1      // devpts
-#define DEVTMPFS_MAGIC        0x74656d70  // devtmpfs
-#define PIPEFS_MAGIC          0x50495045  // pipefs
-#define CGROUP_SUPER_MAGIC    0x27e0eb    // cgroupfs
-#define SELINUX_MAGIC         0xf97cff8c  // selinuxfs
-#define NFS_SUPER_MAGIC       0x6969      // nfs
-#define AUTOFS_SUPER_MAGIC    0x0187      // autofs
-#define MQUEUE_MAGIC          0x19800202  // mqueue
-#define FUSE_SUPER_MAGIC      0x65735546  // fuse
-#define RAMFS_MAGIC           0x858458f6  // ramfs
-#define BINFMTFS_MAGIC        0x42494e4d  // binfmt_misc
-#define FUTEXFS_SUPER_MAGIC   0xBAD1DEA   // futexfs
-#define EVENTPOLLFS_MAGIC     0x19800202  // eventpoll
-#define INOTIFYFS_SUPER_MAGIC 0x2BAD1DEA  // inotify
-#define AIO_RING_MAGIC        0x19800202  // aio
-#define XENFS_SUPER_MAGIC     0xabba1974  // xenfs
-#define RPCAUTH_GSSMAGIC      0x67596969  // rpc_pipefs
-#define OVERLAYFS_SUPER_MAGIC 0x794c7630  // overlayfs
-#define TRACEFS_MAGIC         0x74726163  // tracefs
+#define PROC_SUPER_MAGIC      0x9fa0      
+#define SYSFS_MAGIC           0x62656572  
+#define TMPFS_MAGIC           0x01021994  
+#define SOCKFS_MAGIC          0x9fa2      
+#define DEBUGFS_MAGIC         0x64626720  
+#define DEVPTS_SUPER_MAGIC    0x1cd1     
+#define DEVTMPFS_MAGIC        0x74656d70  
+#define PIPEFS_MAGIC          0x50495045  
+#define CGROUP_SUPER_MAGIC    0x27e0eb    
+#define SELINUX_MAGIC         0xf97cff8c  
+#define NFS_SUPER_MAGIC       0x6969      
+#define AUTOFS_SUPER_MAGIC    0x0187      
+#define MQUEUE_MAGIC          0x19800202  
+#define FUSE_SUPER_MAGIC      0x65735546  
+#define RAMFS_MAGIC           0x858458f6  
+#define BINFMTFS_MAGIC        0x42494e4d  
+#define FUTEXFS_SUPER_MAGIC   0xBAD1DEA   
+#define EVENTPOLLFS_MAGIC     0x19800202  
+#define INOTIFYFS_SUPER_MAGIC 0x2BAD1DEA  
+#define AIO_RING_MAGIC        0x19800202  
+#define XENFS_SUPER_MAGIC     0xabba1974 
+#define RPCAUTH_GSSMAGIC      0x67596969 
+#define OVERLAYFS_SUPER_MAGIC 0x794c7630 
+#define TRACEFS_MAGIC         0x74726163 
 
 enum op_type {
     OP_READ = 1,
@@ -68,11 +71,21 @@ struct block_event {
     u64 bio_size;              
 };
 
+struct cache_data {
+    u64 ts;          
+    u32 pid;
+    u64 index;
+    u8 hit;
+    char comm[TASK_COMM_LEN];
+};
+
+BPF_HASH(start, u64, u64);
 BPF_HASH(file_positions, u64, u64, 1024);
 BPF_HASH(tracer_config, u32, u32, 1);
 
 BPF_PERF_OUTPUT(events);
 BPF_PERF_OUTPUT(bl_events);
+BPF_PERF_OUTPUT(cache_events);
 
 static u64 get_file_inode(struct file *file) {
     u64 inode = 0;
@@ -106,11 +119,8 @@ static bool is_regular_file(struct file *file) {
         case PIPEFS_MAGIC:
         case CGROUP_SUPER_MAGIC:
         case SELINUX_MAGIC:
-        // case MQUEUE_MAGIC:
         case FUTEXFS_SUPER_MAGIC:
-        // case EVENTPOLLFS_MAGIC:
         case INOTIFYFS_SUPER_MAGIC:
-        // case AIO_RING_MAGIC:
         case XENFS_SUPER_MAGIC:
         case RPCAUTH_GSSMAGIC:
         case TRACEFS_MAGIC:
@@ -154,19 +164,19 @@ static int get_file_path(struct file *file, char *buf, int size) {
         volatile char first_char = buf[0];
         if (len <= 0 | first_char == '\0') {
             switch (magic) {
-                case 0x9fa0: // PROCFS_MAGIC
+                case 0x9fa0: 
                     __builtin_memcpy(buf, "[procfs]", 9);
                     break;
-                case 0x62656572: // SYSFS_MAGIC
+                case 0x62656572: 
                     __builtin_memcpy(buf, "[sysfs]", 8);
                     break;
-                case 0x01021994: // TMPFS_MAGIC
+                case 0x01021994:
                     __builtin_memcpy(buf, "[tmpfs]", 8);
                     break;
-                case 0x9fa2: // SOCKFS_MAGIC
+                case 0x9fa2:
                     __builtin_memcpy(buf, "[sockfs]", 9);
                     break;
-                case 0x64626720: // DEBUGFS_MAGIC
+                case 0x64626720: 
                     __builtin_memcpy(buf, "[debugfs]", 10);
                     break;
                 default:
@@ -310,5 +320,38 @@ int trace_blk_mq_start_request(struct pt_regs *ctx, struct request *rq) {
         bl_events.perf_submit(ctx, &event, sizeof(event));
     }
     
+    return 0;
+}
+
+int trace_pagecache_get_page_entry(struct pt_regs *ctx, struct address_space *mapping,
+                                   pgoff_t index, int fgp_flags, gfp_t gfp_mask) {
+    u64 pid = bpf_get_current_pid_tgid();
+    u64 index64 = (u64)index;
+    start.update(&pid, &index64);
+    
+    return 0;
+}
+
+int trace_pagecache_get_page_return(struct pt_regs *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = pid_tgid >> 32;
+    struct page *page = (struct page *)PT_REGS_RC(ctx);
+
+    u64 *indexp = start.lookup(&pid_tgid);
+    if (!indexp)
+        return 0;
+
+    struct cache_data data = {};
+    data.ts = bpf_ktime_get_ns();  
+    data.pid = pid;
+    data.index = *indexp;
+    data.hit = 0;
+
+    if (page && (page->flags & (1UL << PG_uptodate)))
+        data.hit = 1;
+
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    cache_events.perf_submit(ctx, &data, sizeof(data));
+    start.delete(&pid_tgid);
     return 0;
 }

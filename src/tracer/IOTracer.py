@@ -15,7 +15,7 @@ class IOTracer:
     def __init__(
             self, 
             output_dir:         str,
-            bpf_file:           str = './tracer/prober/vfs_prober.c',
+            bpf_file:           str,
             page_cnt:           int = 64,
             verbose:            bool = False,
             duration:           int | None = None,
@@ -87,6 +87,19 @@ class IOTracer:
             json_event["size"] = 0
         
         self.writer.append_fs_json(json_event)
+
+    def _print_event_cache(self, cpu, data, size):       
+        #  print("TIME(us) PID COMM INDEX HIT/MISS") 
+        event = self.b["cache_events"].event(data)
+        timestamp = event.ts
+        pid = event.pid
+        comm = event.comm.decode('utf-8', errors='replace')
+        index = event.index
+        hit = "HIT" if event.hit else "MISS"
+
+        output = f"{timestamp} {pid} {comm.replace(' ','_')} {index} {hit}"
+
+        self.writer.append_cache_log(output)
 
     def _print_event_block(self, cpu, data, size):        
         event = self.b["bl_events"].event(data)
@@ -168,7 +181,7 @@ class IOTracer:
 
     def trace(self):
         self.writer.write_log_header()
-        self.probe_tracker.attach_kprobes()
+        self.probe_tracker.attach_probes()
 
         signal.signal(signal.SIGINT, self._cleanup)
         signal.signal(signal.SIGTERM, self._cleanup)
@@ -184,6 +197,12 @@ class IOTracer:
 
         self.b["bl_events"].open_perf_buffer(
             self._print_event_block, 
+            page_cnt=self.page_cnt, 
+            lost_cb=self._lost_cb
+        )
+
+        self.b["cache_events"].open_perf_buffer(
+            self._print_event_cache, 
             page_cnt=self.page_cnt, 
             lost_cb=self._lost_cb
         )
@@ -241,9 +260,10 @@ class IOTracer:
                 actual_duration = time.time() - start
                 logger("info", f"Trace completed after {actual_duration:.2f} seconds")
             print()
-            create_tar_gz(f"{self.writer.output_dir}/raw_trace_{time.strftime('%Y%m%d_%H%M%S')}.tar.gz", [f"{self.writer.output_dir}/block", f"{self.writer.output_dir}/vfs"])
+            create_tar_gz(f"{self.writer.output_dir}/raw_trace_{time.strftime('%Y%m%d_%H%M%S')}.tar.gz", [f"{self.writer.output_dir}/block", f"{self.writer.output_dir}/vfs", f"{self.writer.output_dir}/cache"])
 
             # delete file
             shutil.rmtree(f"{self.writer.output_dir}/block")
             shutil.rmtree(f"{self.writer.output_dir}/vfs")
+            shutil.rmtree(f"{self.writer.output_dir}/cache")
             logger("info", "Exiting...")
