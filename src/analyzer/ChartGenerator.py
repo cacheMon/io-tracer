@@ -309,15 +309,15 @@ class ChartGenerator:
         read_ops = self.block_df[self.block_df['operation'].str.contains('read', case=False, na=False)]
         write_ops = self.block_df[self.block_df['operation'].str.contains('write', case=False, na=False)]
         
-        read_bytes = read_ops['io_size_bytes'].sum() / 1024**3 if len(read_ops) > 0 else 0  # GB
-        write_bytes = write_ops['io_size_bytes'].sum() / 1024**3 if len(write_ops) > 0 else 0  # GB
+        read_bytes = read_ops['io_size_bytes'].sum() / 10**6 if len(read_ops) > 0 else 0  # GB
+        write_bytes = write_ops['io_size_bytes'].sum() / 10**6 if len(write_ops) > 0 else 0  # GB
         
         volume_data = [read_bytes, write_bytes]
-        volume_labels = ['Read Data (GB)', 'Write Data (GB)']
+        volume_labels = ['Read Data (MB)', 'Write Data (MB)']
         colors = ['lightblue', 'lightcoral']
         
         bars = ax.bar(volume_labels, volume_data, color=colors, edgecolor='black')
-        ax.set_ylabel('Data Volume (GB)', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Data Volume (MB)', fontsize=12, fontweight='bold')
         ax.set_title(f'Block Read vs Write Data Volume - {self.workload_name}', 
                     fontsize=14, fontweight='bold')
         ax.grid(True, alpha=0.3)
@@ -327,7 +327,7 @@ class ChartGenerator:
             height = bar.get_height()
             percentage = (height / total_volume) * 100 if total_volume > 0 else 0
             ax.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{height:.1f} GB\n({percentage:.1f}%)', 
+                    f'{height:.1f} MB\n({percentage:.1f}%)', 
                     ha='center', va='bottom', fontweight='bold')
         
         plt.tight_layout()
