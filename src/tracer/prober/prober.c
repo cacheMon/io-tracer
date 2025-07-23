@@ -10,6 +10,17 @@
 #include <linux/mm.h>
 #include <linux/sched.h>
 
+#ifdef __has_include
+#  if __has_include(<linux/blk-mq.h>)
+#    include <linux/blk-mq.h>
+#  endif
+#else
+
+# if LINUX_VERSION_CODE >= KERNEL_VERSION(5,16,0)
+#  include <linux/blk-mq.h>
+# endif
+#endif
+
 #define FILENAME_MAX_LEN 256
 #define PROC_SUPER_MAGIC      0x9fa0      
 #define SYSFS_MAGIC           0x62656572  
