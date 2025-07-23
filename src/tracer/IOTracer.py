@@ -16,11 +16,11 @@ class IOTracer:
             self, 
             output_dir:         str,
             bpf_file:           str,
+            flush_threshold:    int,
+            split_threshold:    int,
             page_cnt:           int = 64,
             verbose:            bool = False,
-            duration:           int | None = None,
-            flush_threshold:    int = 5000,
-            split_threshold:   int = 3600 * 24 # 1 day
+            duration:           int | None = None
         ):
         self.writer             = WriteManager(output_dir, split_threshold)
         self.flag_mapper        = FlagMapper()
