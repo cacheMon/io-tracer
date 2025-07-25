@@ -28,7 +28,8 @@ class ReportGenerator:
         }
         
         if self.block_df is not None and len(self.block_df) > 0:
-            duration = (self.block_df['timestamp'].max() - self.block_df['timestamp'].min()) / 1e9
+            duration = (self.block_df['timestamp'].max() - self.block_df['timestamp'].min())
+            duration = duration.total_seconds()
             characteristics['total_duration_seconds'] = duration
             
             characteristics['block_stats'] = {
@@ -53,7 +54,8 @@ class ReportGenerator:
             }
         
         if self.vfs_df is not None and len(self.vfs_df) > 0:
-            vfs_duration = (self.vfs_df['timestamp'].max() - self.vfs_df['timestamp'].min()) / 1e9
+            vfs_duration = (self.vfs_df['timestamp'].max() - self.vfs_df['timestamp'].min())
+            vfs_duration = vfs_duration.total_seconds()
             
             characteristics['vfs_stats'] = {
                 'total_operations': len(self.vfs_df),
@@ -67,7 +69,8 @@ class ReportGenerator:
             }
         
         if hasattr(self, 'cache_df') and self.cache_df is not None and len(self.cache_df) > 0:
-            cache_duration = (self.cache_df['timestamp'].max() - self.cache_df['timestamp'].min()) / 1e9
+            cache_duration = (self.cache_df['timestamp'].max() - self.cache_df['timestamp'].min())
+            cache_duration = cache_duration.total_seconds()
             total_ops = len(self.cache_df)
             hits = len(self.cache_df[self.cache_df['status'] == 'HIT'])
             misses = len(self.cache_df[self.cache_df['status'] == 'MISS'])

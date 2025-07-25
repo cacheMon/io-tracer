@@ -117,6 +117,7 @@ class DataParser:
     
     def _optimize_block_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ns')
         df['pid'] = pd.to_numeric(df['pid'], errors='coerce', downcast=None)
         df['sector'] = pd.to_numeric(df['sector'], errors='coerce', downcast=None)
         df['nr_sectors'] = pd.to_numeric(df['nr_sectors'], errors='coerce', downcast=None)
@@ -126,12 +127,14 @@ class DataParser:
         
         df['comm'] = df['comm'].astype('category')
         df['operation'] = df['operation'].astype('category')
+
         
         return df
     
     def _optimize_vfs_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         # optimize data types
         df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ns')
         df['pid'] = pd.to_numeric(df['pid'], errors='coerce', downcast='integer')
         df['inode'] = pd.to_numeric(df['inode'], errors='coerce', downcast='integer')
         df['size_val'] = pd.to_numeric(df['size_val'], errors='coerce')
@@ -189,6 +192,7 @@ class DataParser:
 
     def _optimize_cache_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ns')
         df['pid'] = pd.to_numeric(df['pid'], errors='coerce', downcast='integer')
         df['index'] = pd.to_numeric(df['index'], errors='coerce', downcast='integer')
         df['datetime'] = pd.to_datetime(df['timestamp'], unit='ns')

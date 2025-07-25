@@ -2,8 +2,16 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import matplotlib
 from typing import Optional
 
+plt.rcParams.update({
+    'font.family': 'serif',
+    'font.size': 15,
+    'axes.labelweight': 'bold',
+    'axes.titlesize': 22,
+    'legend.fontsize': 15
+})
 
 class VFSChartGenerator:    
     def __init__(self, workload_name: str, vfs_df: pd.DataFrame):
@@ -21,10 +29,10 @@ class VFSChartGenerator:
         colors = plt.cm.Set2(np.linspace(0, 1, len(vfs_ops)))
         
         bars = ax.bar(vfs_ops.index, vfs_ops.values, color=colors, edgecolor='black')
-        ax.set_xlabel('VFS Operation Type', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Number of Operations', fontsize=12, fontweight='bold')
+        ax.set_xlabel('VFS Operation Type',  fontweight='bold')
+        ax.set_ylabel('Number of Operations',  fontweight='bold')
         ax.set_title(f'VFS Operation Types Distribution - {self.workload_name}', 
-                    fontsize=14, fontweight='bold')
+                     fontweight='bold')
         ax.tick_params(axis='x', rotation=45)
         ax.grid(True, alpha=0.3)
         
@@ -51,10 +59,10 @@ class VFSChartGenerator:
         file_access = self.vfs_df['filename'].value_counts().head(15)
         
         bars = ax.barh(range(len(file_access)), file_access.values, color='lightgreen', edgecolor='darkgreen')
-        ax.set_xlabel('Number of Accesses', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Files', fontsize=12, fontweight='bold')
+        ax.set_xlabel('Number of Accesses', fontweight='bold')
+        ax.set_ylabel('Files', fontweight='bold')
         ax.set_title(f'Top 15 Most Accessed Files - {self.workload_name}', 
-                    fontsize=14, fontweight='bold')
+                    fontweight='bold')
         ax.set_yticks(range(len(file_access)))
         
         truncated_names = [name[:40] + '...' if len(name) > 40 else name for name in file_access.index]
@@ -95,10 +103,10 @@ class VFSChartGenerator:
         fig, ax = plt.subplots(1, 1, figsize=(12, 8))
         
         bars = ax.bar(flag_counts.index, flag_counts.values, color='teal', edgecolor='black')
-        ax.set_xlabel('File Open Flag', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Frequency of Use', fontsize=12, fontweight='bold')
+        ax.set_xlabel('File Open Flag',  fontweight='bold')
+        ax.set_ylabel('Frequency of Use', fontweight='bold')
         ax.set_title(f'VFS File Open Flag Frequency - {self.workload_name}', 
-                    fontsize=16, fontweight='bold')
+                     fontweight='bold')
         ax.tick_params(axis='x', rotation=45, ha='right')
         ax.grid(True, axis='y', linestyle='--', alpha=0.6)
         
@@ -122,7 +130,8 @@ class VFSChartGenerator:
 
         fig, ax = plt.subplots(1, 1, figsize=(16, 8))
 
-        duration = (self.vfs_df['timestamp'].max() - self.vfs_df['timestamp'].min()) / 1e9
+        duration = (self.vfs_df['timestamp'].max() - self.vfs_df['timestamp'].min())
+        duration = duration.total_seconds()
         if duration > 3600: 
             time_window = '1min'  
         elif duration > 300:
@@ -134,16 +143,16 @@ class VFSChartGenerator:
         vfs_iops = self.vfs_df.groupby(pd.Grouper(key='datetime', freq=time_window))['op_name'].count() / window_seconds
         
         ax.plot(vfs_iops.index, vfs_iops.values, color='darkorchid', linewidth=2, alpha=0.8)
-        ax.set_xlabel('Time', fontsize=12, fontweight='bold')
-        ax.set_ylabel('VFS Operations Per Second (IOPS)', fontsize=12, fontweight='bold')
+        ax.set_xlabel('Time',  fontweight='bold')
+        ax.set_ylabel('VFS Operations Per Second (IOPS)',  fontweight='bold')
         ax.set_title(f'VFS IOPS Over Time ({time_window} windows) - {self.workload_name}', 
-                    fontsize=16, fontweight='bold')
+                     fontweight='bold')
         ax.grid(True, linestyle='--', alpha=0.6)
         
         avg_iops = vfs_iops.mean()
         ax.axhline(y=avg_iops, color='red', linestyle='--', 
                 label=f'Average: {avg_iops:.1f} VFS IOPS')
-        ax.legend(fontsize=12)
+
         
         for tick in ax.get_xticklabels():
             tick.set_rotation(45)
@@ -191,10 +200,10 @@ class VFSChartGenerator:
         ax.set_yticks(y_ticks)
         ax.set_yticklabels(y_labels)
 
-        ax.set_xlabel('VFS Operation', fontsize=12, fontweight='bold')
-        ax.set_ylabel('I/O Size (Log Scale)', fontsize=12, fontweight='bold')
+        ax.set_xlabel('VFS Operation',  fontweight='bold')
+        ax.set_ylabel('I/O Size (Log Scale)', fontweight='bold')
         ax.set_title(f'Distribution of VFS Read/Write Sizes - {self.workload_name}', 
-                    fontsize=16, fontweight='bold')
+                     fontweight='bold')
         ax.grid(True, axis='y', linestyle='--', alpha=0.6)
 
         plt.tight_layout()
@@ -216,10 +225,10 @@ class VFSChartGenerator:
         process_ops = self.vfs_df.groupby('comm', observed=True)['op_name'].count().sort_values(ascending=False).head(15)
         
         bars = ax.barh(range(len(process_ops)), process_ops.values, color='mediumpurple', edgecolor='darkslateblue')
-        ax.set_xlabel('Number of VFS Operations', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Process', fontsize=12, fontweight='bold')
+        ax.set_xlabel('Number of VFS Operations',  fontweight='bold')
+        ax.set_ylabel('Process',  fontweight='bold')
         ax.set_title(f'Top 15 Processes by VFS Operations Count - {self.workload_name}', 
-                    fontsize=14, fontweight='bold')
+                     fontweight='bold')
         ax.set_yticks(range(len(process_ops)))
         ax.set_yticklabels(process_ops.index)
         ax.invert_yaxis()  # Highest values at the top
@@ -255,10 +264,10 @@ class VFSChartGenerator:
         colors = plt.cm.Set3(np.linspace(0, 1, len(operation_breakdown.columns)))
         operation_breakdown.plot(kind='barh', stacked=True, ax=ax, color=colors, edgecolor='black', linewidth=0.5)
         
-        ax.set_xlabel('Number of VFS Operations', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Process', fontsize=12, fontweight='bold')
+        ax.set_xlabel('Number of VFS Operations',  fontweight='bold')
+        ax.set_ylabel('Process',  fontweight='bold')
         ax.set_title(f'VFS Operation Types by Top 10 Processes - {self.workload_name}', 
-                    fontsize=14, fontweight='bold')
+                    fontweight='bold')
         ax.grid(True, alpha=0.3, axis='x')
         ax.legend(title='VFS Operation Type', bbox_to_anchor=(1.05, 1), loc='upper left')
         

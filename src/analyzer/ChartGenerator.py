@@ -1,11 +1,21 @@
 import pandas as pd
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import seaborn as sns
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
+plt.rcParams.update({
+    "font.family": "serif",
+    "font.size": 18,
+    'axes.labelweight': 'bold',
+    "axes.titlesize": 22,
+    "axes.labelsize": 18,
+    "legend.fontsize": 18
+})
 
 class ChartGenerator:
     
@@ -17,34 +27,44 @@ class ChartGenerator:
     def create_operation_types_chart(self, save_path: str = None):
         if self.block_df is None:
             return None
-            
-        fig, ax = plt.subplots(1, 1, figsize=(10, 8))
-        
-        op_counts = self.block_df['operation'].value_counts()
-        colors = plt.cm.Set3(np.linspace(0, 1, len(op_counts)))
-        wedges, texts, autotexts = ax.pie(op_counts.values, labels=op_counts.index, 
-                                         autopct='%1.1f%%', colors=colors, startangle=90)
-        ax.set_title(f'Block I/O Operation Types - {self.workload_name}', 
-                    fontsize=14, fontweight='bold', pad=20)
-        
-        for autotext in autotexts:
-            autotext.set_color('white')
-            autotext.set_fontweight('bold')
-            autotext.set_fontsize(10)
-        
-        total_ops = len(self.block_df)
-        ax.text(0.02, 0.98, f'Total Operations: {total_ops:,}', 
-               transform=ax.transAxes, fontsize=12, fontweight='bold',
-               bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8),
-               verticalalignment='top')
-        
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        op_counts = self.block_df['operation'].value_counts().reset_index()
+        op_counts.columns = ['operation', 'count']
+
+        sns.barplot(
+            data=op_counts,
+            y='operation',
+            x='count',
+            hue='operation',
+            dodge=False,
+            palette='colorblind',
+            ax=ax,
+            legend=False
+        )
+
+        # Correctly annotate each bar with its value
+        for patch in ax.patches:
+            width = patch.get_width()
+            y = patch.get_y() + patch.get_height() / 2
+            if width > 0:
+                ax.text(width + 2000, y, f'{int(width)}', va='center', ha='left')
+
+        ax.set_xlabel('Number of Operations')
+        ax.set_ylabel('Operation Type')
+        ax.set_title(f'Block I/O Operation Types - {self.workload_name}', pad=12)
+
         plt.tight_layout()
-        
+
         if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"Operation types chart saved to: {save_path}")
-        
+            chart_path = Path(save_path).with_suffix('.pdf')
+            chart_path.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(chart_path, bbox_inches='tight')
+
         return fig
+
+
 
     def create_io_size_distribution_chart(self, save_path: str = None):
         if self.block_df is None:
@@ -57,10 +77,10 @@ class ChartGenerator:
         
         log_sizes = np.log10(sample_data['io_size_bytes'] + 1)
         ax.hist(log_sizes, bins=50, alpha=0.7, color='skyblue', edgecolor='black')
-        ax.set_xlabel('Log10(I/O Size in Bytes)', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Frequency', fontsize=12, fontweight='bold')
+        ax.set_xlabel('Log10(I/O Size in Bytes)', fontweight='bold')
+        ax.set_ylabel('Frequency', fontweight='bold')
         ax.set_title(f'I/O Size Distribution (Log Scale) - {self.workload_name}', 
-                    fontsize=14, fontweight='bold')
+                    fontweight='bold')
         ax.grid(True, alpha=0.3)
         
         median_size = self.block_df['io_size_bytes'].median()
@@ -69,7 +89,6 @@ class ChartGenerator:
                    label=f'Median: {median_size/1024:.1f} KB')
         ax.axvline(x=np.log10(mean_size + 1), color='orange', linestyle='--', 
                    label=f'Mean: {mean_size/1024:.1f} KB')
-        ax.legend(fontsize=12)
         
         plt.tight_layout()
         
@@ -91,10 +110,10 @@ class ChartGenerator:
         size_counts = size_categories.value_counts()
         
         bars = ax.bar(size_counts.index, size_counts.values, color='lightcoral', edgecolor='darkred')
-        ax.set_xlabel('I/O Size Category', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Number of Operations', fontsize=12, fontweight='bold')
+        ax.set_xlabel('I/O Size Category', fontweight='bold')
+        ax.set_ylabel('Number of Operations', fontweight='bold')
         ax.set_title(f'I/O Operations by Size Category - {self.workload_name}', 
-                    fontsize=14, fontweight='bold')
+                    fontweight='bold')
         ax.tick_params(axis='x', rotation=45)
         ax.grid(True, alpha=0.3)
         
@@ -117,7 +136,8 @@ class ChartGenerator:
             
         fig, ax = plt.subplots(1, 1, figsize=(16, 8))
         
-        duration = (self.block_df['timestamp'].max() - self.block_df['timestamp'].min()) / 1e9
+        duration = (self.block_df['timestamp'].max() - self.block_df['timestamp'].min())
+        duration = duration.total_seconds()
         if duration > 3600: 
             time_window = '1min' 
         elif duration > 300:  
@@ -135,16 +155,15 @@ class ChartGenerator:
         
         ax.plot(temporal_data.index, temporal_data['throughput_mbs'], 
                 color='green', linewidth=2, alpha=0.8)
-        ax.set_xlabel('Time', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Throughput (MB/s)', fontsize=12, fontweight='bold')
+        ax.set_xlabel('Time', fontweight='bold')
+        ax.set_ylabel('Throughput (MB/s)', fontweight='bold')
         ax.set_title(f'Block I/O Throughput Over Time ({time_window} windows) - {self.workload_name}', 
-                    fontsize=14, fontweight='bold')
+                     fontweight='bold')
         ax.grid(True, alpha=0.3)
         
         avg_throughput = temporal_data['throughput_mbs'].mean()
         ax.axhline(y=avg_throughput, color='red', linestyle='--', 
                    label=f'Average: {avg_throughput:.1f} MB/s')
-        ax.legend(fontsize=12)
         
         for tick in ax.get_xticklabels():
             tick.set_rotation(45)
@@ -157,13 +176,15 @@ class ChartGenerator:
         
         return fig
 
+
     def create_temporal_iops_chart(self, save_path: str = None):
         if self.block_df is None:
             return None
             
         fig, ax = plt.subplots(1, 1, figsize=(16, 8))
         
-        duration = (self.block_df['timestamp'].max() - self.block_df['timestamp'].min()) / 1e9
+        duration = (self.block_df['timestamp'].max() - self.block_df['timestamp'].min())
+        duration = duration.total_seconds()
         if duration > 3600:  
             time_window = '1min'  
         elif duration > 300:  
@@ -180,16 +201,16 @@ class ChartGenerator:
         
         ax.plot(temporal_data.index, temporal_data['iops'], 
                 color='blue', linewidth=2, alpha=0.8)
-        ax.set_xlabel('Time', fontsize=12, fontweight='bold')
-        ax.set_ylabel('IOPS', fontsize=12, fontweight='bold')
+        ax.set_xlabel('Time',  fontweight='bold')
+        ax.set_ylabel('IOPS',  fontweight='bold')
         ax.set_title(f'Block I/O Operations Per Second Over Time ({time_window} windows) - {self.workload_name}', 
-                    fontsize=14, fontweight='bold')
+                     fontweight='bold')
         ax.grid(True, alpha=0.3)
         
         avg_iops = temporal_data['iops'].mean()
         ax.axhline(y=avg_iops, color='red', linestyle='--', 
                    label=f'Average: {avg_iops:.1f} IOPS')
-        ax.legend(fontsize=12)
+
         
         for tick in ax.get_xticklabels():
             tick.set_rotation(45)
@@ -212,10 +233,10 @@ class ChartGenerator:
         process_io_mb = process_io / 1024**2
         
         bars = ax.barh(range(len(process_io_mb)), process_io_mb.values, color='coral')
-        ax.set_xlabel('Total I/O (MB)', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Process', fontsize=12, fontweight='bold')
+        ax.set_xlabel('Total I/O (MB)',  fontweight='bold')
+        ax.set_ylabel('Process',  fontweight='bold')
         ax.set_title(f'Top 15 Block Processes by I/O Volume - {self.workload_name}', 
-                    fontsize=14, fontweight='bold')
+                     fontweight='bold')
         ax.set_yticks(range(len(process_io_mb)))
         ax.set_yticklabels(process_io_mb.index)
         ax.grid(True, alpha=0.3, axis='x')
@@ -242,10 +263,10 @@ class ChartGenerator:
         process_ops = self.block_df.groupby('comm', observed=True)['operation'].count().sort_values(ascending=False).head(15)
         
         bars = ax.barh(range(len(process_ops)), process_ops.values, color='lightblue')
-        ax.set_xlabel('Number of Operations', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Process', fontsize=12, fontweight='bold')
+        ax.set_xlabel('Number of Operations',  fontweight='bold')
+        ax.set_ylabel('Process', fontweight='bold')
         ax.set_title(f'Top 15 Processes by Block Operation Count - {self.workload_name}', 
-                    fontsize=14, fontweight='bold')
+                     fontweight='bold')
         ax.set_yticks(range(len(process_ops)))
         ax.set_yticklabels(process_ops.index)
         ax.grid(True, alpha=0.3, axis='x')
@@ -277,9 +298,9 @@ class ChartGenerator:
         colors = ['lightblue', 'lightcoral']
         
         bars = ax.bar(op_labels, op_counts, color=colors, edgecolor='black')
-        ax.set_ylabel('Number of Operations', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Number of Operations', fontweight='bold')
         ax.set_title(f'Block Read vs Write Operations Count - {self.workload_name}', 
-                    fontsize=14, fontweight='bold')
+                    fontweight='bold')
         ax.grid(True, alpha=0.3)
         
         total_ops = sum(op_counts)
@@ -315,9 +336,9 @@ class ChartGenerator:
         colors = ['lightblue', 'lightcoral']
         
         bars = ax.bar(volume_labels, volume_data, color=colors, edgecolor='black')
-        ax.set_ylabel('Data Volume (MB)', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Data Volume (MB)', fontweight='bold')
         ax.set_title(f'Block Read vs Write Data Volume - {self.workload_name}', 
-                    fontsize=14, fontweight='bold')
+                     fontweight='bold')
         ax.grid(True, alpha=0.3)
         
         total_volume = sum(volume_data)
