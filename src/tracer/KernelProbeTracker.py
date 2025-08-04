@@ -69,8 +69,8 @@ class KernelProbeTracker:
             self.add_kprobe("vfs_write", "trace_vfs_write")
             self.add_kprobe("vfs_open", "trace_vfs_open")
             self.add_kprobe("vfs_fsync", "trace_vfs_fsync")
-            self.add_kprobe("pagecache_get_page", "trace_pagecache_get_page_entry")
-            self.add_kretprobe("pagecache_get_page", "trace_pagecache_get_page_return")
+            self.add_kprobe("mark_page_accessed", "trace_hit")
+            self.add_kprobe("add_to_page_cache_lru", "trace_miss")
             self.add_kprobe("blk_mq_start_request", "trace_blk_mq_start_request")
             if not self.add_kprobe("vfs_fsync_range", "trace_vfs_fsync_range"):
                 logger("info", "vfs_fsync_range not found, using only vfs_fsync")

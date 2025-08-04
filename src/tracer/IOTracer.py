@@ -94,10 +94,10 @@ class IOTracer:
         timestamp = event.ts
         pid = event.pid
         comm = event.comm.decode('utf-8', errors='replace')
-        index = event.index
-        hit = "HIT" if event.hit else "MISS"
+        hit = "HIT" if event.type == 0 else "MISS"
+        # filename = event.filename.decode('utf-8', errors='replace')
 
-        output = f"{timestamp} {pid} {comm.replace(' ','_')} {index} {hit}"
+        output = f"{timestamp} {pid} {comm.replace(' ','_')} {hit}"
 
         self.writer.append_cache_log(output)
 

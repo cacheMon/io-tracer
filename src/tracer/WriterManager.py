@@ -56,7 +56,7 @@ class WriteManager:
         try:
             self.write_log_block(f"timestamp pid tid comm sector nr_sectors operation cpu_id parent_info bio_size\n")
             self.write_log_vfs(f"timestamp op_name pid comm filename inode size_val flags_str\n")
-            self.write_log_cache(f"timestamp pid comm index status\n")
+            self.write_log_cache(f"timestamp pid comm status\n")
         except IOError as e:
             logger("info", f"could not open output file': {e}")
             sys.exit(1)

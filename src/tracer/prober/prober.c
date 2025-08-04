@@ -85,8 +85,7 @@ struct block_event {
 struct cache_data {
     u64 ts;          
     u32 pid;
-    u64 index;
-    u8 hit;
+    u8 type;
     char comm[TASK_COMM_LEN];
 };
 
@@ -347,35 +346,31 @@ int trace_blk_mq_start_request(struct pt_regs *ctx, struct request *rq) {
     return 0;
 }
 
-int trace_pagecache_get_page_entry(struct pt_regs *ctx, struct address_space *mapping,
-                                   pgoff_t index, int fgp_flags, gfp_t gfp_mask) {
-    u64 pid = bpf_get_current_pid_tgid();
-    u64 index64 = (u64)index;
-    start.update(&pid, &index64);
-    
+
+static int get_filename(struct dentry *dentry, char *buf) {
+    struct qstr d_name = dentry->d_name;
+    bpf_probe_read_kernel_str(buf, DNAME_INLINE_LEN, d_name.name);
     return 0;
 }
 
-int trace_pagecache_get_page_return(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    u32 pid = pid_tgid >> 32;
-    struct page *page = (struct page *)PT_REGS_RC(ctx);
-
-    u64 *indexp = start.lookup(&pid_tgid);
-    if (!indexp)
-        return 0;
-
+int trace_hit(struct pt_regs *ctx, struct page *page) {
     struct cache_data data = {};
-    data.ts = bpf_ktime_get_ns();  
-    data.pid = pid;
-    data.index = *indexp;
-    data.hit = 0;
-
-    if (page && (page->flags & (1UL << PG_uptodate)))
-        data.hit = 1;
-
+    data.pid = bpf_get_current_pid_tgid() >> 32;
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.type = 0;
+    data.ts = bpf_ktime_get_ns();
+
+
     cache_events.perf_submit(ctx, &data, sizeof(data));
-    start.delete(&pid_tgid);
+    return 0;
+}
+
+int trace_miss(struct pt_regs *ctx, struct page *page, struct address_space *mapping, pgoff_t offset, gfp_t gfp_mask) {
+    struct cache_data data = {};
+    data.pid = bpf_get_current_pid_tgid() >> 32;
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.type = 1;
+
+    cache_events.perf_submit(ctx, &data, sizeof(data));
     return 0;
 }
