@@ -268,8 +268,21 @@ int trace_vfs_fsync(struct pt_regs *ctx, struct file *file, int datasync) {
 }
 
 int trace_vfs_fsync_range(struct pt_regs *ctx, struct file *file, loff_t start, loff_t end, int datasync) {
+    loff_t range_size;
+    
+    loff_t file_size = 0;
+    if (file && file->f_inode) {
+        bpf_probe_read_kernel(&file_size, sizeof(file_size), &file->f_inode->i_size);
+    }
+    
+    if (end == LLONG_MAX) {
+        range_size = file_size - start;
+    } else {
+        range_size = end - start;
+    }
+    
     loff_t pos = start;
-    submit_event(ctx, file, end - start, &pos, OP_FSYNC);
+    submit_event(ctx, file, range_size, &pos, OP_FSYNC);
     return 0;
 }
 
