@@ -89,7 +89,7 @@ class IOTracer:
         self.writer.append_fs_json(json_event)
 
     def _print_event_cache(self, cpu, data, size):       
-        #  print("TIME(us) PID COMM INDEX HIT/MISS") 
+        #  print("TIME(us) PID COMM HIT/MISS") 
         event = self.b["cache_events"].event(data)
         timestamp = event.ts
         pid = event.pid
