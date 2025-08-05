@@ -370,6 +370,7 @@ int trace_miss(struct pt_regs *ctx, struct page *page, struct address_space *map
     data.pid = bpf_get_current_pid_tgid() >> 32;
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
     data.type = 1;
+    data.ts = bpf_ktime_get_ns();
 
     cache_events.perf_submit(ctx, &data, sizeof(data));
     return 0;
