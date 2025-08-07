@@ -19,13 +19,15 @@ class WriteManager:
 
         if not os.path.exists(self.output_dir):
             os.makedirs(f"{self.output_dir}/vfs/log")
-            os.makedirs(f"{self.output_dir}/vfs/json")
+            # os.makedirs(f"{self.output_dir}/vfs/json")
             os.makedirs(f"{self.output_dir}/block/log")
-            os.makedirs(f"{self.output_dir}/block/json")
+            # os.makedirs(f"{self.output_dir}/block/json")
             os.makedirs(f"{self.output_dir}/cache/log")
         else:
             logger("error", f"Output directory {self.output_dir} already exists. Please change the output directory to avoid overwriting files.")
             sys.exit(1)
+
+        self.max_buffer_size = 1024 * 1024  # 1 MB
 
         self._vfs_handle = None
         self._block_handle = None
@@ -41,11 +43,25 @@ class WriteManager:
         self.log_block_output = ''
         self.log_cache_output = ''
 
-    def isEventsBigEnough(self, threshold: int = 5000):
-        log_output_line = self.log_output.count('\n') + 1
-        log_block_output_line = self.log_block_output.count('\n') + 1
-        log_cache_output_line = self.log_cache_output.count('\n') + 1
-        return log_output_line >= threshold or log_block_output_line >= threshold or log_cache_output_line >= threshold
+    def isEventsBigEnough(self, threshold: int = 1000):  # Reduced threshold
+        log_lines = self.log_output.count('\n') + 1
+        block_lines = self.log_block_output.count('\n') + 1
+        cache_lines = self.log_cache_output.count('\n') + 1
+        
+        total_memory = (len(self.log_output) + 
+                       len(self.log_block_output) + 
+                       len(self.log_cache_output))
+        
+        
+
+        if (log_lines >= threshold or 
+                block_lines >= threshold or 
+                cache_lines >= threshold or
+                total_memory > self.max_buffer_size):
+            logger("info", f"Total memory used: {total_memory} bytes")
+            return True
+        else:
+            return False
 
     def isTimeToSplit(self):
         current_time = datetime.now()
@@ -61,33 +77,42 @@ class WriteManager:
             logger("info", f"could not open output file': {e}")
             sys.exit(1)
 
-    def append_fs_json(self, json_event: dict):
-        if isinstance(json_event, dict):
-            self.json_events.append(json_event)
-        else:
-            logger("error", "Invalid JSON event format. Expected a dictionary.")
+    # def append_fs_json(self, json_event: dict):
+    #     if isinstance(json_event, dict):
+    #         self.json_events.append(json_event)
+    #     else:
+    #         logger("error", "Invalid JSON event format. Expected a dictionary.")
 
-    def append_block_json(self, json_event: dict):
-        if isinstance(json_event, dict):
-            self.json_block_events.append(json_event)
-        else:
-            logger("error", "Invalid JSON event format. Expected a dictionary.")
+    # def append_block_json(self, json_event: dict):
+    #     if isinstance(json_event, dict):
+    #         self.json_block_events.append(json_event)
+    #     else:
+    #         logger("error", "Invalid JSON event format. Expected a dictionary.")
 
     def append_fs_log(self, log_output: str):
         if isinstance(log_output, str):
             self.log_output += log_output + '\n'
+            if len(self.log_output) > self.max_buffer_size:
+                logger("info", "fs logs buffer size exceeded, flushing to disk.")
+                self.force_flush()
         else:
             logger("error", "Invalid log output format. Expected a string.")
 
     def append_block_log(self, log_output: str):
         if isinstance(log_output, str):
             self.log_block_output += log_output + '\n'
+            if len(self.log_block_output) > self.max_buffer_size:
+                logger("info", "block logs buffer size exceeded, flushing to disk.")
+                self.force_flush()
         else:
             logger("error", "Invalid block log output format. Expected a string.")
 
     def append_cache_log(self, log_output: str):
         if isinstance(log_output, str):
             self.log_cache_output += log_output + '\n'
+            if len(self.log_cache_output) > self.max_buffer_size:
+                self.force_flush()
+                logger("info", "cache logs buffer size exceeded, flushing to disk.")
         else:
             logger("error", "Invalid cache log output format. Expected a string.")
 
@@ -155,48 +180,48 @@ class WriteManager:
                 self._cache_handle.close()
                 self._cache_handle = None
 
-    def write_log_vfs_json(self, log_output: any): # type: ignore
-        output_file = self.output_vfs_json_file
-        if self._vfs_json_handle is None:
-            self._vfs_json_handle = open(output_file, 'a', buffering=8192)
-        json.dump(log_output, self._vfs_json_handle, indent=2)
+    # def write_log_vfs_json(self, log_output: any): # type: ignore
+    #     output_file = self.output_vfs_json_file
+    #     if self._vfs_json_handle is None:
+    #         self._vfs_json_handle = open(output_file, 'a', buffering=8192)
+    #     json.dump(log_output, self._vfs_json_handle, indent=2)
 
-        if (self.isTimeToSplit()):
-            current_time = datetime.now()
-            self.output_vfs_json_file = f"{self.output_dir}/vfs/json/vfs_trace_{current_time.strftime('%Y%m%d_%H%M%S')}.json"
-            if not self._vfs_json_handle is None:
-                self._vfs_json_handle.close()
-                self._vfs_json_handle = None
+    #     if (self.isTimeToSplit()):
+    #         current_time = datetime.now()
+    #         self.output_vfs_json_file = f"{self.output_dir}/vfs/json/vfs_trace_{current_time.strftime('%Y%m%d_%H%M%S')}.json"
+    #         if not self._vfs_json_handle is None:
+    #             self._vfs_json_handle.close()
+    #             self._vfs_json_handle = None
 
-    def write_log_block_json(self, log_output: any): # type: ignore
-        output_file = self.output_block_json_file
-        if self._block_json_handle is None:
-            self._block_json_handle = open(output_file, 'a', buffering=8192)
-        json.dump(log_output, self._block_json_handle, indent=2)
+    # def write_log_block_json(self, log_output: any): # type: ignore
+    #     output_file = self.output_block_json_file
+    #     if self._block_json_handle is None:
+    #         self._block_json_handle = open(output_file, 'a', buffering=8192)
+    #     json.dump(log_output, self._block_json_handle, indent=2)
 
-        if (self.isTimeToSplit()):
-            current_time = datetime.now()
-            self.output_block_json_file = f"{self.output_dir}/block/json/block_trace_{current_time.strftime('%Y%m%d_%H%M%S')}.json"
-            if not self._block_json_handle is None:
-                self._block_json_handle.close()
-                self._block_json_handle = None
+    #     if (self.isTimeToSplit()):
+    #         current_time = datetime.now()
+    #         self.output_block_json_file = f"{self.output_dir}/block/json/block_trace_{current_time.strftime('%Y%m%d_%H%M%S')}.json"
+    #         if not self._block_json_handle is None:
+    #             self._block_json_handle.close()
+    #             self._block_json_handle = None
 
     def write_to_disk(self):
         t1 = threading.Thread(target=self.write_log_vfs, args=(self.log_output,))
         t2 = threading.Thread(target=self.write_log_block, args=(self.log_block_output,))
-        t3 = threading.Thread(target=self.write_log_vfs_json, args=(self.json_events,))
-        t4 = threading.Thread(target=self.write_log_block_json, args=(self.json_block_events,))
+        # t3 = threading.Thread(target=self.write_log_vfs_json, args=(self.json_events,))
+        # t4 = threading.Thread(target=self.write_log_block_json, args=(self.json_block_events,))
         t5 = threading.Thread(target=self.write_log_cache, args=(self.log_cache_output,))
         t1.start()
         t2.start()
-        t3.start()
-        t4.start()
+        # t3.start()
+        # t4.start()
         t5.start()
 
         self.clear_events()
 
         t1.join()
         t2.join()
-        t3.join()
-        t4.join()
+        # t3.join()
+        # t4.join()
         t5.join()

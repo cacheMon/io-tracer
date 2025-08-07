@@ -18,7 +18,7 @@ class IOTracer:
             bpf_file:           str,
             flush_threshold:    int,
             split_threshold:    int,
-            page_cnt:           int = 64,
+            page_cnt:           int = 8,
             verbose:            bool = False,
             duration:           int | None = None
         ):
@@ -70,24 +70,7 @@ class IOTracer:
         # write to file
         self.writer.append_fs_log(output)
         
-        # Store JSON
-        json_event = {
-            "timestamp" : timestamp,
-            "op"        : op_name,
-            "pid"       : event.pid,
-            "comm"      : comm,
-            "filename"  : filename,
-            "inode"     : event.inode,
-            "flags"     : flags_str
-        }
         
-        if event.op in [1, 2]:  # READ/WRITE
-            json_event["size"] = event.size
-        else:
-            json_event["size"] = 0
-        
-        self.writer.append_fs_json(json_event)
-
     def _print_event_cache(self, cpu, data, size):       
         #  print("TIME(us) PID COMM HIT/MISS") 
         event = self.b["cache_events"].event(data)
@@ -129,22 +112,6 @@ class IOTracer:
 
         self.writer.append_block_log(output)
         
-        json_event = {
-            "timestamp": timestamp,
-            "pid": pid,
-            "tid": tid,
-            "comm": comm,
-            "sector": sector,
-            "nr_sectors": nr_sectors,
-            "operation": ops_str,
-            "cpu_id": cpu_id,
-            "parent_pid": ppid,
-            "parent_comm": parent_comm,
-            "bio_size": bio_size,
-            "flags": event.flags
-        }
-
-        self.writer.append_block_json(json_event)
 
     def _flush(self):        
         logger("FLUSH", "Flushing data...", True)
