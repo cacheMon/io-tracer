@@ -16,20 +16,20 @@ class IOTracer:
             self, 
             output_dir:         str,
             bpf_file:           str,
-            flush_threshold:    int,
             split_threshold:    int,
             page_cnt:           int = 8,
             verbose:            bool = False,
-            duration:           int | None = None
+            duration:           int | None = None,
+            cache_sample_rate:  int = 1
         ):
         self.writer             = WriteManager(output_dir, split_threshold)
         self.flag_mapper        = FlagMapper()
-        self.flushing           = False
         self.running            = True
         self.verbose            = verbose
         self.duration           = duration
-        self.flush_threshold    = flush_threshold
-
+        
+        if cache_sample_rate > 1:
+            self.writer.set_cache_sampling(cache_sample_rate)
 
         if page_cnt is None or page_cnt <= 0:
             logger("error", f"Invalid page count: {page_cnt}. Page count must be a positive integer.")
@@ -67,21 +67,17 @@ class IOTracer:
         size_val = event.size if event.size is not None else 0
         output = f"{timestamp} {op_name} {event.pid} {comm.replace(' ','_')} {filename.replace(' ','_')} {event.inode} {size_val} {flags_str}"
         
-        # write to file
         self.writer.append_fs_log(output)
         
-        
     def _print_event_cache(self, cpu, data, size):       
-        #  print("TIME(us) PID COMM HIT/MISS") 
         event = self.b["cache_events"].event(data)
         timestamp = event.ts
         pid = event.pid
         comm = event.comm.decode('utf-8', errors='replace')
         hit = "HIT" if event.type == 0 else "MISS"
-        # filename = event.filename.decode('utf-8', errors='replace')
 
         output = f"{timestamp} {pid} {comm.replace(' ','_')} {hit}"
-
+        
         self.writer.append_cache_log(output)
 
     def _print_event_block(self, cpu, data, size):        
@@ -105,43 +101,28 @@ class IOTracer:
                 f"{bio_size}")
 
         if (sector == 0 and nr_sectors == 0) or (sector == '0' and nr_sectors == '0'):
-            print("="*50)
-            print("There is LBA 0 in the block")
-            print(output)
-            print("="*50)
+            if self.verbose:
+                print("="*50)
+                print("Warning: LBA 0 detected in block trace")
+                print(output)
+                print("="*50)
 
         self.writer.append_block_log(output)
-        
 
-    def _flush(self):        
-        logger("FLUSH", "Flushing data...", True)
-        self.writer.write_to_disk()
-        logger("FLUSH", f"Flushing complete!", True)
-
-        if self.verbose:
-            logger("FLUSH", f"Flushing complete!", True)
-
-        self.flushing = False
-        time.sleep(1)
-
-    def _is_time_to_flush(self):
-        if (self.writer.isEventsBigEnough(self.flush_threshold)) and (not self.flushing): 
-            self.flushing = True
-            self._flush()
-
-    def _cleanup(self,signum, frame):
+    def _cleanup(self, signum, frame):
         self.running = False
     
-        # detach kprobes
         self.probe_tracker.detach_kprobes()
-                
+        
+        logger("info", "Performing final flush...")
         self.writer.write_to_disk()
+        
         self.writer.close_handles()
 
         if self.verbose:
             logger("CLEANUP", "Cleanup complete")
 
-    def _lost_cb(self,lost):
+    def _lost_cb(self, lost):
         if lost > 0:
             if self.verbose:
                 logger("warning", f"Lost {lost} events in kernel buffer")
@@ -154,7 +135,10 @@ class IOTracer:
         signal.signal(signal.SIGTERM, self._cleanup)
 
         logger("info", "IO tracer started")
-        logger("info","Press Ctrl+C to exit")
+        logger("info", "Press Ctrl+C to exit")
+        
+        if self.writer.cache_sample_rate > 1:
+            logger("info", f"Cache sampling enabled: 1:{self.writer.cache_sample_rate}")
 
         self.b["events"].open_perf_buffer(
             self._print_event, 
@@ -194,25 +178,25 @@ class IOTracer:
                     
                     current = time.time()
                     remaining = end_time - current
-
-                    self._is_time_to_flush()
-                    if self.flushing:
-                        self._flush()
                     
-                    if self.verbose and int(current) > int(current - sleep_time):
+                    if self.verbose and int(current) % 10 == 0 and int(current) > int(current - sleep_time):
                         elapsed = current - start
                         logger("info", f"Progress: {elapsed:.1f}s/{duration_target}s")
+                        
                 self._cleanup(None, None)
             else:
-                # Cleanup on Ctrl+C
+                # Run indefinitely until Ctrl+C
                 while self.running:
                     time.sleep(0.1)
-                    self._is_time_to_flush()
-                    if self.flushing:
-                        self._flush()
-                if self.verbose:
-                    logger("info", f"Main thread: time limit reached after {time.time() - start:.2f}s")
+                    
+                    if self.verbose:
+                        current = time.time()
+                        if int(current) % 30 == 0:  # Every 30 seconds
+                            elapsed = current - start
+                            logger("info", f"Runtime: {elapsed:.1f}s")
+                            
             self.running = False
+            
         except KeyboardInterrupt:
             logger("info", "Keyboard interrupt received")
             self.running = False
@@ -220,19 +204,27 @@ class IOTracer:
             logger("error", f"Main loop error: {e}")
         finally:
             self.polling_thread.polling_active = False
-            
             time.sleep(0.2)
             
             if self.verbose:
                 actual_duration = time.time() - start
                 logger("info", f"Trace completed after {actual_duration:.2f} seconds")
+            
             print()
             logger("info", "Trace stopped")
-            logger("info", "Please wait. Cleaning up, closing handles, and writing to disk...")
-            create_tar_gz(f"{self.writer.output_dir}/raw_trace_{time.strftime('%Y%m%d_%H%M%S')}.tar.gz", [f"{self.writer.output_dir}/block", f"{self.writer.output_dir}/vfs", f"{self.writer.output_dir}/cache"])
+            logger("info", "Please wait. Compressing trace output...")
+            
+            create_tar_gz(
+                f"{self.writer.output_dir}/raw_trace_{time.strftime('%Y%m%d_%H%M%S')}.tar.gz", 
+                [f"{self.writer.output_dir}/block", 
+                 f"{self.writer.output_dir}/vfs", 
+                 f"{self.writer.output_dir}/cache"]
+            )
+            
+            logger("info", "Compression complete. Cleaning up...")
 
-            # delete file
             shutil.rmtree(f"{self.writer.output_dir}/block")
             shutil.rmtree(f"{self.writer.output_dir}/vfs")
             shutil.rmtree(f"{self.writer.output_dir}/cache")
+            
             logger("info", "Cleanup complete. Exited successfully.")
