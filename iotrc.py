@@ -13,6 +13,7 @@ if __name__ == "__main__":
     parser.add_argument('-d', '--duration', type=int, help='Duration to run the tracer in seconds. Default is NULL (run indefinitely)')
     # parser.add_argument('-f', '--flush_threshold', type=int, default=500, help='Buffered flush threshold in array length')
     parser.add_argument('-s', '--split_threshold', type=int, default=3600 * 24, help='Split threshold in seconds (default 1 day)')
+    parser.add_argument('-a', '--anonimize', action='store_true', help='Enable anonymization of process and file names')
 
     parse_args = parser.parse_args()
     output_dir = parse_args.output.strip()
@@ -24,6 +25,7 @@ if __name__ == "__main__":
         verbose=parse_args.verbose,
         duration=parse_args.duration,
         # flush_threshold=parse_args.flush_threshold,
-        split_threshold=parse_args.split_threshold
+        split_threshold=parse_args.split_threshold,
+        anonymous=parse_args.anonimize
     )
     tracer.trace()

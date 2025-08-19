@@ -17,6 +17,7 @@ class IOTracer:
             output_dir:         str,
             bpf_file:           str,
             split_threshold:    int,
+            anonymous:          bool = False,
             page_cnt:           int = 8,
             verbose:            bool = False,
             duration:           int | None = None,
@@ -27,6 +28,7 @@ class IOTracer:
         self.running            = True
         self.verbose            = verbose
         self.duration           = duration
+        self.anonymous          = anonymous
         
         if cache_sample_rate > 1:
             self.writer.set_cache_sampling(cache_sample_rate)
@@ -52,7 +54,7 @@ class IOTracer:
         op_name = self.flag_mapper.op_fs_types.get(event.op, "[unknown]")
         
         try:
-            filename = event.filename.decode()
+            filename = "[anonymous file]" if self.anonymous else event.filename.decode()
         except UnicodeDecodeError:
             filename = "[decode_error]"
         
@@ -60,7 +62,7 @@ class IOTracer:
         timestamp = event.ts
         
         try:
-            comm = event.comm.decode()
+            comm = "[anonymous process]" if self.anonymous else event.comm.decode()
         except UnicodeDecodeError:
             comm = "[decode_error]"
         
@@ -73,7 +75,7 @@ class IOTracer:
         event = self.b["cache_events"].event(data)
         timestamp = event.ts
         pid = event.pid
-        comm = event.comm.decode('utf-8', errors='replace')
+        comm = "[anonymous process]" if self.anonymous else event.comm.decode('utf-8', errors='replace')
         hit = "HIT" if event.type == 0 else "MISS"
 
         output = f"{timestamp} {pid} {comm.replace(' ','_')} {hit}"
@@ -86,13 +88,13 @@ class IOTracer:
         timestamp = event.ts
         pid = event.pid
         tid = event.tid
-        comm = event.comm.decode('utf-8', errors='replace')
+        comm = "[anonymous process]" if self.anonymous else event.comm.decode('utf-8', errors='replace')
         sector = event.sector
         nr_sectors = event.nr_sectors
         ops_str = self.flag_mapper.format_block_operation(event.op)
         cpu_id = event.cpu_id
         ppid = event.ppid
-        parent_comm = event.parent_comm.decode('utf-8', errors='replace')
+        parent_comm = "[anonymous process]" if self.anonymous else event.parent_comm.decode('utf-8', errors='replace')
         bio_size = event.bio_size
             
         output = (f"{timestamp} {pid} {tid} {comm.replace(' ','_')} {sector} "
@@ -223,8 +225,8 @@ class IOTracer:
             
             logger("info", "Compression complete. Cleaning up...")
 
-            # shutil.rmtree(f"{self.writer.output_dir}/block")
-            # shutil.rmtree(f"{self.writer.output_dir}/vfs")
-            # shutil.rmtree(f"{self.writer.output_dir}/cache")
+            shutil.rmtree(f"{self.writer.output_dir}/block")
+            shutil.rmtree(f"{self.writer.output_dir}/vfs")
+            shutil.rmtree(f"{self.writer.output_dir}/cache")
             
             logger("info", "Cleanup complete. Exited successfully.")
