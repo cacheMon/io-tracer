@@ -1,18 +1,20 @@
 # IO-Tracer
 
+## How it works
+Visit [IO Tracer documentations](https://raflyhangga.github.io/iotracerdocs/) for more detail.
+
 ## Installation
 ```
 # Install are analyzing tools
 pip install -r requirement.txt
-
-# Install tracer
-[sudo] apt-get install bpfcc-tools linux-headers-$(uname -r)
 ```
+
+then, install BPF Compiler Collection: [BCC Installation Link](https://github.com/iovisor/bcc/blob/master/INSTALL.md)  
 
 ## iotrc
 | Need sudo privilege
 ```
-usage: iotrc.py [-h] [-o OUTPUT] [-b BPF_FILE] [-p PAGE_CNT] [-v VERBOSE] [-d DURATION] [-f FLUSH_THRESHOLD] [-tw TIME_WINDOW]
+usage: iotrc.py [-h] [-o OUTPUT] [-b BPF_FILE] [-p PAGE_CNT] [-v VERBOSE] [-d DURATION] [-s SPLIT_THRESHOLD] [-a]
 
 Trace IO syscalls
 
@@ -28,42 +30,7 @@ options:
                         Print verbose output
   -d DURATION, --duration DURATION
                         Duration to run the tracer in seconds. Default is NULL (run indefinitely)
-  -f FLUSH_THRESHOLD, --flush_threshold FLUSH_THRESHOLD
-                        Buffered flush threshold in array length (default 5000)
-  -tw TIME_WINDOW, --time-window TIME_WINDOW
-                        Time window for matching PIDs (default 5_000_000 ns)
-```
-## iotrcparse
-| Need sudo privilege
-```
-usage: iotrcparse.py [-h] [-o OUTPUT] [-vfs VFS_LOG] [-blk BLK_LOG] [-tw TIME_WINDOW]
-
-Parse block and vfs logs to match PIDs
-
-options:
-  -h, --help            show this help message and exit
-  -o OUTPUT, --output OUTPUT
-                        Output Directory for mapper
-  -vfs VFS_LOG, --vfs-log VFS_LOG
-                        vfs log path
-  -blk BLK_LOG, --blk-log BLK_LOG
-                        block log path
-  -tw TIME_WINDOW, --time-window TIME_WINDOW
-                        Time window for matching PIDs (default 5_000_000 ns)
-```
-## iotrcanalyze
-| Need to use library from requirement.txt
-```
-usage: iotrcanalyze.py [-h] -rf RAW_FILE [-n NAME] [-o OUTPUT] [--all]
-
-Analyze I/O tracing data optimized for workload comparison
-
-options:
-  -h, --help            show this help message and exit
-  -rf RAW_FILE, --raw-file RAW_FILE
-                        Compressed raw file to parse
-  -n NAME, --name NAME  Workload name for identification
-  -o OUTPUT, --output OUTPUT
-                        Output directory
-  --all                 Create all charts and reports
+  -s SPLIT_THRESHOLD, --split_threshold SPLIT_THRESHOLD
+                        Split threshold in seconds (default 1 day)
+  -a, --anonimize       Enable anonymization of process and file names
 ```
