@@ -223,8 +223,8 @@ class IOTracer:
             
             logger("info", "Compression complete. Cleaning up...")
 
-            shutil.rmtree(f"{self.writer.output_dir}/block")
-            shutil.rmtree(f"{self.writer.output_dir}/vfs")
-            shutil.rmtree(f"{self.writer.output_dir}/cache")
+            # shutil.rmtree(f"{self.writer.output_dir}/block")
+            # shutil.rmtree(f"{self.writer.output_dir}/vfs")
+            # shutil.rmtree(f"{self.writer.output_dir}/cache")
             
             logger("info", "Cleanup complete. Exited successfully.")

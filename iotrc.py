@@ -3,7 +3,6 @@
 import argparse
 
 from src.tracer.IOTracer import IOTracer
-from src.tracer.BlockToFS import BlockToFS
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Trace IO syscalls')
