@@ -73,7 +73,7 @@ class IOTracer:
             comm = "[decode_error]"
         
         size_val = event.size if event.size is not None else 0
-        output = f"{timestamp} {op_name} {event.pid} {comm.replace(' ','_')} {filename.replace(' ','_')} {filepath.replace(' ','_')} {event.inode} {size_val} {flags_str}"
+        output = f"{timestamp} {op_name} {event.pid} {comm.replace(' ','_')} {filename.replace(' ','_')} {event.inode} {size_val} {flags_str} {filepath.replace(' ','_')}"
         
         self.writer.append_fs_log(output)
         
