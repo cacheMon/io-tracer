@@ -58,10 +58,11 @@ class IOTracer:
         op_name = self.flag_mapper.op_fs_types.get(event.op, "[unknown]")
         
         try:
-            # filename = "[anonymous file]" if self.anonymous else event.filename.decode()
-            filename = "[anonymous file]" if self.anonymous else f'"{self.path_resolver.resolve_path(event.inode, event.pid, event.filename.decode(errors='replace'))}"'
+            filename = "[anonymous file]" if self.anonymous else f'"{event.filename.decode()}"'
+            filepath = "[anonymous file]" if self.anonymous else f'"{self.path_resolver.resolve_path(event.inode, event.pid, event.filename.decode(errors='replace'))}"'
         except UnicodeDecodeError:
             filename = "[decode_error]"
+            filepath = "[decode_error]"
         
         flags_str = self.flag_mapper.format_fs_flags(event.flags)
         timestamp = event.ts
@@ -72,7 +73,7 @@ class IOTracer:
             comm = "[decode_error]"
         
         size_val = event.size if event.size is not None else 0
-        output = f"{timestamp} {op_name} {event.pid} {comm.replace(' ','_')} {filename.replace(' ','_')} {event.inode} {size_val} {flags_str}"
+        output = f"{timestamp} {op_name} {event.pid} {comm.replace(' ','_')} {filename.replace(' ','_')} {filepath.replace(' ','_')} {event.inode} {size_val} {flags_str}"
         
         self.writer.append_fs_log(output)
         
