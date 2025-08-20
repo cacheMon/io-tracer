@@ -11,9 +11,9 @@ if __name__ == "__main__":
     parser.add_argument('-p', '--page-cnt', type=int, default=8, help='Number of pages for perf buffer (default 8)')
     parser.add_argument('-v', '--verbose', type=bool, default=False, help='Print verbose output')
     parser.add_argument('-d', '--duration', type=int, help='Duration to run the tracer in seconds. Default is NULL (run indefinitely)')
-    # parser.add_argument('-f', '--flush_threshold', type=int, default=500, help='Buffered flush threshold in array length')
     parser.add_argument('-s', '--split_threshold', type=int, default=3600 * 24, help='Split threshold in seconds (default 1 day)')
     parser.add_argument('-a', '--anonimize', action='store_true', help='Enable anonymization of process and file names')
+    parser.add_argument('-uc','--uncompressed', action='store_true', help='Enable uncompressed output')
 
     parse_args = parser.parse_args()
     output_dir = parse_args.output.strip()

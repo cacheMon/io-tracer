@@ -10,6 +10,7 @@ from .WriterManager import WriteManager
 from .FlagMapper import FlagMapper
 from .KernelProbeTracker import KernelProbeTracker
 from .PollingThread import PollingThread
+from .PathResolver import PathResolver
 
 class IOTracer:
     def __init__(
@@ -17,6 +18,7 @@ class IOTracer:
             output_dir:         str,
             bpf_file:           str,
             split_threshold:    int,
+            is_uncompressed:    bool = False,
             anonymous:          bool = False,
             page_cnt:           int = 8,
             verbose:            bool = False,
@@ -29,7 +31,9 @@ class IOTracer:
         self.verbose            = verbose
         self.duration           = duration
         self.anonymous          = anonymous
-        
+        self.is_uncompressed    = is_uncompressed
+        self.path_resolver      = PathResolver()
+
         if cache_sample_rate > 1:
             self.writer.set_cache_sampling(cache_sample_rate)
 
@@ -54,7 +58,8 @@ class IOTracer:
         op_name = self.flag_mapper.op_fs_types.get(event.op, "[unknown]")
         
         try:
-            filename = "[anonymous file]" if self.anonymous else event.filename.decode()
+            # filename = "[anonymous file]" if self.anonymous else event.filename.decode()
+            filename = "[anonymous file]" if self.anonymous else f'"{self.path_resolver.resolve_path(event.inode, event.pid, event.filename.decode(errors='replace'))}"'
         except UnicodeDecodeError:
             filename = "[decode_error]"
         
@@ -225,8 +230,9 @@ class IOTracer:
             
             logger("info", "Compression complete. Cleaning up...")
 
-            shutil.rmtree(f"{self.writer.output_dir}/block")
-            shutil.rmtree(f"{self.writer.output_dir}/vfs")
-            shutil.rmtree(f"{self.writer.output_dir}/cache")
+            if self.is_uncompressed:
+                shutil.rmtree(f"{self.writer.output_dir}/block")
+                shutil.rmtree(f"{self.writer.output_dir}/vfs")
+                shutil.rmtree(f"{self.writer.output_dir}/cache")
             
             logger("info", "Cleanup complete. Exited successfully.")
