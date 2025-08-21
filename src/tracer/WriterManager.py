@@ -183,7 +183,7 @@ class WriteManager:
     def write_log_header(self):
         try:
             self.write_log_block_direct("timestamp pid tid comm sector nr_sectors operation cpu_id parent_info bio_size\n")
-            self.write_log_vfs_direct("timestamp op_name pid comm filename inode size_val flags_str filepath\n")
+            self.write_log_vfs_direct("timestamp op_name pid comm filename inode size_val flags_str\n")
             self.write_log_cache_direct("timestamp pid comm status\n")
         except IOError as e:
             logger("info", f"Could not open output file: {e}")
