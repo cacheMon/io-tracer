@@ -12,18 +12,20 @@ class WriteManager:
         self.current_datetime = datetime.now()
         self.split_threshold = split_threshold
 
-        self.output_dir = output_dir if output_dir else f"./result/vfs_trace_analysis_{self.current_datetime.strftime('%Y%m%d_%H%M%S')}"
+        base_output_dir = output_dir if output_dir else f"./result/vfs_trace_analysis"
+        
+        # If the base directory exists, create a timestamped subdirectory inside it
+        timestamp = self.current_datetime.strftime('%Y%m%d_%H%M%S')
+        self.output_dir = os.path.join(base_output_dir, f"run_{timestamp}")
+        
         self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S')}.log"
         self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S')}.log"
         self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S')}.log"
 
-        if not os.path.exists(self.output_dir):
-            os.makedirs(f"{self.output_dir}/vfs/log")
-            os.makedirs(f"{self.output_dir}/block/log")
-            os.makedirs(f"{self.output_dir}/cache/log")
-        else:
-            logger("error", f"Output directory {self.output_dir} already exists.")
-            sys.exit(1)
+        # Create the directory structure (this will work whether it's a new base dir or timestamped subdir)
+        os.makedirs(f"{self.output_dir}/vfs/log", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/block/log", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/cache/log", exist_ok=True)
 
         self.vfs_buffer = deque()
         self.block_buffer = deque()
