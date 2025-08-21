@@ -231,7 +231,7 @@ class IOTracer:
             
             logger("info", "Compression complete. Cleaning up...")
 
-            if self.is_uncompressed:
+            if self.is_uncompressed == False:
                 shutil.rmtree(f"{self.writer.output_dir}/block")
                 shutil.rmtree(f"{self.writer.output_dir}/vfs")
                 shutil.rmtree(f"{self.writer.output_dir}/cache")
