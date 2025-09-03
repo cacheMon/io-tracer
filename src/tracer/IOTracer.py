@@ -17,7 +17,6 @@ class IOTracer:
             self, 
             output_dir:         str,
             bpf_file:           str,
-            split_threshold:    int,
             is_uncompressed:    bool = False,
             anonymous:          bool = False,
             page_cnt:           int = 8,
@@ -25,7 +24,7 @@ class IOTracer:
             duration:           int | None = None,
             cache_sample_rate:  int = 1
         ):
-        self.writer             = WriteManager(output_dir, split_threshold)
+        self.writer             = WriteManager(output_dir)
         self.flag_mapper        = FlagMapper()
         self.running            = True
         self.verbose            = verbose

@@ -25,7 +25,7 @@ if __name__ == "__main__":
         verbose=parse_args.verbose,
         duration=parse_args.duration,
         # flush_threshold=parse_args.flush_threshold,
-        split_threshold=parse_args.split_threshold,
+        # split_threshold=parse_args.split_threshold,
         anonymous=parse_args.anonimize
     )
     tracer.trace()

@@ -10,9 +10,9 @@ import gzip
 import shutil
 
 class WriteManager:
-    def __init__(self, output_dir: str | None, split_threshold: int = 3600 * 24):
+    def __init__(self, output_dir: str | None):
         self.current_datetime = datetime.now()
-        self.split_threshold = split_threshold
+        self.created_files = 0
 
         base_output_dir = output_dir if output_dir else f"./result/vfs_trace_analysis"
         
@@ -156,7 +156,6 @@ class WriteManager:
             logger("error", "Invalid cache log output format. Expected a string.")
 
     def flush_cache_only(self):
-        print("FLUSHING CACHE!!!")
         if self.cache_buffer:
             if self._cache_handle is None:
                 self._cache_handle = open(self.output_cache_file, 'a', buffering=8192)
@@ -164,7 +163,7 @@ class WriteManager:
 
             self._write_buffer_to_file(self.cache_buffer, self._cache_handle, "Cache")
             self.compress_log(self.output_cache_file)
-            self.output_cache_file = f"{self.output_dir}/cache/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
+            self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
             self.cache_memory_size = 0
 
             self._cache_handle.close()
@@ -172,7 +171,6 @@ class WriteManager:
 
 
     def flush_vfs_only(self):
-        print("FLUSHING FS!!!")
         if self.vfs_buffer:
             if self._vfs_handle is None:
                 self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
@@ -187,7 +185,6 @@ class WriteManager:
             self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
 
     def flush_block_only(self):
-        print("FLUSHING BLOCK!!!")
         if self.block_buffer:
             if self._block_handle is None:
                 self._block_handle = open(self.output_block_file, 'a', buffering=8192)
@@ -196,7 +193,7 @@ class WriteManager:
             
             self._write_buffer_to_file(self.block_buffer, self._block_handle, "Block")
             self.compress_log(self.output_block_file)
-            self.output_block_file = f"{self.output_dir}/block/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
+            self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
             self.block_memory_size = 0
 
             self._block_handle.close()
@@ -314,12 +311,12 @@ class WriteManager:
     def compress_log(self, input_file):
         src = input_file
         dst = input_file + ".gz"
-
+        self.created_files += 1
+        logger('info',f"Files Created: {str(self.created_files)}", True)
         with open(src, "rb") as f_in:
             with gzip.open(dst, "wb") as f_out:
                 shutil.copyfileobj(f_in, f_out)
 
-        print(f"Compressed {src} -> {dst}")
         os.remove(input_file)
         
 
