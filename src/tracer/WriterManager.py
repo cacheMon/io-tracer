@@ -6,6 +6,8 @@ from datetime import datetime
 from ..utility.utils import logger, create_tar_gz
 import threading
 from collections import deque
+import gzip
+import shutil
 
 class WriteManager:
     def __init__(self, output_dir: str | None, split_threshold: int = 3600 * 24):
@@ -14,13 +16,12 @@ class WriteManager:
 
         base_output_dir = output_dir if output_dir else f"./result/vfs_trace_analysis"
         
-        # If the base directory exists, create a timestamped subdirectory inside it
         timestamp = self.current_datetime.strftime('%Y%m%d_%H%M%S')
         self.output_dir = os.path.join(base_output_dir, f"run_{timestamp}")
         
-        self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S')}.log"
-        self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S')}.log"
-        self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S')}.log"
+        self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
+        self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
+        self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
 
         # Create the directory structure (this will work whether it's a new base dir or timestamped subdir)
         os.makedirs(f"{self.output_dir}/vfs/log", exist_ok=True)
@@ -35,16 +36,16 @@ class WriteManager:
         self.block_memory_size = 0
         self.cache_memory_size = 0
         
-        self.cache_max_buffer_size = 64 * 1024      
-        self.cache_max_events = 2000               
+        self.cache_max_buffer_size = 200 * 1024 * 1024      
+        self.cache_max_events = 50000               
         
-        self.vfs_max_buffer_size = 512 * 1024      
-        self.vfs_max_events = 1000                  
+        self.vfs_max_buffer_size = 200 * 1024 * 1024     
+        self.vfs_max_events = 3000                  
         
-        self.block_max_buffer_size = 512 * 1024     
+        self.block_max_buffer_size = 200 * 1024 * 1024     
         self.block_max_events = 1000               
         
-        self.global_max_memory = 1024 * 1024       
+        self.global_max_memory = 1000 * 1024 * 1024       
         self.global_max_events = 5000               
         
         self._vfs_handle = None
@@ -65,16 +66,25 @@ class WriteManager:
         return len(self.vfs_buffer) + len(self.block_buffer) + len(self.cache_buffer)
 
     def should_flush_cache(self):
-        return (len(self.cache_buffer) >= self.cache_max_events or 
-                self.cache_memory_size >= self.cache_max_buffer_size)
+        return (
+            len(self.cache_buffer) >= self.cache_max_events  
+            # len(self.cache_buffer) >= self.cache_max_events or 
+            # self.cache_memory_size >= self.cache_max_buffer_size
+            )
 
     def should_flush_vfs(self):
-        return (len(self.vfs_buffer) >= self.vfs_max_events or 
-                self.vfs_memory_size >= self.vfs_max_buffer_size)
+        return (
+            len(self.vfs_buffer) >= self.vfs_max_events 
+            # len(self.vfs_buffer) >= self.vfs_max_events or 
+            # self.vfs_memory_size >= self.vfs_max_buffer_size
+            )
 
     def should_flush_block(self):
-        return (len(self.block_buffer) >= self.block_max_events or 
-                self.block_memory_size >= self.block_max_buffer_size)
+        return (
+            len(self.block_buffer) >= self.block_max_events 
+            # len(self.block_buffer) >= self.block_max_events or 
+            # self.block_memory_size >= self.block_max_buffer_size
+            )
 
     def should_flush_global(self):
         total_memory = self.get_total_memory_usage()
@@ -146,31 +156,58 @@ class WriteManager:
             logger("error", "Invalid cache log output format. Expected a string.")
 
     def flush_cache_only(self):
+        print("FLUSHING CACHE!!!")
         if self.cache_buffer:
             if self._cache_handle is None:
                 self._cache_handle = open(self.output_cache_file, 'a', buffering=8192)
-            
+            self.current_datetime = datetime.now()
+
             self._write_buffer_to_file(self.cache_buffer, self._cache_handle, "Cache")
+            self.compress_log(self.output_cache_file)
+            self.output_cache_file = f"{self.output_dir}/cache/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
             self.cache_memory_size = 0
 
+            self._cache_handle.close()
+            self._cache_handle = open(self.output_cache_file, 'a', buffering=8192)
+
+
     def flush_vfs_only(self):
+        print("FLUSHING FS!!!")
         if self.vfs_buffer:
             if self._vfs_handle is None:
                 self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
+            self.current_datetime = datetime.now()
             
             self._write_buffer_to_file(self.vfs_buffer, self._vfs_handle, "VFS")
+            self.compress_log(self.output_vfs_file)
+            self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
             self.vfs_memory_size = 0
 
+            self._vfs_handle.close()
+            self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
+
     def flush_block_only(self):
+        print("FLUSHING BLOCK!!!")
         if self.block_buffer:
             if self._block_handle is None:
                 self._block_handle = open(self.output_block_file, 'a', buffering=8192)
+            self.current_datetime = datetime.now()
+            print("RAFLY GANTENG")
             
             self._write_buffer_to_file(self.block_buffer, self._block_handle, "Block")
+            self.compress_log(self.output_block_file)
+            self.output_block_file = f"{self.output_dir}/block/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
             self.block_memory_size = 0
 
+            self._block_handle.close()
+            self._block_handle = open(self.output_block_file, 'a', buffering=8192)            
+
     def force_flush(self):
-        self.write_to_disk()
+        print("Compressing All")
+        self.compress_log(self.output_block_file)
+        self.compress_log(self.output_vfs_file)
+        self.compress_log(self.output_cache_file)
+
 
     def clear_events(self):
         print("Clear initiated")
@@ -273,6 +310,18 @@ class WriteManager:
             thread.join()
 
         self.clear_events()
+
+    def compress_log(self, input_file):
+        src = input_file
+        dst = input_file + ".gz"
+
+        with open(src, "rb") as f_in:
+            with gzip.open(dst, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+
+        print(f"Compressed {src} -> {dst}")
+        os.remove(input_file)
+        
 
     def close_handles(self):
         handles = [

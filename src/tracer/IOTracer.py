@@ -221,19 +221,13 @@ class IOTracer:
             print()
             logger("info", "Trace stopped")
             logger("info", "Please wait. Compressing trace output...")
-            
-            create_tar_gz(
-                f"{self.writer.output_dir}/raw_trace_{time.strftime('%Y%m%d_%H%M%S')}.tar.gz", 
-                [f"{self.writer.output_dir}/block", 
-                 f"{self.writer.output_dir}/vfs", 
-                 f"{self.writer.output_dir}/cache"]
-            )
-            
-            logger("info", "Compression complete. Cleaning up...")
 
-            if self.is_uncompressed == False:
-                shutil.rmtree(f"{self.writer.output_dir}/block")
-                shutil.rmtree(f"{self.writer.output_dir}/vfs")
-                shutil.rmtree(f"{self.writer.output_dir}/cache")
+            self.writer.force_flush()
+            
+
+            # if self.is_uncompressed == False:
+            #     shutil.rmtree(f"{self.writer.output_dir}/block")
+            #     shutil.rmtree(f"{self.writer.output_dir}/vfs")
+            #     shutil.rmtree(f"{self.writer.output_dir}/cache")
             
             logger("info", "Cleanup complete. Exited successfully.")
