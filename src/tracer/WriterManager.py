@@ -19,11 +19,10 @@ class WriteManager:
         timestamp = self.current_datetime.strftime('%Y%m%d_%H%M%S')
         self.output_dir = os.path.join(base_output_dir, f"run_{timestamp}")
         
-        self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
-        self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
-        self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
+        self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
-        # Create the directory structure (this will work whether it's a new base dir or timestamped subdir)
         os.makedirs(f"{self.output_dir}/vfs/log", exist_ok=True)
         os.makedirs(f"{self.output_dir}/block/log", exist_ok=True)
         os.makedirs(f"{self.output_dir}/cache/log", exist_ok=True)
@@ -68,22 +67,16 @@ class WriteManager:
     def should_flush_cache(self):
         return (
             len(self.cache_buffer) >= self.cache_max_events  
-            # len(self.cache_buffer) >= self.cache_max_events or 
-            # self.cache_memory_size >= self.cache_max_buffer_size
             )
 
     def should_flush_vfs(self):
         return (
             len(self.vfs_buffer) >= self.vfs_max_events 
-            # len(self.vfs_buffer) >= self.vfs_max_events or 
-            # self.vfs_memory_size >= self.vfs_max_buffer_size
             )
 
     def should_flush_block(self):
         return (
             len(self.block_buffer) >= self.block_max_events 
-            # len(self.block_buffer) >= self.block_max_events or 
-            # self.block_memory_size >= self.block_max_buffer_size
             )
 
     def should_flush_global(self):
@@ -163,7 +156,7 @@ class WriteManager:
 
             self._write_buffer_to_file(self.cache_buffer, self._cache_handle, "Cache")
             self.compress_log(self.output_cache_file)
-            self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
+            self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
             self.cache_memory_size = 0
 
             self._cache_handle.close()
@@ -178,7 +171,7 @@ class WriteManager:
             
             self._write_buffer_to_file(self.vfs_buffer, self._vfs_handle, "VFS")
             self.compress_log(self.output_vfs_file)
-            self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
+            self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
             self.vfs_memory_size = 0
 
             self._vfs_handle.close()
@@ -193,7 +186,7 @@ class WriteManager:
             
             self._write_buffer_to_file(self.block_buffer, self._block_handle, "Block")
             self.compress_log(self.output_block_file)
-            self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.log"
+            self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
             self.block_memory_size = 0
 
             self._block_handle.close()

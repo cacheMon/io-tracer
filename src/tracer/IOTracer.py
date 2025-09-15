@@ -5,6 +5,7 @@ import signal
 from bcc import BPF
 import time
 import sys
+from datetime import datetime
 from ..utility.utils import logger, create_tar_gz
 from .WriterManager import WriteManager
 from .FlagMapper import FlagMapper
@@ -64,7 +65,7 @@ class IOTracer:
             filepath = "[decode_error]"
         
         flags_str = self.flag_mapper.format_fs_flags(event.flags)
-        timestamp = event.ts
+        timestamp = datetime.today()
         
         try:
             comm = "[anonymous process]" if self.anonymous else event.comm.decode()
@@ -72,7 +73,7 @@ class IOTracer:
             comm = "[decode_error]"
         
         size_val = event.size if event.size is not None else 0
-        output = f"{timestamp} {op_name} {event.pid} {comm.replace(' ','_')} {filename.replace(' ','_')} {event.inode} {size_val} {flags_str}"
+        output = f"{timestamp},{op_name},{event.pid},{comm},{filename},{event.inode},{size_val},{flags_str}"
         
         self.writer.append_fs_log(output)
         
@@ -83,7 +84,7 @@ class IOTracer:
         comm = "[anonymous process]" if self.anonymous else event.comm.decode('utf-8', errors='replace')
         hit = "HIT" if event.type == 0 else "MISS"
 
-        output = f"{timestamp} {pid} {comm.replace(' ','_')} {hit}"
+        output = f"{timestamp},{pid},{comm},{hit}"
         
         self.writer.append_cache_log(output)
 
@@ -101,11 +102,11 @@ class IOTracer:
         ppid = event.ppid
         parent_comm = "[anonymous process]" if self.anonymous else event.parent_comm.decode('utf-8', errors='replace')
         bio_size = event.bio_size
-            
-        output = (f"{timestamp} {pid} {tid} {comm.replace(' ','_')} {sector} "
-                f"{nr_sectors} {ops_str} "
-                f"cpu:{cpu_id} ppid:{ppid}({parent_comm}) "
-                f"{bio_size}")
+
+        output = (f"{timestamp},{pid},{tid},{comm},{sector},"
+                  f"{nr_sectors},{ops_str},"
+                  f"{cpu_id},ppid:{ppid}:({parent_comm}),"
+                  f"{bio_size}")
 
         if (sector == 0 and nr_sectors == 0) or (sector == '0' and nr_sectors == '0'):
             if self.verbose:
@@ -135,7 +136,6 @@ class IOTracer:
                 logger("warning", f"Lost {lost} events in kernel buffer")
 
     def trace(self):
-        self.writer.write_log_header()
         self.probe_tracker.attach_probes()
 
         signal.signal(signal.SIGINT, self._cleanup)
@@ -222,11 +222,5 @@ class IOTracer:
             logger("info", "Please wait. Compressing trace output...")
 
             self.writer.force_flush()
-            
-
-            # if self.is_uncompressed == False:
-            #     shutil.rmtree(f"{self.writer.output_dir}/block")
-            #     shutil.rmtree(f"{self.writer.output_dir}/vfs")
-            #     shutil.rmtree(f"{self.writer.output_dir}/cache")
             
             logger("info", "Cleanup complete. Exited successfully.")
