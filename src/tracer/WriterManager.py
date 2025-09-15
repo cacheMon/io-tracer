@@ -22,6 +22,7 @@ class WriteManager:
         self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_paths.txt"
 
         os.makedirs(f"{self.output_dir}/vfs/log", exist_ok=True)
         os.makedirs(f"{self.output_dir}/block/log", exist_ok=True)
@@ -182,7 +183,6 @@ class WriteManager:
             if self._block_handle is None:
                 self._block_handle = open(self.output_block_file, 'a', buffering=8192)
             self.current_datetime = datetime.now()
-            print("RAFLY GANTENG")
             
             self._write_buffer_to_file(self.block_buffer, self._block_handle, "Block")
             self.compress_log(self.output_block_file)
@@ -333,3 +333,50 @@ class WriteManager:
         self._block_handle = None
         self._cache_handle = None
 
+    def filesystem_snapshot(self,  max_depth=None):
+        output_file = self.output_fs_snapshot_file
+        root_path = '/'
+        all_paths = []
+        visited_real_paths = set()
+        
+        def scan_dir(path, current_depth=0):
+            if max_depth is not None and current_depth > max_depth:
+                return
+            
+            try:
+                real_path = os.path.realpath(path)
+                if real_path in visited_real_paths:
+                    return
+                visited_real_paths.add(real_path)
+            except:
+                return
+            
+            try:
+                items = os.listdir(path)
+            except (PermissionError, OSError):
+                return
+            
+            for item in sorted(items):
+                item_path = os.path.join(path, item)
+                
+                try:
+                    if os.path.isfile(item_path):
+                        all_paths.append(item_path)  
+                    elif os.path.isdir(item_path):
+                        all_paths.append(item_path)  
+                        item_real_path = os.path.realpath(item_path)
+                        if item_real_path not in visited_real_paths:
+                            scan_dir(item_path, current_depth + 1)
+                except:
+                    continue
+        
+        logger('info',f"Getting filesystem snapshot...")
+        all_paths.append(root_path)
+        scan_dir(root_path)
+
+        logger('info',f"Writing {len(all_paths)} paths to {output_file}...")
+        with open(output_file, 'w') as f:
+            for path in sorted(all_paths):
+                f.write(path + "\n")
+        logger('info',f"Scan complete! Found {len(all_paths)} paths.")
+        self.compress_log(output_file)

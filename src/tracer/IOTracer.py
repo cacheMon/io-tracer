@@ -143,6 +143,7 @@ class IOTracer:
 
         logger("info", "IO tracer started")
         logger("info", "Press Ctrl+C to exit")
+        self.writer.filesystem_snapshot()
         
         if self.writer.cache_sample_rate > 1:
             logger("info", f"Cache sampling enabled: 1:{self.writer.cache_sample_rate}")
