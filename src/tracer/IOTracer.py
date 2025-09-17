@@ -2,9 +2,11 @@
 
 import shutil
 import signal
+import os
 from bcc import BPF
 import time
 import sys
+import threading
 from datetime import datetime
 from ..utility.utils import logger, create_tar_gz
 from .WriterManager import WriteManager
@@ -12,6 +14,7 @@ from .FlagMapper import FlagMapper
 from .KernelProbeTracker import KernelProbeTracker
 from .PollingThread import PollingThread
 from .PathResolver import PathResolver
+from .FilesystemSnapper import FilesystemSnapper
 
 class IOTracer:
     def __init__(
@@ -25,7 +28,11 @@ class IOTracer:
             duration:           int | None = None,
             cache_sample_rate:  int = 1
         ):
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_dir = os.path.join(output_dir, f"run_{timestamp}")
+
         self.writer             = WriteManager(output_dir)
+        self.fs_snapper         = FilesystemSnapper(output_dir)
         self.flag_mapper        = FlagMapper()
         self.running            = True
         self.verbose            = verbose
@@ -123,6 +130,7 @@ class IOTracer:
         self.probe_tracker.detach_kprobes()
         
         logger("info", "Performing final flush...")
+        self.fs_snapper.interrupt = True
         self.writer.write_to_disk()
         
         self.writer.close_handles()
@@ -143,8 +151,8 @@ class IOTracer:
 
         logger("info", "IO tracer started")
         logger("info", "Press Ctrl+C to exit")
-        self.writer.filesystem_snapshot()
-        
+        self.fs_snapper.filesystem_snapshot()
+
         if self.writer.cache_sample_rate > 1:
             logger("info", f"Cache sampling enabled: 1:{self.writer.cache_sample_rate}")
 
