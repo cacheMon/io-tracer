@@ -71,6 +71,8 @@ class WriteManager:
 
     def append_fs_snap_log(self, log_output: str):
         if isinstance(log_output, str):
+            if self._fs_snap_handle is None:
+                self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
             self.fs_snap_buffer.append(log_output)
             
             if self.should_flush_fssnap():
@@ -125,7 +127,7 @@ class WriteManager:
             self.current_datetime = datetime.now()
 
             self._write_buffer_to_file(self.fs_snap_buffer, self._fs_snap_handle, "Filesystem Snapshot")
-            self.compress_log(self.output_fs_snapshot_file)
+            # self.compress_log(self.output_fs_snapshot_file)
 
             self._fs_snap_handle.close()
             self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)

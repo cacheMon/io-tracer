@@ -8,52 +8,54 @@ import time
 import threading
 
 class FilesystemSnapper:
-    def __init__(self, wm: WriteManager):
-        self.root_path = '/'
-        self.visited_real_paths = set()
+    def __init__(self, wm):
+        self.root_path = "/"
         self.interrupt = False
         self.wm = wm
+        self._visited_inodes = set()
+        self._root_dev = os.stat(self.root_path).st_dev
 
-    def filesystem_snapshot(self,  max_depth=None):
-        def scan_dir(path, current_depth=0):
-            if max_depth is not None and current_depth > max_depth:
+    def filesystem_snapshot(self, max_depth=3):
+        def scan_dir(path, depth=0):
+            if self.interrupt or (max_depth is not None and depth > max_depth):
                 return
-            
-            if self.interrupt:
+            try:
+                st = os.stat(path, follow_symlinks=False)
+            except Exception:
                 return
+
+            if st.st_dev != self._root_dev:
+                return
+
+            key = (st.st_dev, st.st_ino)
+            if key in self._visited_inodes:
+                return
+            self._visited_inodes.add(key)
 
             try:
-                real_path = os.path.realpath(path)
-                if real_path in self.visited_real_paths:
-                    return
-                self.visited_real_paths.add(real_path)
-            except:
+                with os.scandir(path) as it:
+                    for entry in it:
+                        if self.interrupt:
+                            return
+                        try:
+                            if entry.is_file(follow_symlinks=False):
+                                est = entry.stat(follow_symlinks=False)  
+                                size = est.st_size
+                                ctime = datetime.fromtimestamp(getattr(est, "st_birthtime", est.st_mtime))
+                                mtime = datetime.fromtimestamp(est.st_mtime)
+                                out = f"{entry.path},{size},{ctime},{mtime}"
+                                self.wm.append_fs_snap_log(out)
+                            elif entry.is_dir(follow_symlinks=False):
+                                scan_dir(entry.path, depth + 1)
+                        except Exception:
+                            continue
+            except Exception:
                 return
-            
-            try:
-                items = os.listdir(path)
-            except (PermissionError, OSError):
-                return
-            
-            for item in sorted(items):
-                item_path = os.path.join(path, item)
-                
-                try:
-                    if os.path.isfile(item_path):
-                        file_size = self.get_file_size(item_path)
-                        created_time = self.get_created_time(item_path)
-                        modification_time = self.get_modification_time(item_path)
-                        out = f"{item_path},{file_size},{created_time},{modification_time}"
-                        self.wm.append_fs_snap_log(out)
-                    elif os.path.isdir(item_path):
-                        item_real_path = os.path.realpath(item_path)
-                        if item_real_path not in self.visited_real_paths:
-                            scan_dir(item_path, current_depth + 1)
-                except:
-                    continue
-        logger('info',"Starting filesystem snapshot...")
-        scan_dir(self.root_path)
-        logger('info',"Filesystem snapshot completed.")
+
+        logger("info", "Starting filesystem snapshot...")
+        scan_dir(self.root_path, 0)
+        self.wm.flush_fssnap_only()
+        logger("info", "Filesystem snapshot completed.")
 
     def stop_snapper(self):
         self.interrupt = True
