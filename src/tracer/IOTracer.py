@@ -33,7 +33,7 @@ class IOTracer:
         output_dir = os.path.join(output_dir, f"run_{timestamp}")
 
         self.writer             = WriteManager(output_dir)
-        self.fs_snapper         = FilesystemSnapper(output_dir)
+        self.fs_snapper         = FilesystemSnapper(self.writer)
         self.process_snapper    = ProcessSnapper(self.writer)
         self.flag_mapper        = FlagMapper()
         self.running            = True
@@ -132,7 +132,7 @@ class IOTracer:
         self.probe_tracker.detach_kprobes()
         
         logger("info", "Performing final flush...")
-        self.fs_snapper.interrupt = True
+        self.fs_snapper.stop_snapper()
         self.process_snapper.stop_snapper()
         self.writer.write_to_disk()
         
@@ -154,10 +154,8 @@ class IOTracer:
 
         logger("info", "IO tracer started")
         logger("info", "Press Ctrl+C to exit")
-        self.fs_snapper.filesystem_snapshot()
-        snapper_thread = threading.Thread(target=self.process_snapper.process_snapshot)
-        snapper_thread.daemon = True
-        snapper_thread.start()
+        self.fs_snapper.run()
+        self.process_snapper.run()
 
         if self.writer.cache_sample_rate > 1:
             logger("info", f"Cache sampling enabled: 1:{self.writer.cache_sample_rate}")

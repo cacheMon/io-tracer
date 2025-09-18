@@ -1,21 +1,20 @@
 from ..utility.utils import logger, compress_log
+from .WriterManager import WriteManager
 from datetime import datetime
 import gzip
 import shutil
 import os
 import time
+import threading
 
 class FilesystemSnapper:
-    def __init__(self, output_dir):
-        self.output_fs_snapshot_file = f"{output_dir}/filesystem_paths.csv"
+    def __init__(self, wm: WriteManager):
         self.root_path = '/'
-        self.all_paths = []
         self.visited_real_paths = set()
         self.interrupt = False
+        self.wm = wm
 
     def filesystem_snapshot(self,  max_depth=None):
-        output_file = self.output_fs_snapshot_file
-        
         def scan_dir(path, current_depth=0):
             if max_depth is not None and current_depth > max_depth:
                 return
@@ -41,29 +40,23 @@ class FilesystemSnapper:
                 
                 try:
                     if os.path.isfile(item_path):
-                        self.all_paths.append(item_path)
+                        file_size = self.get_file_size(item_path)
+                        created_time = self.get_created_time(item_path)
+                        modification_time = self.get_modification_time(item_path)
+                        out = f"{item_path},{file_size},{created_time},{modification_time}"
+                        self.wm.append_fs_snap_log(out)
                     elif os.path.isdir(item_path):
                         item_real_path = os.path.realpath(item_path)
                         if item_real_path not in self.visited_real_paths:
                             scan_dir(item_path, current_depth + 1)
                 except:
                     continue
-                    
-        logger('info',f"Getting filesystem snapshot, please wait and don't turn off the tracer...")
+        logger('info',"Starting filesystem snapshot...")
         scan_dir(self.root_path)
-        self.write_snapshot()
-        logger('info',f"Snapshot done!")
+        logger('info',"Filesystem snapshot completed.")
 
-    def write_snapshot(self):
-        logger('info',f"Writing {len(self.all_paths)} paths to {self.output_fs_snapshot_file}...")
-        with open(self.output_fs_snapshot_file, 'w') as f:
-            for path in sorted(self.all_paths):
-                file_size = self.get_file_size(path)
-                created_time = self.get_created_time(path)
-                modification_time = self.get_modification_time(path)
-                out = f"{path},{file_size},{created_time},{modification_time}"
-                f.write(out + "\n")
-        compress_log(self.output_fs_snapshot_file)
+    def stop_snapper(self):
+        self.interrupt = True
 
     def get_file_size(self, path):
         try:
@@ -87,4 +80,9 @@ class FilesystemSnapper:
             return datetime.fromtimestamp(stat.st_mtime)
         except (OSError, FileNotFoundError):
             return None
+
+    def run(self):
+        snapper_thread = threading.Thread(target=self.filesystem_snapshot)
+        snapper_thread.daemon = True
+        snapper_thread.start()
             

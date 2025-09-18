@@ -19,6 +19,7 @@ class WriteManager:
         self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_process_file = f"{self.output_dir}/process_state/log/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_paths.csv"
 
         os.makedirs(f"{self.output_dir}/vfs/log", exist_ok=True)
         os.makedirs(f"{self.output_dir}/block/log", exist_ok=True)
@@ -28,17 +29,23 @@ class WriteManager:
         self.vfs_buffer = deque()
         self.block_buffer = deque()
         self.cache_buffer = deque()
+
         self.process_buffer = deque()
+        self.fs_snap_buffer = deque()
         
-        self.cache_max_events = 50000
+        self.cache_max_events = 500000
         self.vfs_max_events = 3000
         self.block_max_events = 1000
+
         self.process_max_events = 2000
+        self.fs_snap_max_events = 50000
 
         self._vfs_handle = None
         self._block_handle = None
         self._cache_handle = None
+
         self._process_handle = None
+        self._fs_snap_handle = None
 
         self.cache_sample_rate = 1  # can be increased to reduce cache event volume
         self.cache_event_counter = 0
@@ -47,23 +54,29 @@ class WriteManager:
         self.cache_sample_rate = sample_rate
         logger("info", f"Cache sampling set to 1:{sample_rate} (every {sample_rate}th event)")
 
-    def get_total_events(self):
-        return len(self.vfs_buffer) + len(self.block_buffer) + len(self.cache_buffer)
-
     def should_flush_cache(self):
-        return (
-            len(self.cache_buffer) >= self.cache_max_events  
-            )
+        return (len(self.cache_buffer) >= self.cache_max_events)
 
     def should_flush_vfs(self):
-        return (
-            len(self.vfs_buffer) >= self.vfs_max_events 
-            )
+        return (len(self.vfs_buffer) >= self.vfs_max_events)
 
     def should_flush_block(self):
-        return (
-            len(self.block_buffer) >= self.block_max_events 
-            )
+        return (len(self.block_buffer) >= self.block_max_events)
+
+    def should_flush_process(self):
+        return (len(self.process_buffer) >= self.process_max_events)
+
+    def should_flush_fssnap(self):
+        return (len(self.fs_snap_buffer) >= self.fs_snap_max_events)
+
+    def append_fs_snap_log(self, log_output: str):
+        if isinstance(log_output, str):
+            self.fs_snap_buffer.append(log_output)
+            
+            if self.should_flush_fssnap():
+                self.flush_fssnap_only()
+        else:
+            logger("error", "Invalid log output format. Expected a string.")
 
     def append_fs_log(self, log_output: str):
         if isinstance(log_output, str):
@@ -77,8 +90,8 @@ class WriteManager:
     def append_process_log(self, log_output: str):
         if isinstance(log_output, str):
             self.process_buffer.append(log_output)
-            
-            if len(self.process_buffer) >= self.process_max_events:
+
+            if self.should_flush_process():
                 self.flush_process_state_only()
         else:
             logger("error", "Invalid process log output format. Expected a string.")
@@ -104,6 +117,18 @@ class WriteManager:
                 self.flush_cache_only()
         else:
             logger("error", "Invalid cache log output format. Expected a string.")
+
+    def flush_fssnap_only(self):
+        if self.fs_snap_buffer:
+            if self._fs_snap_handle is None:
+                self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
+            self.current_datetime = datetime.now()
+
+            self._write_buffer_to_file(self.fs_snap_buffer, self._fs_snap_handle, "Filesystem Snapshot")
+            self.compress_log(self.output_fs_snapshot_file)
+
+            self._fs_snap_handle.close()
+            self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
 
     def flush_process_state_only(self):
         if self.process_buffer:
@@ -159,11 +184,11 @@ class WriteManager:
             self._block_handle = open(self.output_block_file, 'a', buffering=8192)            
 
     def force_flush(self):
-        print("Compressing All")
         self.compress_log(self.output_block_file)
         self.compress_log(self.output_vfs_file)
         self.compress_log(self.output_cache_file)
         self.compress_log(self.output_process_file)
+        self.compress_log(self.output_fs_snapshot_file)
 
 
     def clear_events(self):
@@ -172,6 +197,7 @@ class WriteManager:
         self.block_buffer.clear() 
         self.cache_buffer.clear()
         self.process_buffer.clear()
+        self.fs_snap_buffer.clear()
 
     def _write_buffer_to_file(self, buffer, file_handle, buffer_name):
         if not buffer:
@@ -219,6 +245,12 @@ class WriteManager:
                     self._process_handle = open(self.output_process_file, 'a', buffering=8192)
                 self._write_buffer_to_file(self.process_buffer, self._process_handle, "Process State")
 
+        def write_fssnap():
+            if self.fs_snap_buffer:
+                if self._fs_snap_handle is None:
+                    self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
+                self._write_buffer_to_file(self.fs_snap_buffer, self._fs_snap_handle, "Filesystem Snapshot")
+
         threads = []
         
         if self.vfs_buffer:
@@ -241,6 +273,11 @@ class WriteManager:
             threads.append(t4)
             t4.start()
 
+        if self.fs_snap_buffer: 
+            t5 = threading.Thread(target=write_fssnap)
+            threads.append(t5)
+            t5.start()
+
         for thread in threads:
             thread.join()
 
@@ -262,7 +299,9 @@ class WriteManager:
         handles = [
             (self._vfs_handle, "VFS"),
             (self._block_handle, "Block"), 
-            (self._cache_handle, "Cache")
+            (self._cache_handle, "Cache"),
+            (self._process_handle, "Process State"),
+            (self._fs_snap_handle, "Filesystem Snapshot")
         ]
         
         for handle, name in handles:
@@ -277,3 +316,5 @@ class WriteManager:
         self._vfs_handle = None
         self._block_handle = None
         self._cache_handle = None
+        self._process_handle = None
+        self._fs_snap_handle = None

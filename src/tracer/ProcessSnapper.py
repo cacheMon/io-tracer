@@ -3,6 +3,7 @@ from ..utility.utils import logger, compress_log
 from .WriterManager import WriteManager
 import psutil
 import time
+import threading
 
 class ProcessSnapper:
     def __init__(self, wm: WriteManager):
@@ -17,6 +18,7 @@ class ProcessSnapper:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         while self.running:
+            logger('info',"Starting process snapshot...")
             for proc in psutil.process_iter(['pid', 'name', 'memory_info','cmdline','create_time','status']):
                 try:
                     ts = timestamp
@@ -31,7 +33,13 @@ class ProcessSnapper:
                     self.wm.append_process_log(out)
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     pass
+            logger('info',"Process snapshot completed")
             time.sleep(600)
+
+    def run(self):
+        snapper_thread = threading.Thread(target=self.process_snapshot)
+        snapper_thread.daemon = True
+        snapper_thread.start()
 
 
 if __name__ == "__main__":
