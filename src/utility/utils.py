@@ -2,6 +2,8 @@ import os
 import time
 import datetime
 import tarfile
+import gzip
+import shutil
 
 def logger(error_scale,string, timestamp=False):
     timestamp_seconds = time.time()
@@ -28,3 +30,12 @@ def create_tar_gz(output_filename, files_to_archive):
         for file_path in files_to_archive:
             tar.add(file_path, arcname=os.path.basename(file_path))
     logger("info", f"Created tar.gz archive: {output_filename}")
+
+def compress_log(input_file):
+    src = input_file
+    dst = input_file + ".gz"
+    with open(src, "rb") as f_in:
+        with gzip.open(dst, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
+
+    os.remove(input_file)

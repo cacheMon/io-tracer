@@ -15,6 +15,7 @@ from .KernelProbeTracker import KernelProbeTracker
 from .PollingThread import PollingThread
 from .PathResolver import PathResolver
 from .FilesystemSnapper import FilesystemSnapper
+from .ProcessSnapper import ProcessSnapper
 
 class IOTracer:
     def __init__(
@@ -33,6 +34,7 @@ class IOTracer:
 
         self.writer             = WriteManager(output_dir)
         self.fs_snapper         = FilesystemSnapper(output_dir)
+        self.process_snapper    = ProcessSnapper(self.writer)
         self.flag_mapper        = FlagMapper()
         self.running            = True
         self.verbose            = verbose
@@ -131,6 +133,7 @@ class IOTracer:
         
         logger("info", "Performing final flush...")
         self.fs_snapper.interrupt = True
+        self.process_snapper.stop_snapper()
         self.writer.write_to_disk()
         
         self.writer.close_handles()
@@ -152,6 +155,9 @@ class IOTracer:
         logger("info", "IO tracer started")
         logger("info", "Press Ctrl+C to exit")
         self.fs_snapper.filesystem_snapshot()
+        snapper_thread = threading.Thread(target=self.process_snapper.process_snapshot)
+        snapper_thread.daemon = True
+        snapper_thread.start()
 
         if self.writer.cache_sample_rate > 1:
             logger("info", f"Cache sampling enabled: 1:{self.writer.cache_sample_rate}")

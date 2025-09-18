@@ -18,45 +18,34 @@ class WriteManager:
         self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_paths.txt"
+        self.output_process_file = f"{self.output_dir}/process_state/log/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
         os.makedirs(f"{self.output_dir}/vfs/log", exist_ok=True)
         os.makedirs(f"{self.output_dir}/block/log", exist_ok=True)
         os.makedirs(f"{self.output_dir}/cache/log", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/process_state/log", exist_ok=True)
 
         self.vfs_buffer = deque()
         self.block_buffer = deque()
         self.cache_buffer = deque()
+        self.process_buffer = deque()
         
-        self.vfs_memory_size = 0
-        self.block_memory_size = 0
-        self.cache_memory_size = 0
-        
-        self.cache_max_buffer_size = 200 * 1024 * 1024      
-        self.cache_max_events = 50000               
-        
-        self.vfs_max_buffer_size = 200 * 1024 * 1024     
-        self.vfs_max_events = 3000                  
-        
-        self.block_max_buffer_size = 200 * 1024 * 1024     
-        self.block_max_events = 1000               
-        
-        self.global_max_memory = 1000 * 1024 * 1024       
-        self.global_max_events = 5000               
-        
+        self.cache_max_events = 50000
+        self.vfs_max_events = 3000
+        self.block_max_events = 1000
+        self.process_max_events = 2000
+
         self._vfs_handle = None
         self._block_handle = None
         self._cache_handle = None
-        
+        self._process_handle = None
+
         self.cache_sample_rate = 1  # can be increased to reduce cache event volume
         self.cache_event_counter = 0
 
     def set_cache_sampling(self, sample_rate: int):
         self.cache_sample_rate = sample_rate
         logger("info", f"Cache sampling set to 1:{sample_rate} (every {sample_rate}th event)")
-
-    def get_total_memory_usage(self):
-        return self.vfs_memory_size + self.block_memory_size + self.cache_memory_size
 
     def get_total_events(self):
         return len(self.vfs_buffer) + len(self.block_buffer) + len(self.cache_buffer)
@@ -76,54 +65,27 @@ class WriteManager:
             len(self.block_buffer) >= self.block_max_events 
             )
 
-    def should_flush_global(self):
-        total_memory = self.get_total_memory_usage()
-        total_events = self.get_total_events()
-        
-        return (total_memory >= self.global_max_memory or 
-                total_events >= self.global_max_events)
-
-    def isEventsBigEnough(self, threshold: int = 500):
-        
-        cache_needs_flush = self.should_flush_cache()
-        vfs_needs_flush = self.should_flush_vfs()
-        block_needs_flush = self.should_flush_block()
-        global_needs_flush = self.should_flush_global()
-        
-        should_flush = cache_needs_flush or vfs_needs_flush or block_needs_flush or global_needs_flush
-        if should_flush:
-            total_memory = self.get_total_memory_usage()
-            total_events = self.get_total_events()
-            
-            flush_reasons = []
-            if cache_needs_flush:
-                flush_reasons.append("cache")
-            if vfs_needs_flush:
-                flush_reasons.append("vfs")
-            if block_needs_flush:
-                flush_reasons.append("block")
-            if global_needs_flush:
-                flush_reasons.append("global")
-            
-        
-        return should_flush
-
     def append_fs_log(self, log_output: str):
         if isinstance(log_output, str):
-            event_size = len(log_output.encode('utf-8')) + 1
             self.vfs_buffer.append(log_output)
-            self.vfs_memory_size += event_size
             
             if self.should_flush_vfs():
                 self.flush_vfs_only()
         else:
             logger("error", "Invalid log output format. Expected a string.")
 
+    def append_process_log(self, log_output: str):
+        if isinstance(log_output, str):
+            self.process_buffer.append(log_output)
+            
+            if len(self.process_buffer) >= self.process_max_events:
+                self.flush_process_state_only()
+        else:
+            logger("error", "Invalid process log output format. Expected a string.")
+
     def append_block_log(self, log_output: str):
         if isinstance(log_output, str):
-            event_size = len(log_output.encode('utf-8')) + 1
             self.block_buffer.append(log_output)
-            self.block_memory_size += event_size
             
             if self.should_flush_block():
                 self.flush_block_only()
@@ -136,14 +98,25 @@ class WriteManager:
             if self.cache_sample_rate > 1 and (self.cache_event_counter % self.cache_sample_rate) != 0:
                 return 
             
-            event_size = len(log_output.encode('utf-8')) + 1
             self.cache_buffer.append(log_output)
-            self.cache_memory_size += event_size
             
             if self.should_flush_cache():
                 self.flush_cache_only()
         else:
             logger("error", "Invalid cache log output format. Expected a string.")
+
+    def flush_process_state_only(self):
+        if self.process_buffer:
+            if self._process_handle is None:
+                self._process_handle = open(self.output_process_file, 'a', buffering=8192)
+            self.current_datetime = datetime.now()
+
+            self._write_buffer_to_file(self.process_buffer, self._process_handle, "Process State")
+            self.compress_log(self.output_process_file)
+            self.output_process_file = f"{self.output_dir}/process_state/log/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+
+            self._process_handle.close()
+            self._process_handle = open(self.output_process_file, 'a', buffering=8192)
 
     def flush_cache_only(self):
         if self.cache_buffer:
@@ -154,7 +127,6 @@ class WriteManager:
             self._write_buffer_to_file(self.cache_buffer, self._cache_handle, "Cache")
             self.compress_log(self.output_cache_file)
             self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-            self.cache_memory_size = 0
 
             self._cache_handle.close()
             self._cache_handle = open(self.output_cache_file, 'a', buffering=8192)
@@ -169,7 +141,6 @@ class WriteManager:
             self._write_buffer_to_file(self.vfs_buffer, self._vfs_handle, "VFS")
             self.compress_log(self.output_vfs_file)
             self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-            self.vfs_memory_size = 0
 
             self._vfs_handle.close()
             self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
@@ -183,7 +154,6 @@ class WriteManager:
             self._write_buffer_to_file(self.block_buffer, self._block_handle, "Block")
             self.compress_log(self.output_block_file)
             self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-            self.block_memory_size = 0
 
             self._block_handle.close()
             self._block_handle = open(self.output_block_file, 'a', buffering=8192)            
@@ -193,6 +163,7 @@ class WriteManager:
         self.compress_log(self.output_block_file)
         self.compress_log(self.output_vfs_file)
         self.compress_log(self.output_cache_file)
+        self.compress_log(self.output_process_file)
 
 
     def clear_events(self):
@@ -200,37 +171,7 @@ class WriteManager:
         self.vfs_buffer.clear()
         self.block_buffer.clear() 
         self.cache_buffer.clear()
-        
-        self.vfs_memory_size = 0
-        self.block_memory_size = 0
-        self.cache_memory_size = 0
-
-    def write_log_header(self):
-        try:
-            self.write_log_block_direct("timestamp pid tid comm sector nr_sectors operation cpu_id parent_info bio_size\n")
-            self.write_log_vfs_direct("timestamp op_name pid comm filename inode size_val flags_str\n")
-            self.write_log_cache_direct("timestamp pid comm status\n")
-        except IOError as e:
-            logger("info", f"Could not open output file: {e}")
-            sys.exit(1)
-
-    def write_log_vfs_direct(self, log_output: str):
-        if self._vfs_handle is None:
-            self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
-        self._vfs_handle.write(log_output)
-        self._vfs_handle.flush()
-
-    def write_log_block_direct(self, log_output: str):
-        if self._block_handle is None:
-            self._block_handle = open(self.output_block_file, 'a', buffering=8192)
-        self._block_handle.write(log_output)
-        self._block_handle.flush()
-
-    def write_log_cache_direct(self, log_output: str):
-        if self._cache_handle is None:
-            self._cache_handle = open(self.output_cache_file, 'a', buffering=8192)
-        self._cache_handle.write(log_output)
-        self._cache_handle.flush()
+        self.process_buffer.clear()
 
     def _write_buffer_to_file(self, buffer, file_handle, buffer_name):
         if not buffer:
@@ -259,21 +200,24 @@ class WriteManager:
                 if self._vfs_handle is None:
                     self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
                 self._write_buffer_to_file(self.vfs_buffer, self._vfs_handle, "VFS")
-                self.vfs_memory_size = 0
 
         def write_block():
             if self.block_buffer:
                 if self._block_handle is None:
                     self._block_handle = open(self.output_block_file, 'a', buffering=8192)
                 self._write_buffer_to_file(self.block_buffer, self._block_handle, "Block")
-                self.block_memory_size = 0
 
         def write_cache():
             if self.cache_buffer:
                 if self._cache_handle is None:
                     self._cache_handle = open(self.output_cache_file, 'a', buffering=8192)
                 self._write_buffer_to_file(self.cache_buffer, self._cache_handle, "Cache")
-                self.cache_memory_size = 0
+
+        def write_process():
+            if self.process_buffer:
+                if self._process_handle is None:
+                    self._process_handle = open(self.output_process_file, 'a', buffering=8192)
+                self._write_buffer_to_file(self.process_buffer, self._process_handle, "Process State")
 
         threads = []
         
@@ -291,6 +235,11 @@ class WriteManager:
             t3 = threading.Thread(target=write_cache)
             threads.append(t3)
             t3.start()
+
+        if self.process_buffer:
+            t4 = threading.Thread(target=write_process)
+            threads.append(t4)
+            t4.start()
 
         for thread in threads:
             thread.join()

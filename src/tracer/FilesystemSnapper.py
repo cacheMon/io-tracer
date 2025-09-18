@@ -1,8 +1,9 @@
-from ..utility.utils import logger
+from ..utility.utils import logger, compress_log
 from datetime import datetime
 import gzip
 import shutil
 import os
+import time
 
 class FilesystemSnapper:
     def __init__(self, output_dir):
@@ -47,6 +48,7 @@ class FilesystemSnapper:
                             scan_dir(item_path, current_depth + 1)
                 except:
                     continue
+                    
         logger('info',f"Getting filesystem snapshot, please wait and don't turn off the tracer...")
         scan_dir(self.root_path)
         self.write_snapshot()
@@ -61,7 +63,7 @@ class FilesystemSnapper:
                 modification_time = self.get_modification_time(path)
                 out = f"{path},{file_size},{created_time},{modification_time}"
                 f.write(out + "\n")
-        self.compress_log(self.output_fs_snapshot_file)
+        compress_log(self.output_fs_snapshot_file)
 
     def get_file_size(self, path):
         try:
@@ -85,13 +87,4 @@ class FilesystemSnapper:
             return datetime.fromtimestamp(stat.st_mtime)
         except (OSError, FileNotFoundError):
             return None
-
-    def compress_log(self, input_file):
-        src = input_file
-        dst = input_file + ".gz"
-        with open(src, "rb") as f_in:
-            with gzip.open(dst, "wb") as f_out:
-                shutil.copyfileobj(f_in, f_out)
-
-        os.remove(input_file)
             
