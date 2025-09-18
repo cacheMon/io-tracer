@@ -4,7 +4,12 @@
 Visit [IO Tracer documentations](https://raflyhangga.github.io/iotracerdocs/) for more detail.
 
 ## Installation
-install BPF Compiler Collection: [BCC Installation Link](https://github.com/iovisor/bcc/blob/master/INSTALL.md)  
+```
+# Install are analyzing tools
+pip install -r requirement.txt
+```
+
+then, install BPF Compiler Collection: [BCC Installation Link](https://github.com/iovisor/bcc/blob/master/INSTALL.md)  
 
 ## iotrc
 | Need sudo privilege
