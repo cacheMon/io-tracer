@@ -1,5 +1,6 @@
-from ..utility.utils import logger, compress_log
+from ..utility.utils import logger, compress_log, hash_rel_path
 from .WriterManager import WriteManager
+from pathlib import Path
 from datetime import datetime
 import gzip
 import shutil
@@ -8,7 +9,8 @@ import time
 import threading
 
 class FilesystemSnapper:
-    def __init__(self, wm):
+    def __init__(self, wm, anonymous=False):
+        self.anonymous = anonymous
         self.root_path = "/"
         self.interrupt = False
         self.wm = wm
@@ -39,12 +41,25 @@ class FilesystemSnapper:
                             return
                         try:
                             if entry.is_file(follow_symlinks=False):
-                                est = entry.stat(follow_symlinks=False)  
-                                size = est.st_size
-                                ctime = datetime.fromtimestamp(getattr(est, "st_birthtime", est.st_mtime))
-                                mtime = datetime.fromtimestamp(est.st_mtime)
-                                out = f"{entry.path},{size},{ctime},{mtime}"
-                                self.wm.append_fs_snap_log(out)
+                                if self.anonymous:
+                                    est = entry.stat(follow_symlinks=False)  
+                                    size = est.st_size
+                                    ctime = datetime.fromtimestamp(getattr(est, "st_birthtime", est.st_mtime))
+                                    mtime = datetime.fromtimestamp(est.st_mtime)
+
+                                    rel = Path(os.path.relpath(entry.path, start=self.root_path))
+                                    hashed_rel = hash_rel_path(rel, keep_ext=True, length=12)
+                                    hashed_path = os.path.join(os.sep, str(hashed_rel))
+
+                                    out = f"{hashed_path},{size},{ctime},{mtime}"
+                                    self.wm.append_fs_snap_log(out)
+                                else:
+                                    est = entry.stat(follow_symlinks=False)
+                                    size = est.st_size
+                                    ctime = datetime.fromtimestamp(getattr(est, "st_birthtime", est.st_mtime))
+                                    mtime = datetime.fromtimestamp(est.st_mtime)
+                                    out = f"{entry.path},{size},{ctime},{mtime}"
+                                    self.wm.append_fs_snap_log(out)
                             elif entry.is_dir(follow_symlinks=False):
                                 scan_dir(entry.path, depth + 1)
                         except Exception:
@@ -65,23 +80,6 @@ class FilesystemSnapper:
             return os.path.getsize(path)
         except (OSError, FileNotFoundError):
             return -1
-
-    def get_created_time(self, path):
-        try:
-            stat = os.stat(path)    
-            try:
-                return datetime.fromtimestamp(stat.st_birthtime)
-            except AttributeError:
-                return datetime.fromtimestamp(stat.st_mtime)
-        except (OSError, FileNotFoundError):
-            return None
-
-    def get_modification_time(self, path):
-        try:
-            stat = os.stat(path)    
-            return datetime.fromtimestamp(stat.st_mtime)
-        except (OSError, FileNotFoundError):
-            return None
 
     def run(self):
         snapper_thread = threading.Thread(target=self.filesystem_snapshot)

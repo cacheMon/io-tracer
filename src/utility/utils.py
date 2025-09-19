@@ -1,9 +1,31 @@
+from pathlib import Path
 import os
 import time
 import datetime
 import tarfile
 import gzip
 import shutil
+import hashlib
+
+_HASH_CACHE: dict[str, str] = {}
+
+def hash_component(name: str, keep_ext: bool = True, length: int = 12) -> str:
+    if keep_ext and '.' in name and not name.startswith('.'):
+        stem, ext = os.path.splitext(name)
+        key = f"{stem}|{length}"
+        if key not in _HASH_CACHE:
+            _HASH_CACHE[key] = hashlib.sha256(stem.encode("utf-8")).hexdigest()[:length]
+        return _HASH_CACHE[key] + ext
+    else:
+        key = f"{name}|{length}"
+        if key not in _HASH_CACHE:
+            _HASH_CACHE[key] = hashlib.sha256(name.encode("utf-8")).hexdigest()[:length]
+        return _HASH_CACHE[key]
+
+def hash_rel_path(rel: Path, keep_ext: bool = True, length: int = 12) -> Path:
+    hashed_parts = [hash_component(p, keep_ext=keep_ext, length=length) for p in rel.parts]
+    return Path(*hashed_parts)
+
 
 def logger(error_scale,string, timestamp=False):
     timestamp_seconds = time.time()

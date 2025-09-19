@@ -33,7 +33,7 @@ class IOTracer:
         output_dir = os.path.join(output_dir, f"run_{timestamp}")
 
         self.writer             = WriteManager(output_dir)
-        self.fs_snapper         = FilesystemSnapper(self.writer)
+        self.fs_snapper         = FilesystemSnapper(self.writer, anonymous)
         self.process_snapper    = ProcessSnapper(self.writer)
         self.flag_mapper        = FlagMapper()
         self.running            = True
@@ -67,8 +67,7 @@ class IOTracer:
         op_name = self.flag_mapper.op_fs_types.get(event.op, "[unknown]")
         
         try:
-            filename = "[anonymous file]" if self.anonymous else event.filename.decode()
-            # filepath = "[anonymous file]" if self.anonymous else f'"{self.path_resolver.resolve_path(event.inode, event.pid, event.filename.decode(errors='replace'))}"'
+            filename = event.filename.decode()
         except UnicodeDecodeError:
             filename = "[decode_error]"
             filepath = "[decode_error]"
@@ -77,7 +76,7 @@ class IOTracer:
         timestamp = datetime.today()
         
         try:
-            comm = "[anonymous process]" if self.anonymous else event.comm.decode()
+            comm = event.comm.decode()
         except UnicodeDecodeError:
             comm = "[decode_error]"
         
@@ -90,7 +89,7 @@ class IOTracer:
         event = self.b["cache_events"].event(data)
         timestamp = event.ts
         pid = event.pid
-        comm = "[anonymous process]" if self.anonymous else event.comm.decode('utf-8', errors='replace')
+        comm = event.comm.decode('utf-8', errors='replace')
         hit = "HIT" if event.type == 0 else "MISS"
 
         output = f"{timestamp},{pid},{comm},{hit}"
@@ -103,13 +102,13 @@ class IOTracer:
         timestamp = event.ts
         pid = event.pid
         tid = event.tid
-        comm = "[anonymous process]" if self.anonymous else event.comm.decode('utf-8', errors='replace')
+        comm = event.comm.decode('utf-8', errors='replace')
         sector = event.sector
         nr_sectors = event.nr_sectors
         ops_str = self.flag_mapper.format_block_operation(event.op)
         cpu_id = event.cpu_id
         ppid = event.ppid
-        parent_comm = "[anonymous process]" if self.anonymous else event.parent_comm.decode('utf-8', errors='replace')
+        parent_comm = event.parent_comm.decode('utf-8', errors='replace')
         bio_size = event.bio_size
 
         output = (f"{timestamp},{pid},{tid},{comm},{sector},"
