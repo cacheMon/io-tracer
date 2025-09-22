@@ -20,6 +20,7 @@ class WriteManager:
         self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_process_file = f"{self.output_dir}/process_state/log/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_paths.csv"
+        self.output_device_spec = f"{self.output_dir}/device_spec.txt"
 
         os.makedirs(f"{self.output_dir}/vfs/log", exist_ok=True)
         os.makedirs(f"{self.output_dir}/block/log", exist_ok=True)
@@ -119,6 +120,13 @@ class WriteManager:
                 self.flush_cache_only()
         else:
             logger("error", "Invalid cache log output format. Expected a string.")
+
+    def direct_write(self, output_path: str, spec_str: str):
+        try:
+            with open(f"{self.output_dir}/{output_path}", 'w') as f:
+                f.write(spec_str)
+        except Exception as e:
+            logger("error", f"Error writing device spec to {output_path}: {e}")
 
     def flush_fssnap_only(self):
         if self.fs_snap_buffer:

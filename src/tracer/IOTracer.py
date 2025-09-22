@@ -16,6 +16,7 @@ from .PollingThread import PollingThread
 from .PathResolver import PathResolver
 from .FilesystemSnapper import FilesystemSnapper
 from .ProcessSnapper import ProcessSnapper
+from .SystemSnapper import SystemSnapper
 
 class IOTracer:
     def __init__(
@@ -35,6 +36,7 @@ class IOTracer:
         self.writer             = WriteManager(output_dir)
         self.fs_snapper         = FilesystemSnapper(self.writer, anonymous)
         self.process_snapper    = ProcessSnapper(self.writer)
+        self.system_snapper     = SystemSnapper(self.writer)
         self.flag_mapper        = FlagMapper()
         self.running            = True
         self.verbose            = verbose
@@ -153,6 +155,7 @@ class IOTracer:
 
         logger("info", "IO tracer started")
         logger("info", "Press Ctrl+C to exit")
+        self.system_snapper.capture_spec_snapshot()
         self.fs_snapper.run()
         self.process_snapper.run()
 
