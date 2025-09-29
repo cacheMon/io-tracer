@@ -89,7 +89,7 @@ class IOTracer:
         
     def _print_event_cache(self, cpu, data, size):       
         event = self.b["cache_events"].event(data)
-        timestamp = event.ts
+        timestamp = datetime.today()
         pid = event.pid
         comm = event.comm.decode('utf-8', errors='replace')
         hit = "HIT" if event.type == 0 else "MISS"
@@ -101,7 +101,7 @@ class IOTracer:
     def _print_event_block(self, cpu, data, size):        
         event = self.b["bl_events"].event(data)
         
-        timestamp = event.ts
+        timestamp = datetime.today()
         pid = event.pid
         tid = event.tid
         comm = event.comm.decode('utf-8', errors='replace')
