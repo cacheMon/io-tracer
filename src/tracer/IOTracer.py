@@ -115,7 +115,7 @@ class IOTracer:
 
         output = (f"{timestamp},{pid},{tid},{comm},{sector},"
                   f"{nr_sectors},{ops_str},"
-                  f"{cpu_id},ppid:{ppid}:({parent_comm}),"
+                  f"{cpu_id},{ppid},{parent_comm},"
                   f"{bio_size}")
 
         if (sector == 0 and nr_sectors == 0) or (sector == '0' and nr_sectors == '0'):
