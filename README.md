@@ -5,8 +5,8 @@ Visit [IO Tracer documentations](https://raflyhangga.github.io/iotracerdocs/) fo
 
 ## Installation
 ```
-# Install are analyzing tools
-pip install -r requirement.txt
+# Install process monitor
+sudo apt install python3-psutil
 ```
 
 then, install BPF Compiler Collection: [BCC Installation Link](https://github.com/iovisor/bcc/blob/master/INSTALL.md)  
