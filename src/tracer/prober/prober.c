@@ -9,6 +9,8 @@
 #include <linux/fs.h>
 #include <linux/mm.h>
 #include <linux/sched.h>
+#include <net/sock.h>
+#include <bcc/proto.h>
 
 #ifdef __has_include
 #  if __has_include(<linux/blk-mq.h>)
@@ -89,6 +91,16 @@ struct cache_data {
     char comm[TASK_COMM_LEN];
 };
 
+struct network_data {
+    u32 pid;                
+    u32 saddr;             
+    u32 daddr;              
+    u16 sport;         
+    u16 dport;           
+    u8 protocol;       
+    char comm[TASK_COMM_LEN]; 
+};
+
 BPF_HASH(start, u64, u64);
 BPF_HASH(file_positions, u64, u64, 1024);
 BPF_HASH(tracer_config, u32, u32, 1);
@@ -96,6 +108,7 @@ BPF_HASH(tracer_config, u32, u32, 1);
 BPF_PERF_OUTPUT(events);
 BPF_PERF_OUTPUT(bl_events);
 BPF_PERF_OUTPUT(cache_events);
+BPF_PERF_OUTPUT(network_events);
 
 static u64 get_file_inode(struct file *file) {
     u64 inode = 0;
@@ -235,7 +248,6 @@ static int submit_event(struct pt_regs *ctx, struct file *file, size_t size, lof
             bpf_probe_read_kernel(&position, sizeof(position), pos);
         }
         
-        // Read flags
         bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
         events.perf_submit(ctx, &data, sizeof(data));
     }
@@ -255,7 +267,6 @@ int trace_vfs_write(struct pt_regs *ctx, struct file *file, const char __user *b
 }
 
 int trace_vfs_open(struct pt_regs *ctx, const struct path *path, struct file *file) {
-    // for open, 0 as size and null as pos
     if (file)
         submit_event(ctx, file, 0, NULL, OP_OPEN);
     return 0;
@@ -287,7 +298,6 @@ int trace_vfs_fsync_range(struct pt_regs *ctx, struct file *file, loff_t start, 
 
 int trace_fput(struct pt_regs *ctx, struct file *file) {
     if (file) {
-        // For close operations, use the file's current position if available
         loff_t *pos = NULL;
         if (file->f_pos) {
             pos = &file->f_pos;
@@ -325,7 +335,6 @@ int trace_blk_mq_start_request(struct pt_regs *ctx, struct request *rq) {
                                 task->real_parent->comm);
     }
     
-    // These fields are more stable at request start time
     bpf_probe_read_kernel(&event.sector, sizeof(event.sector), &rq->__sector);
     
     u32 data_len = 0;
@@ -338,7 +347,6 @@ int trace_blk_mq_start_request(struct pt_regs *ctx, struct request *rq) {
     event.op = cmd_flags & REQ_OP_MASK;
     event.flags = cmd_flags;
     
-    // Validate before submitting
     if (event.bio_size > 0 && event.sector > 0) {
         bl_events.perf_submit(ctx, &event, sizeof(event));
     }
@@ -373,5 +381,50 @@ int trace_miss(struct pt_regs *ctx, struct page *page, struct address_space *map
     data.ts = bpf_ktime_get_ns();
 
     cache_events.perf_submit(ctx, &data, sizeof(data));
+    return 0;
+}
+
+int trace_connect(struct pt_regs *ctx, struct sock *sk) {
+    struct network_data data = {};
+    
+    
+    data.pid = bpf_get_current_pid_tgid() >> 32;
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    
+    u16 family = sk->__sk_common.skc_family;
+    
+    if (family == AF_INET) {
+        data.saddr = sk->__sk_common.skc_rcv_saddr;
+        data.daddr = sk->__sk_common.skc_daddr;
+        data.sport = sk->__sk_common.skc_num;
+        data.dport = sk->__sk_common.skc_dport;
+        data.dport = ntohs(data.dport);
+        data.protocol = 6;
+        
+        network_events.perf_submit(ctx, &data, sizeof(data));
+    }
+    
+    return 0;
+}
+
+int trace_udp_sendmsg(struct pt_regs *ctx, struct sock *sk) {
+    struct network_data data = {};
+    
+    data.pid = bpf_get_current_pid_tgid() >> 32;
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    
+    u16 family = sk->__sk_common.skc_family;
+    
+    if (family == AF_INET) {
+        data.saddr = sk->__sk_common.skc_rcv_saddr;
+        data.daddr = sk->__sk_common.skc_daddr;
+        data.sport = sk->__sk_common.skc_num;
+        data.dport = sk->__sk_common.skc_dport;
+        data.dport = ntohs(data.dport);
+        data.protocol = 17; 
+        
+        network_events.perf_submit(ctx, &data, sizeof(data));
+    }
+    
     return 0;
 }

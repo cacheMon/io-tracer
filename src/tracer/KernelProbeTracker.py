@@ -70,6 +70,8 @@ class KernelProbeTracker:
             self.add_kprobe("vfs_open", "trace_vfs_open")
             self.add_kprobe("vfs_fsync", "trace_vfs_fsync")
             self.add_kprobe("blk_mq_start_request", "trace_blk_mq_start_request")
+            self.add_kprobe("tcp_connect", "trace_connect")
+            self.add_kprobe("udp_sendmsg", "trace_udp_sendmsg")
 
             if BPF.get_kprobe_functions(b'filemap_add_folio'):
                 logger("info", "Using filemap_add_folio for page cache tracking")

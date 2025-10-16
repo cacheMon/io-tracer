@@ -8,6 +8,7 @@ import threading
 from collections import deque
 import gzip
 import shutil
+import time
 
 class WriteManager:
     def __init__(self, output_dir: str ):
@@ -19,6 +20,7 @@ class WriteManager:
         self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_process_file = f"{self.output_dir}/process_state/log/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_network_file = f"{self.output_dir}/network/log/network_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_paths.csv"
         self.output_device_spec = f"{self.output_dir}/device_spec.txt"
 
@@ -26,10 +28,12 @@ class WriteManager:
         os.makedirs(f"{self.output_dir}/block/log", exist_ok=True)
         os.makedirs(f"{self.output_dir}/cache/log", exist_ok=True)
         os.makedirs(f"{self.output_dir}/process_state/log", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/network/log", exist_ok=True)
 
         self.vfs_buffer = deque()
         self.block_buffer = deque()
         self.cache_buffer = deque()
+        self.network_buffer = deque()
 
         self.process_buffer = deque()
         self.fs_snap_buffer = deque()
@@ -37,6 +41,7 @@ class WriteManager:
         self.cache_max_events = 500000
         self.vfs_max_events = 3000
         self.block_max_events = 1000
+        self.network_max_events = 1000
 
         self.process_max_events = 2000
         self.fs_snap_max_events = 50000
@@ -44,6 +49,7 @@ class WriteManager:
         self._vfs_handle = None
         self._block_handle = None
         self._cache_handle = None
+        self._network_handle = None
 
         self._process_handle = None
         self._fs_snap_handle = None
@@ -69,6 +75,9 @@ class WriteManager:
 
     def should_flush_fssnap(self):
         return (len(self.fs_snap_buffer) >= self.fs_snap_max_events)
+
+    def should_flush_network(self):
+        return (len(self.network_buffer) >= self.network_max_events)
 
     def append_fs_snap_log(self, log_output: str):
         if isinstance(log_output, str):
@@ -120,6 +129,15 @@ class WriteManager:
                 self.flush_cache_only()
         else:
             logger("error", "Invalid cache log output format. Expected a string.")
+
+    def append_network_log(self, log_output: str):
+        if isinstance(log_output, str):
+            self.network_buffer.append(log_output)
+            
+            if self.should_flush_network():
+                self.flush_network_only()
+        else:
+            logger("error", "Invalid network log output format. Expected a string.")
 
     def direct_write(self, output_path: str, spec_str: str):
         try:
@@ -191,14 +209,29 @@ class WriteManager:
             self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._block_handle.close()
-            self._block_handle = open(self.output_block_file, 'a', buffering=8192)            
+            self._block_handle = open(self.output_block_file, 'a', buffering=8192)
+
+    def flush_network_only(self):
+        if self.network_buffer:
+            if self._network_handle is None:
+                self._network_handle = open(self.output_network_file, 'a', buffering=8192)
+            self.current_datetime = datetime.now()
+            
+            self._write_buffer_to_file(self.network_buffer, self._network_handle, "Network")
+            self.compress_log(self.output_network_file)
+            self.output_network_file = f"{self.output_dir}/network/log/network_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+
+            self._network_handle.close()
+            self._network_handle = open(self.output_network_file, 'a', buffering=8192)
 
     def force_flush(self):
+        time.sleep(5)
         self.compress_log(self.output_block_file)
         self.compress_log(self.output_vfs_file)
         self.compress_log(self.output_cache_file)
         self.compress_log(self.output_process_file)
         self.compress_log(self.output_fs_snapshot_file)
+        self.compress_log(self.output_network_file)
 
 
     def clear_events(self):
@@ -208,6 +241,7 @@ class WriteManager:
         self.cache_buffer.clear()
         self.process_buffer.clear()
         self.fs_snap_buffer.clear()
+        self.network_buffer.clear()
 
     def _write_buffer_to_file(self, buffer, file_handle, buffer_name):
         if not buffer:
@@ -261,6 +295,12 @@ class WriteManager:
                     self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
                 self._write_buffer_to_file(self.fs_snap_buffer, self._fs_snap_handle, "Filesystem Snapshot")
 
+        def write_network():
+            if self.network_buffer:
+                if self._network_handle is None:
+                    self._network_handle = open(self.output_network_file, 'a', buffering=8192)
+                self._write_buffer_to_file(self.network_buffer, self._network_handle, "Network")
+
         threads = []
         
         if self.vfs_buffer:
@@ -288,6 +328,11 @@ class WriteManager:
             threads.append(t5)
             t5.start()
 
+        if self.network_buffer:
+            t6 = threading.Thread(target=write_network)
+            threads.append(t6)
+            t6.start()
+
         for thread in threads:
             thread.join()
 
@@ -311,7 +356,8 @@ class WriteManager:
             (self._block_handle, "Block"), 
             (self._cache_handle, "Cache"),
             (self._process_handle, "Process State"),
-            (self._fs_snap_handle, "Filesystem Snapshot")
+            (self._fs_snap_handle, "Filesystem Snapshot"),
+            (self._network_handle, "Network"),
         ]
         
         for handle, name in handles:
@@ -328,3 +374,4 @@ class WriteManager:
         self._cache_handle = None
         self._process_handle = None
         self._fs_snap_handle = None
+        self._network_handle = None
