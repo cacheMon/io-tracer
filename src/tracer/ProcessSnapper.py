@@ -29,7 +29,7 @@ class ProcessSnapper:
                     create_time = datetime.fromtimestamp(proc.info['create_time'])
                     status = proc.info['status']
                     
-                    out = f"{ts},{pid},{name},{mem},{cmdline},{create_time},{status}"
+                    out = f"{ts},{pid},\"{name}\",{mem},\"{cmdline}\",{create_time},{status}"
                     self.wm.append_process_log(out)
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     pass

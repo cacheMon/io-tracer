@@ -25,10 +25,10 @@ class WriteManager:
         self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_paths.csv"
         self.output_device_spec = f"{self.output_dir}/device_spec.txt"
 
-        os.makedirs(f"{self.output_dir}/vfs/log", exist_ok=True)
-        os.makedirs(f"{self.output_dir}/block/log", exist_ok=True)
-        os.makedirs(f"{self.output_dir}/cache/log", exist_ok=True)
-        os.makedirs(f"{self.output_dir}/process_state/log", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/vfs", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/block", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/cache", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/process_state", exist_ok=True)
         os.makedirs(f"{self.output_dir}/network/net", exist_ok=True)
         os.makedirs(f"{self.output_dir}/network/pack", exist_ok=True)
 
