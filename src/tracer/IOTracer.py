@@ -143,6 +143,18 @@ class IOTracer:
         # print(output)
         self.writer.append_network_log(output)
 
+    def _print_event_packet(self, cpu, data, size):
+        event = self.b["packet_events"].event(data)
+        timestamp = datetime.today()
+        pid = event.pid
+        comm = event.comm.decode('utf-8', errors='replace')
+        bytes_count = event.bytes
+        is_send = event.is_send 
+
+        output = f"{timestamp},{pid},{comm},{bytes_count},{is_send}"
+        # print(output)
+        self.writer.append_packet_log(output)
+
     def _cleanup(self, signum, frame):
         self.running = False
     
@@ -198,6 +210,12 @@ class IOTracer:
 
         self.b["network_events"].open_perf_buffer(
             self._print_event_network, 
+            page_cnt=self.page_cnt, 
+            lost_cb=self._lost_cb
+        )
+
+        self.b["packet_events"].open_perf_buffer(
+            self._print_event_packet, 
             page_cnt=self.page_cnt, 
             lost_cb=self._lost_cb
         )

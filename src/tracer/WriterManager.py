@@ -16,11 +16,12 @@ class WriteManager:
 
         self.created_files = 0
         self.output_dir = output_dir
-        self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_process_file = f"{self.output_dir}/process_state/log/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_network_file = f"{self.output_dir}/network/log/network_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_vfs_file = f"{self.output_dir}/vfs/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_block_file = f"{self.output_dir}/block/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_cache_file = f"{self.output_dir}/cache/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_process_file = f"{self.output_dir}/process_state/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_network_file = f"{self.output_dir}/network/net/network_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_packet_file = f"{self.output_dir}/network/pack/packet_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_paths.csv"
         self.output_device_spec = f"{self.output_dir}/device_spec.txt"
 
@@ -28,12 +29,14 @@ class WriteManager:
         os.makedirs(f"{self.output_dir}/block/log", exist_ok=True)
         os.makedirs(f"{self.output_dir}/cache/log", exist_ok=True)
         os.makedirs(f"{self.output_dir}/process_state/log", exist_ok=True)
-        os.makedirs(f"{self.output_dir}/network/log", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/network/net", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/network/pack", exist_ok=True)
 
         self.vfs_buffer = deque()
         self.block_buffer = deque()
         self.cache_buffer = deque()
         self.network_buffer = deque()
+        self.packet_buffer = deque()
 
         self.process_buffer = deque()
         self.fs_snap_buffer = deque()
@@ -42,6 +45,7 @@ class WriteManager:
         self.vfs_max_events = 3000
         self.block_max_events = 1000
         self.network_max_events = 1000
+        self.packet_max_events = 1000
 
         self.process_max_events = 2000
         self.fs_snap_max_events = 50000
@@ -50,6 +54,7 @@ class WriteManager:
         self._block_handle = None
         self._cache_handle = None
         self._network_handle = None
+        self._packet_handle = None
 
         self._process_handle = None
         self._fs_snap_handle = None
@@ -78,6 +83,9 @@ class WriteManager:
 
     def should_flush_network(self):
         return (len(self.network_buffer) >= self.network_max_events)
+
+    def should_flush_packet(self):
+        return (len(self.packet_buffer) >= self.packet_max_events)
 
     def append_fs_snap_log(self, log_output: str):
         if isinstance(log_output, str):
@@ -139,6 +147,15 @@ class WriteManager:
         else:
             logger("error", "Invalid network log output format. Expected a string.")
 
+    def append_packet_log(self, log_output: str):
+        if isinstance(log_output, str):
+            self.packet_buffer.append(log_output)
+            
+            if self.should_flush_packet():
+                self.flush_packet_only()
+        else:
+            logger("error", "Invalid packet log output format. Expected a string.")
+
     def direct_write(self, output_path: str, spec_str: str):
         try:
             with open(f"{self.output_dir}/{output_path}", 'w') as f:
@@ -166,7 +183,7 @@ class WriteManager:
 
             self._write_buffer_to_file(self.process_buffer, self._process_handle, "Process State")
             self.compress_log(self.output_process_file)
-            self.output_process_file = f"{self.output_dir}/process_state/log/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_process_file = f"{self.output_dir}/process_state/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._process_handle.close()
             self._process_handle = open(self.output_process_file, 'a', buffering=8192)
@@ -179,7 +196,7 @@ class WriteManager:
 
             self._write_buffer_to_file(self.cache_buffer, self._cache_handle, "Cache")
             self.compress_log(self.output_cache_file)
-            self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_cache_file = f"{self.output_dir}/cache/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._cache_handle.close()
             self._cache_handle = open(self.output_cache_file, 'a', buffering=8192)
@@ -193,7 +210,7 @@ class WriteManager:
             
             self._write_buffer_to_file(self.vfs_buffer, self._vfs_handle, "VFS")
             self.compress_log(self.output_vfs_file)
-            self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_vfs_file = f"{self.output_dir}/vfs/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._vfs_handle.close()
             self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
@@ -206,7 +223,7 @@ class WriteManager:
             
             self._write_buffer_to_file(self.block_buffer, self._block_handle, "Block")
             self.compress_log(self.output_block_file)
-            self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_block_file = f"{self.output_dir}/block/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._block_handle.close()
             self._block_handle = open(self.output_block_file, 'a', buffering=8192)
@@ -219,10 +236,23 @@ class WriteManager:
             
             self._write_buffer_to_file(self.network_buffer, self._network_handle, "Network")
             self.compress_log(self.output_network_file)
-            self.output_network_file = f"{self.output_dir}/network/log/network_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_network_file = f"{self.output_dir}/network/net/network_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._network_handle.close()
             self._network_handle = open(self.output_network_file, 'a', buffering=8192)
+
+    def flush_packet_only(self):
+        if self.packet_buffer:
+            if self._packet_handle is None:
+                self._packet_handle = open(self.output_packet_file, 'a', buffering=8192)
+            self.current_datetime = datetime.now()
+            
+            self._write_buffer_to_file(self.packet_buffer, self._packet_handle, "Packet")
+            self.compress_log(self.output_packet_file)
+            self.output_packet_file = f"{self.output_dir}/network/pack/packet_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+
+            self._packet_handle.close()
+            self._packet_handle = open(self.output_packet_file, 'a', buffering=8192)
 
     def force_flush(self):
         time.sleep(5)
@@ -232,6 +262,7 @@ class WriteManager:
         self.compress_log(self.output_process_file)
         self.compress_log(self.output_fs_snapshot_file)
         self.compress_log(self.output_network_file)
+        self.compress_log(self.output_packet_file)
 
 
     def clear_events(self):
@@ -242,6 +273,7 @@ class WriteManager:
         self.process_buffer.clear()
         self.fs_snap_buffer.clear()
         self.network_buffer.clear()
+        self.packet_buffer.clear()
 
     def _write_buffer_to_file(self, buffer, file_handle, buffer_name):
         if not buffer:
@@ -301,6 +333,12 @@ class WriteManager:
                     self._network_handle = open(self.output_network_file, 'a', buffering=8192)
                 self._write_buffer_to_file(self.network_buffer, self._network_handle, "Network")
 
+        def write_packet():
+            if self.packet_buffer:
+                if self._packet_handle is None:
+                    self._packet_handle = open(self.output_packet_file, 'a', buffering=8192)
+                self._write_buffer_to_file(self.packet_buffer, self._packet_handle, "Packet")
+
         threads = []
         
         if self.vfs_buffer:
@@ -333,6 +371,11 @@ class WriteManager:
             threads.append(t6)
             t6.start()
 
+        if self.packet_buffer:
+            t7 = threading.Thread(target=write_packet)
+            threads.append(t7)
+            t7.start()
+
         for thread in threads:
             thread.join()
 
@@ -358,6 +401,7 @@ class WriteManager:
             (self._process_handle, "Process State"),
             (self._fs_snap_handle, "Filesystem Snapshot"),
             (self._network_handle, "Network"),
+            (self._packet_handle, "Packet"),
         ]
         
         for handle, name in handles:
@@ -375,3 +419,4 @@ class WriteManager:
         self._process_handle = None
         self._fs_snap_handle = None
         self._network_handle = None
+        self._packet_handle = None

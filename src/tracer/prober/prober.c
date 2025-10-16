@@ -101,6 +101,13 @@ struct network_data {
     char comm[TASK_COMM_LEN]; 
 };
 
+struct packet_data {
+    u32 pid;
+    char comm[16];
+    u64 bytes;
+    u8 is_send; 
+};
+
 BPF_HASH(start, u64, u64);
 BPF_HASH(file_positions, u64, u64, 1024);
 BPF_HASH(tracer_config, u32, u32, 1);
@@ -109,6 +116,7 @@ BPF_PERF_OUTPUT(events);
 BPF_PERF_OUTPUT(bl_events);
 BPF_PERF_OUTPUT(cache_events);
 BPF_PERF_OUTPUT(network_events);
+BPF_PERF_OUTPUT(packet_events);
 
 static u64 get_file_inode(struct file *file) {
     u64 inode = 0;
@@ -400,7 +408,6 @@ int trace_connect(struct pt_regs *ctx, struct sock *sk) {
         data.dport = sk->__sk_common.skc_dport;
         data.dport = ntohs(data.dport);
         data.protocol = 6;
-        
         network_events.perf_submit(ctx, &data, sizeof(data));
     }
     
@@ -421,10 +428,37 @@ int trace_udp_sendmsg(struct pt_regs *ctx, struct sock *sk) {
         data.sport = sk->__sk_common.skc_num;
         data.dport = sk->__sk_common.skc_dport;
         data.dport = ntohs(data.dport);
-        data.protocol = 17; 
-        
+        data.protocol = 17;
         network_events.perf_submit(ctx, &data, sizeof(data));
     }
     
+    return 0;
+}
+
+int trace_tcp_sendmsg(struct pt_regs *ctx, struct sock *sk, struct msghdr *msg, size_t size) {
+    struct packet_data data = {};
+    
+    data.pid = bpf_get_current_pid_tgid() >> 32;
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.bytes = size;
+    data.is_send = 1;
+    
+    packet_events.perf_submit(ctx, &data, sizeof(data));
+    return 0;
+}
+
+int trace_tcp_recvmsg_return(struct pt_regs *ctx) {
+    struct packet_data data = {};
+    int ret = PT_REGS_RC(ctx);
+    
+    if (ret <= 0)
+        return 0;
+    
+    data.pid = bpf_get_current_pid_tgid() >> 32;
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.bytes = ret;
+    data.is_send = 0;
+    
+    packet_events.perf_submit(ctx, &data, sizeof(data));
     return 0;
 }
