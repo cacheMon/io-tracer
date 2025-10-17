@@ -15,17 +15,17 @@ class WriteManager:
 
         self.created_files = 0
         self.output_dir = output_dir
-        self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_process_file = f"{self.output_dir}/process_state/log/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_vfs_file = f"{self.output_dir}/vfs/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_block_file = f"{self.output_dir}/block/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_cache_file = f"{self.output_dir}/cache/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_process_file = f"{self.output_dir}/process_state/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_paths.csv"
         self.output_device_spec = f"{self.output_dir}/device_spec.txt"
 
-        os.makedirs(f"{self.output_dir}/vfs/log", exist_ok=True)
-        os.makedirs(f"{self.output_dir}/block/log", exist_ok=True)
-        os.makedirs(f"{self.output_dir}/cache/log", exist_ok=True)
-        os.makedirs(f"{self.output_dir}/process_state/log", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/vfs", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/block", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/cache", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/process_state", exist_ok=True)
 
         self.vfs_buffer = deque()
         self.block_buffer = deque()
@@ -148,7 +148,7 @@ class WriteManager:
 
             self._write_buffer_to_file(self.process_buffer, self._process_handle, "Process State")
             self.compress_log(self.output_process_file)
-            self.output_process_file = f"{self.output_dir}/process_state/log/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_process_file = f"{self.output_dir}/process_state/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._process_handle.close()
             self._process_handle = open(self.output_process_file, 'a', buffering=8192)
@@ -161,7 +161,7 @@ class WriteManager:
 
             self._write_buffer_to_file(self.cache_buffer, self._cache_handle, "Cache")
             self.compress_log(self.output_cache_file)
-            self.output_cache_file = f"{self.output_dir}/cache/log/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_cache_file = f"{self.output_dir}/cache/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._cache_handle.close()
             self._cache_handle = open(self.output_cache_file, 'a', buffering=8192)
@@ -175,7 +175,7 @@ class WriteManager:
             
             self._write_buffer_to_file(self.vfs_buffer, self._vfs_handle, "VFS")
             self.compress_log(self.output_vfs_file)
-            self.output_vfs_file = f"{self.output_dir}/vfs/log/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_vfs_file = f"{self.output_dir}/vfs/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._vfs_handle.close()
             self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
@@ -188,7 +188,7 @@ class WriteManager:
             
             self._write_buffer_to_file(self.block_buffer, self._block_handle, "Block")
             self.compress_log(self.output_block_file)
-            self.output_block_file = f"{self.output_dir}/block/log/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_block_file = f"{self.output_dir}/block/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._block_handle.close()
             self._block_handle = open(self.output_block_file, 'a', buffering=8192)            

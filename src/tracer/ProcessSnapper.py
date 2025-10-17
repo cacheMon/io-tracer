@@ -31,7 +31,7 @@ class ProcessSnapper:
 
                     proc = psutil.Process(pid)
                     cpu_usage = proc.cpu_percent(interval=1)
-                    out = f"{ts},{pid},{name},{mem},{cmdline},{create_time},{status},{cpu_usage}"
+                    out = f"{ts},{pid},\"{name}\",{mem},\"{cmdline}\",{create_time},{status},{cpu_usage}"
                     self.wm.append_process_log(out)
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     pass
