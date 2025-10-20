@@ -7,8 +7,9 @@ from bcc import BPF
 import time
 import sys
 import threading
+from pathlib import Path
 from datetime import datetime
-from ..utility.utils import logger, create_tar_gz
+from ..utility.utils import logger, create_tar_gz, hash_filename_in_path
 from .WriterManager import WriteManager
 from .FlagMapper import FlagMapper
 from .KernelProbeTracker import KernelProbeTracker
@@ -35,7 +36,7 @@ class IOTracer:
 
         self.writer             = WriteManager(output_dir)
         self.fs_snapper         = FilesystemSnapper(self.writer, anonymous)
-        self.process_snapper    = ProcessSnapper(self.writer)
+        self.process_snapper    = ProcessSnapper(self.writer, anonymous)
         self.system_snapper     = SystemSnapper(self.writer)
         self.flag_mapper        = FlagMapper()
         self.running            = True
@@ -70,6 +71,8 @@ class IOTracer:
         
         try:
             filename = event.filename.decode()
+            if self.anonymous:
+                filename = hash_filename_in_path(Path(filename))
         except UnicodeDecodeError:
             filename = "[decode_error]"
             filepath = "[decode_error]"
@@ -84,7 +87,6 @@ class IOTracer:
         
         size_val = event.size if event.size is not None else 0
         output = f"{timestamp},{op_name},{event.pid},{comm},{filename},{event.inode},{size_val},{flags_str}"
-        
         self.writer.append_fs_log(output)
         
     def _print_event_cache(self, cpu, data, size):       

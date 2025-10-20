@@ -9,6 +9,25 @@ import hashlib
 
 _HASH_CACHE: dict[str, str] = {}
 
+def hash_filename_in_path(path, hash_length=12):
+    
+    directory = path.parent
+    filename = path.name
+    
+    name_without_ext = path.stem
+    extension = path.suffix
+    
+    hash_obj = hashlib.sha256()
+    hash_obj.update(name_without_ext.encode('utf-8'))
+    full_hash = hash_obj.hexdigest()
+    
+    truncated_hash = full_hash[:hash_length]
+    
+    new_filename = truncated_hash + extension
+    new_filepath = directory / new_filename
+    
+    return str(new_filepath)
+
 def hash_component(name: str, keep_ext: bool = True, length: int = 12) -> str:
     if keep_ext and '.' in name and not name.startswith('.'):
         stem, ext = os.path.splitext(name)
@@ -25,6 +44,13 @@ def hash_component(name: str, keep_ext: bool = True, length: int = 12) -> str:
 def hash_rel_path(rel: Path, keep_ext: bool = True, length: int = 12) -> Path:
     hashed_parts = [hash_component(p, keep_ext=keep_ext, length=length) for p in rel.parts]
     return Path(*hashed_parts)
+
+def hash(content: str, length: int = 12) -> str:
+    hash_obj = hashlib.sha256()
+    hash_obj.update(content.encode('utf-8'))
+    full_hash = hash_obj.hexdigest()
+    truncated_hash = full_hash[:length]
+    return truncated_hash
 
 
 def logger(error_scale,string, timestamp=False):

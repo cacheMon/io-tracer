@@ -1,15 +1,16 @@
 from datetime import datetime
-from ..utility.utils import logger, compress_log
+from ..utility.utils import logger, compress_log, hash
 from .WriterManager import WriteManager
 import psutil
 import time
 import threading
 
 class ProcessSnapper:
-    def __init__(self, wm: WriteManager):
+    def __init__(self, wm: WriteManager, anonymous: bool):
         self.wm = wm
         self.processes = []
         self.running = True
+        self.anonymous = anonymous
 
     def stop_snapper(self):
         self.running = False
@@ -26,6 +27,8 @@ class ProcessSnapper:
                     name = proc.info['name']
                     mem = proc.info['memory_info'].rss / 1024 
                     cmdline = ' '.join(proc.info['cmdline'])
+                    if self.anonymous:
+                        cmdline = hash(cmdline, length=12)
                     create_time = datetime.fromtimestamp(proc.info['create_time'])
                     status = proc.info['status']
 
