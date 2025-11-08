@@ -8,6 +8,8 @@ import time
 import sys
 import threading
 from datetime import datetime
+import socket
+import struct
 from ..utility.utils import logger, create_tar_gz
 from .WriterManager import WriteManager
 from .FlagMapper import FlagMapper
@@ -127,33 +129,38 @@ class IOTracer:
 
         self.writer.append_block_log(output)
 
-    def _print_event_network(self, cpu, data, size):
-        event = self.b["network_events"].event(data)
-        timestamp = datetime.today()
-        pid = event.pid
-        comm = event.comm.decode('utf-8', errors='replace')
-        saddr = event.saddr
-        daddr = event.daddr
-        sport = event.sport
-        dport = event.dport
-        protocol = event.protocol
+    def _print_event_net(self, cpu, data, size):
+        e = self.b["net_events"].event(data)
+        ts = datetime.today()
+        pid = e.pid
+        comm = e.comm.decode("utf-8", errors="replace").strip("\x00")
+        size_bytes = e.size_bytes
+        ty = "send" if e.dir == 0 else "receive"
 
-        output = f"{timestamp},{pid},{comm},{saddr},{daddr},{sport},{dport},{protocol}"
-        
-        # print(output)
+        if e.ipver == 4:
+            # IPv4 addresses are in network byte order
+            saddr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.saddr_v4))
+            daddr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.daddr_v4))
+        elif e.ipver == 6:
+            saddr = socket.inet_ntop(socket.AF_INET6, to_ipv6_bytes(int(e.saddr_v6)))
+            daddr = socket.inet_ntop(socket.AF_INET6, to_ipv6_bytes(int(e.daddr_v6)))
+        else:
+            saddr = daddr = "unknown"
+
+        row = [
+            ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
+            str(pid),
+            comm,
+            saddr,
+            daddr,
+            str(e.sport),
+            str(e.dport),
+            str(size_bytes),
+            ty,
+        ]
+        output = ",".join(row)
         self.writer.append_network_log(output)
 
-    def _print_event_packet(self, cpu, data, size):
-        event = self.b["packet_events"].event(data)
-        timestamp = datetime.today()
-        pid = event.pid
-        comm = event.comm.decode('utf-8', errors='replace')
-        bytes_count = event.bytes
-        is_send = event.is_send 
-
-        output = f"{timestamp},{pid},{comm},{bytes_count},{is_send}"
-        # print(output)
-        self.writer.append_packet_log(output)
 
     def _cleanup(self, signum, frame):
         self.running = False
@@ -208,15 +215,9 @@ class IOTracer:
             lost_cb=self._lost_cb
         )
 
-        self.b["network_events"].open_perf_buffer(
-            self._print_event_network, 
-            page_cnt=self.page_cnt, 
-            lost_cb=self._lost_cb
-        )
-
-        self.b["packet_events"].open_perf_buffer(
-            self._print_event_packet, 
-            page_cnt=self.page_cnt, 
+        self.b["net_events"].open_perf_buffer(
+            self._print_event_net,
+            page_cnt=self.page_cnt,
             lost_cb=self._lost_cb
         )
 
@@ -279,3 +280,4 @@ class IOTracer:
             self.writer.force_flush()
             
             logger("info", "Cleanup complete. Exited successfully.")
+
