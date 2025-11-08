@@ -42,7 +42,15 @@ def hash_component(name: str, keep_ext: bool = True, length: int = 12) -> str:
         return _HASH_CACHE[key]
 
 def hash_rel_path(rel: Path, keep_ext: bool = True, length: int = 12) -> Path:
-    hashed_parts = [hash_component(p, keep_ext=keep_ext, length=length) for p in rel.parts]
+    parts = list(rel.parts)
+    
+    unhashed_parts = parts[:2] if len(parts) >= 2 else parts
+    
+    hashed_parts = unhashed_parts + [
+        hash_component(p, keep_ext=keep_ext, length=length) 
+        for p in parts[2:]
+    ]
+    
     return Path(*hashed_parts)
 
 def hash(content: str, length: int = 12) -> str:

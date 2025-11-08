@@ -9,6 +9,8 @@ import sys
 import threading
 from pathlib import Path
 from datetime import datetime
+import socket
+import struct
 from ..utility.utils import logger, create_tar_gz, hash_filename_in_path
 from .WriterManager import WriteManager
 from .FlagMapper import FlagMapper
@@ -129,6 +131,39 @@ class IOTracer:
 
         self.writer.append_block_log(output)
 
+    def _print_event_net(self, cpu, data, size):
+        e = self.b["net_events"].event(data)
+        ts = datetime.today()
+        pid = e.pid
+        comm = e.comm.decode("utf-8", errors="replace").strip("\x00")
+        size_bytes = e.size_bytes
+        ty = "send" if e.dir == 0 else "receive"
+
+        if e.ipver == 4:
+            # IPv4 addresses are in network byte order
+            saddr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.saddr_v4))
+            daddr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.daddr_v4))
+        elif e.ipver == 6:
+            saddr = socket.inet_ntop(socket.AF_INET6, to_ipv6_bytes(int(e.saddr_v6)))
+            daddr = socket.inet_ntop(socket.AF_INET6, to_ipv6_bytes(int(e.daddr_v6)))
+        else:
+            saddr = daddr = "unknown"
+
+        row = [
+            ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
+            str(pid),
+            comm,
+            saddr,
+            daddr,
+            str(e.sport),
+            str(e.dport),
+            str(size_bytes),
+            ty,
+        ]
+        output = ",".join(row)
+        self.writer.append_network_log(output)
+
+
     def _cleanup(self, signum, frame):
         self.running = False
     
@@ -179,6 +214,12 @@ class IOTracer:
         self.b["cache_events"].open_perf_buffer(
             self._print_event_cache, 
             page_cnt=self.page_cnt, 
+            lost_cb=self._lost_cb
+        )
+
+        self.b["net_events"].open_perf_buffer(
+            self._print_event_net,
+            page_cnt=self.page_cnt,
             lost_cb=self._lost_cb
         )
 
@@ -241,3 +282,4 @@ class IOTracer:
             self.writer.force_flush()
             
             logger("info", "Cleanup complete. Exited successfully.")
+
