@@ -53,6 +53,13 @@ def hash_rel_path(rel: Path, keep_ext: bool = True, length: int = 12) -> Path:
     
     return Path(*hashed_parts)
 
+def hash(content: str, length: int = 12) -> str:
+    hash_obj = hashlib.sha256()
+    hash_obj.update(content.encode('utf-8'))
+    full_hash = hash_obj.hexdigest()
+    truncated_hash = full_hash[:length]
+    return truncated_hash
+
 
 def logger(error_scale,string, timestamp=False):
     timestamp_seconds = time.time()
