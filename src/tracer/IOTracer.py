@@ -12,7 +12,7 @@ import socket
 import struct
 
 from .ObjectStorageManager import ObjectStorageManager
-from ..utility.utils import logger, hash_filename_in_path, inet6_from_event
+from ..utility.utils import logger, hash_filename_in_path, inet6_from_event, simple_hash
 from .WriterManager import WriteManager
 from .FlagMapper import FlagMapper
 from .KernelProbeTracker import KernelProbeTracker
@@ -144,20 +144,24 @@ class IOTracer:
         ty = "send" if e.dir == 0 else "receive"
 
         if e.ipver == 4:
-            saddr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.saddr_v4))
-            daddr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.daddr_v4))
+            s_addr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.saddr_v4))
+            d_addr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.daddr_v4))
         elif e.ipver == 6:
-            saddr = inet6_from_event(e.saddr_v6)
-            daddr = inet6_from_event(e.daddr_v6)
+            s_addr = inet6_from_event(e.saddr_v6)
+            d_addr = inet6_from_event(e.daddr_v6)
         else:
-            saddr = daddr = "unknown"
+            s_addr = d_addr = "unknown"
+
+        if self.anonymous:
+            s_addr = simple_hash(s_addr,5)
+            d_addr = simple_hash(d_addr,5)
 
         row = [
             ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
             str(pid),
             comm,
-            saddr,
-            daddr,
+            s_addr,
+            d_addr,
             str(e.sport),
             str(e.dport),
             str(size_bytes),

@@ -55,7 +55,7 @@ def hash_rel_path(rel: Path, keep_ext: bool = True, length: int = 12) -> Path:
     
     return Path(*hashed_parts)
 
-def hash(content: str, length: int = 12) -> str:
+def simple_hash(content: str, length: int = 12) -> str:
     hash_obj = hashlib.sha256()
     hash_obj.update(content.encode('utf-8'))
     full_hash = hash_obj.hexdigest()
@@ -101,7 +101,7 @@ def compress_log(input_file):
 def capture_machine_id():
     with open("/etc/machine-id") as f:
         machine_id = f.read().strip()
-        return hash(machine_id,16)
+        return simple_hash(machine_id, 16)
 
 def to_bytes16(x):
     if isinstance(x, (bytes, bytearray)):

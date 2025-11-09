@@ -1,5 +1,5 @@
 from datetime import datetime
-from ..utility.utils import logger, compress_log, hash
+from ..utility.utils import logger, compress_log, simple_hash
 from .WriterManager import WriteManager
 import psutil
 import time
@@ -28,7 +28,7 @@ class ProcessSnapper:
                     mem = proc.info['memory_info'].rss / 1024 
                     cmdline = ' '.join(proc.info['cmdline'])
                     if self.anonymous:
-                        cmdline = hash(cmdline, length=12)
+                        cmdline = simple_hash(cmdline, length=12)
                     create_time = datetime.fromtimestamp(proc.info['create_time'])
                     status = proc.info['status']
 
