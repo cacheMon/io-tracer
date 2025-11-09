@@ -3,6 +3,8 @@ import sys
 import json
 import io
 from datetime import datetime
+
+from .ObjectStorageManager import ObjectStorageManager
 from ..utility.utils import logger, create_tar_gz
 import threading
 from collections import deque
@@ -11,7 +13,7 @@ import shutil
 import time
 
 class WriteManager:
-    def __init__(self, output_dir: str ):
+    def __init__(self, output_dir: str, upload_manager: ObjectStorageManager, automatic_upload: bool ):
         self.current_datetime = datetime.now()
 
         self.created_files = 0
@@ -29,6 +31,9 @@ class WriteManager:
         os.makedirs(f"{self.output_dir}/cache", exist_ok=True)
         os.makedirs(f"{self.output_dir}/process_state", exist_ok=True)
         os.makedirs(f"{self.output_dir}/network", exist_ok=True)
+
+        self.upload_manager = upload_manager
+        self.automatic_upload = automatic_upload
 
         self.vfs_buffer = deque()
         self.block_buffer = deque()
@@ -143,8 +148,11 @@ class WriteManager:
 
     def direct_write(self, output_path: str, spec_str: str):
         try:
-            with open(f"{self.output_dir}/{output_path}", 'w') as f:
+            dst = f"{self.output_dir}/{output_path}"
+            with open(dst, 'w') as f:
                 f.write(spec_str)
+            if self.automatic_upload:
+                self.upload_manager.append_object(dst)
         except Exception as e:
             logger("error", f"Error writing device spec to {output_path}: {e}")
 
@@ -349,6 +357,8 @@ class WriteManager:
             with gzip.open(dst, "wb") as f_out:
                 shutil.copyfileobj(f_in, f_out)
 
+        if self.automatic_upload:
+            self.upload_manager.append_object(dst)
         os.remove(input_file)
         
 

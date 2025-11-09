@@ -6,6 +6,8 @@ import tarfile
 import gzip
 import shutil
 import hashlib
+import socket
+import struct
 
 _HASH_CACHE: dict[str, str] = {}
 
@@ -95,3 +97,31 @@ def compress_log(input_file):
             shutil.copyfileobj(f_in, f_out)
 
     os.remove(input_file)
+
+def capture_machine_id():
+    with open("/etc/machine-id") as f:
+        machine_id = f.read().strip()
+        return hash(machine_id,16)
+
+def to_bytes16(x):
+    if isinstance(x, (bytes, bytearray)):
+        if len(x) != 16:
+            raise ValueError(f"expected 16 bytes, got {len(x)}")
+        return bytes(x)
+    try:
+        b = bytes(bytearray(x))
+        if len(b) == 16:
+            return b
+    except TypeError:
+        pass
+    if isinstance(x, tuple) and len(x) == 2 and all(isinstance(v, int) for v in x):
+        return struct.pack(">QQ", x[0], x[1])
+    if isinstance(x, int):
+        return x.to_bytes(16, "big")
+    raise TypeError(f"unsupported type for IPv6 addr: {type(x)}")
+
+def inet6_from_event(v6):
+    return socket.inet_ntop(socket.AF_INET6, to_bytes16(v6))
+
+def inet4_from_event(v4_u32):
+    return socket.inet_ntop(socket.AF_INET, struct.pack("!I", int(v4_u32)))

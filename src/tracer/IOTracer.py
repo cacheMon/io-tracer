@@ -6,12 +6,13 @@ import os
 from bcc import BPF
 import time
 import sys
-import threading
 from pathlib import Path
 from datetime import datetime
 import socket
 import struct
-from ..utility.utils import logger, create_tar_gz, hash_filename_in_path
+
+from .ObjectStorageManager import ObjectStorageManager
+from ..utility.utils import logger, hash_filename_in_path, inet6_from_event
 from .WriterManager import WriteManager
 from .FlagMapper import FlagMapper
 from .KernelProbeTracker import KernelProbeTracker
@@ -26,6 +27,7 @@ class IOTracer:
             self, 
             output_dir:         str,
             bpf_file:           str,
+            automatic_upload:   bool,
             is_uncompressed:    bool = False,
             anonymous:          bool = False,
             page_cnt:           int = 8,
@@ -36,11 +38,13 @@ class IOTracer:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_dir = os.path.join(output_dir, f"run_{timestamp}")
 
-        self.writer             = WriteManager(output_dir)
+        self.upload_manager = ObjectStorageManager()
+        self.writer             = WriteManager(output_dir, self.upload_manager, automatic_upload)
         self.fs_snapper         = FilesystemSnapper(self.writer, anonymous)
         self.process_snapper    = ProcessSnapper(self.writer, anonymous)
         self.system_snapper     = SystemSnapper(self.writer)
         self.flag_mapper        = FlagMapper()
+        self.automatic_upload   = automatic_upload
         self.running            = True
         self.verbose            = verbose
         self.duration           = duration
@@ -140,12 +144,11 @@ class IOTracer:
         ty = "send" if e.dir == 0 else "receive"
 
         if e.ipver == 4:
-            # IPv4 addresses are in network byte order
             saddr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.saddr_v4))
             daddr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.daddr_v4))
         elif e.ipver == 6:
-            saddr = socket.inet_ntop(socket.AF_INET6, to_ipv6_bytes(int(e.saddr_v6)))
-            daddr = socket.inet_ntop(socket.AF_INET6, to_ipv6_bytes(int(e.daddr_v6)))
+            saddr = inet6_from_event(e.saddr_v6)
+            daddr = inet6_from_event(e.daddr_v6)
         else:
             saddr = daddr = "unknown"
 
@@ -186,6 +189,8 @@ class IOTracer:
 
     def trace(self):
         self.probe_tracker.attach_probes()
+        if self.automatic_upload:
+            self.upload_manager.start_worker()
 
         signal.signal(signal.SIGINT, self._cleanup)
         signal.signal(signal.SIGTERM, self._cleanup)
@@ -280,6 +285,11 @@ class IOTracer:
             logger("info", "Please wait. Compressing trace output...")
 
             self.writer.force_flush()
+
+            if self.automatic_upload:
+                self.upload_manager.stop_worker()
+                shutil.rmtree(self.writer.output_dir)
+
             
             logger("info", "Cleanup complete. Exited successfully.")
 

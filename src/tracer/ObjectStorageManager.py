@@ -1,0 +1,129 @@
+import mimetypes
+import os
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+from queue import Queue, Empty
+import requests
+
+from src.utility.utils import capture_machine_id, logger
+
+
+class ObjectStorageManager:
+    def __init__(self):
+        self._stop = threading.Event()
+        self._t: threading.Thread | None = None
+        self.backend_url = "https://io-tracer-worker.1a1a11a.workers.dev"
+        self.machine_id = capture_machine_id()
+        self.current_datetime = datetime.now()
+        self.file_queue: Queue[str] = Queue()
+        self.successful_upload = 0
+
+    def get_presigned_url(self, filename: str) -> str:
+        r = requests.post(
+            f"{self.backend_url}/linuxtrace/"
+            f"{self.machine_id.upper()}/"
+            f"{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}/"
+            f"{filename}",
+            timeout=10,
+        )
+        if not r.ok:
+            raise RuntimeError(f"Failed to get presign: {r.status_code} {r.text}")
+        return r.text
+
+    def put_object(self, file_path: str):
+        path = Path(file_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"Not a file: {path}")
+
+        presigned_url = self.get_presigned_url(path.name)
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+        with path.open("rb") as f:
+            r = requests.put(
+                presigned_url,
+                data=f,
+                headers={"Content-Type": content_type},
+                timeout=60,
+            )
+        if r.ok:
+            os.remove(file_path)
+            self.successful_upload += 1
+            logger("info", f"Successfully upload {self.successful_upload} files")
+        else:
+            raise RuntimeError(f"Upload failed: {r.status_code} {r.text}")
+
+    def append_object(self, file_path: str):
+        self.file_queue.put(file_path)
+
+    def _automatic_upload_worker(self):
+        backoff = 1
+        while True:
+            if self._stop.is_set() and self.file_queue.empty():
+                break
+
+            try:
+                fp = self.file_queue.get(timeout=0.5)
+            except Empty:
+                continue
+
+            try:
+                self.put_object(fp)
+                backoff = 1  # reset backoff after success
+            except Exception as e:
+                logger("warn",f"Upload error: {e}. Requeueing.")
+                self.file_queue.put(fp)
+                self._stop.wait(backoff)
+                backoff = min(backoff * 2, 10)
+            finally:
+                self.file_queue.task_done()
+
+    def start_worker(self, daemon: bool = False):
+        if self._t and self._t.is_alive():
+            return
+        logger("info","Starting uploader worker")
+        self._stop.clear()
+        self._t = threading.Thread(target=self._automatic_upload_worker, daemon=daemon)
+        self._t.start()
+
+    def clean_queue(self, timeout: float | None = None) -> bool:
+
+        start = time.time()
+        while True:
+            try:
+                if self.file_queue.unfinished_tasks == 0:
+                    return True
+                self.file_queue.join()
+                return True
+            except KeyboardInterrupt:
+                raise
+            finally:
+                if timeout is not None and (time.time() - start) >= timeout:
+                    return False
+
+    def stop_worker(self, timeout: float | None = None):
+        logger("info","Flushing pending uploads")
+        self._stop.set()
+
+        drained = self.clean_queue(timeout=timeout)
+
+        if self._t:
+            self._t.join(timeout=timeout)
+            self._t = None
+
+        if not drained:
+            logger("warn"," timed out while flushing pending uploads.")
+
+
+
+if __name__ == "__main__":
+    obj = ObjectStorageManager()
+    obj.start_worker()
+    try:
+        obj.append_object("/users/raflybro/io-tracer/requirement.txt")
+        obj.file_queue.join()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        obj.stop_worker()
