@@ -19,7 +19,7 @@ class ProcessSnapper:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         while self.running:
-            logger('info',"Starting process snapshot...")
+            # logger('info',"Starting process snapshot...")
             for proc in psutil.process_iter(['pid', 'name', 'memory_info','cmdline','create_time','status']):
                 try:
                     ts = timestamp
@@ -38,7 +38,7 @@ class ProcessSnapper:
                     self.wm.append_process_log(out)
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     pass
-            logger('info',"Process snapshot completed")
+            # logger('info',"Process snapshot completed")
             time.sleep(600)
 
     def run(self):

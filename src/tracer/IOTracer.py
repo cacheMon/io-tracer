@@ -38,13 +38,20 @@ class IOTracer:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_dir = os.path.join(output_dir, f"run_{timestamp}")
 
-        self.upload_manager = ObjectStorageManager()
+        self.upload_manager     = ObjectStorageManager()
+        self.automatic_upload   = automatic_upload
+
+        if self.automatic_upload:
+            connection = self.upload_manager.test_connection()
+            print(connection)
+            if not connection:
+                self.automatic_upload = False
+
         self.writer             = WriteManager(output_dir, self.upload_manager, automatic_upload)
         self.fs_snapper         = FilesystemSnapper(self.writer, anonymous)
         self.process_snapper    = ProcessSnapper(self.writer, anonymous)
         self.system_snapper     = SystemSnapper(self.writer)
         self.flag_mapper        = FlagMapper()
-        self.automatic_upload   = automatic_upload
         self.running            = True
         self.verbose            = verbose
         self.duration           = duration

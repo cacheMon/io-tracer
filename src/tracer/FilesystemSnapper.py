@@ -68,10 +68,10 @@ class FilesystemSnapper:
             except Exception:
                 return
 
-        logger("info", "Starting filesystem snapshot...")
+        # logger("info", "Starting filesystem snapshot...")
         scan_dir(self.root_path, 0)
         self.wm.flush_fssnap_only()
-        logger("info", "Filesystem snapshot completed.")
+        # logger("info", "Filesystem snapshot completed.")
 
     def stop_snapper(self):
         self.interrupt = True

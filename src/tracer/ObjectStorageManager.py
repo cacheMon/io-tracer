@@ -20,6 +20,20 @@ class ObjectStorageManager:
         self.file_queue: Queue[str] = Queue()
         self.successful_upload = 0
 
+    def test_connection(self) -> bool:
+        try:
+            logger("TEST CONNECTION", "testing....")
+            r = requests.get(f"{self.backend_url}/connection-test.txt", timeout=5)
+            if r.ok:
+                logger("TEST CONNECTION", "Connection to remote object storage established.")
+                return r.ok
+            else:
+                raise Exception("can't connect")
+        except Exception:
+            logger("warn", "Unable to reach remote object storage server.")
+            logger("info", "saving traces locally")
+            return False
+
     def get_presigned_url(self, filename: str) -> str:
         r = requests.post(
             f"{self.backend_url}/linuxtrace/"

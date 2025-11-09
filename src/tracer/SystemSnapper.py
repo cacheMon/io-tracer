@@ -53,7 +53,7 @@ class SystemSnapper:
         return []
 
     def capture_spec_snapshot(self):
-        logger('info', "Capturing system specification snapshot...")
+        # logger('info', "Capturing system specification snapshot...")
         mem = psutil.virtual_memory()
         gpus = self.get_gpu_brand()
         storages = self.get_storage_brands()
@@ -80,4 +80,4 @@ class SystemSnapper:
     f"{chr(10).join(storages) if storages else 'Could not detect'}"
 )
         self.wm.direct_write("device_spec.txt", device_specs_str)
-        logger('info', "System specification snapshot captured.")
+        # logger('info', "System specification snapshot captured.")

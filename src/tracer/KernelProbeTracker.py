@@ -72,24 +72,24 @@ class KernelProbeTracker:
             self.add_kprobe("blk_mq_start_request", "trace_blk_mq_start_request")
 
             if BPF.get_kprobe_functions(b'filemap_add_folio'):
-                logger("info", "Using filemap_add_folio for page cache tracking")
+                # logger("info", "Using filemap_add_folio for page cache tracking")
                 self.add_kprobe("filemap_add_folio","trace_miss")
             else:
-                logger("info", "Using add_to_page_cache_lru for page cache tracking")
+                # logger("info", "Using add_to_page_cache_lru for page cache tracking")
                 self.add_kprobe("add_to_page_cache_lru","trace_miss")
             if BPF.get_kprobe_functions(b'folio_mark_accessed'):
-                logger("info", "Using folio_mark_accessed for page access tracking")
+                # logger("info", "Using folio_mark_accessed for page access tracking")
                 self.add_kprobe("folio_mark_accessed", "trace_hit")
             else:
-                logger("info", "Using mark_page_accessed for page access tracking")
+                # logger("info", "Using mark_page_accessed for page access tracking")
                 self.add_kprobe("mark_page_accessed", "trace_hit")
 
-            if not self.add_kprobe("vfs_fsync_range", "trace_vfs_fsync_range"):
-                logger("info", "vfs_fsync_range not found, using only vfs_fsync")
+            self.add_kprobe("vfs_fsync_range", "trace_vfs_fsync_range")
+                # logger("info", "vfs_fsync_range not found, using only vfs_fsync")
             self.add_kprobe("__fput", "trace_fput") 
             
             if not self.kprobes:
-                logger("error", "no kprobes attached successfully!")
+                # logger("error", "no kprobes attached successfully!")
                 sys.exit(1)   
         except Exception as e:
             logger("error", f"failed to attach to kernel functions: {e}")

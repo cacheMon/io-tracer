@@ -377,7 +377,7 @@ class WriteManager:
                 try:
                     handle.flush()
                     handle.close()
-                    logger("info", f"Closed {name} file handle")
+                    # logger("info", f"Closed {name} file handle")
                 except Exception as e:
                     logger("error", f"Error closing {name} handle: {e}")
         
