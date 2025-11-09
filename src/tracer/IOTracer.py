@@ -165,7 +165,7 @@ class IOTracer:
         row = [
             ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
             str(pid),
-            comm,
+            f"\"{comm}\"",
             s_addr,
             d_addr,
             str(e.sport),
