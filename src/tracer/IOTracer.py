@@ -43,7 +43,6 @@ class IOTracer:
 
         if self.automatic_upload:
             connection = self.upload_manager.test_connection()
-            print(connection)
             if not connection:
                 self.automatic_upload = False
 
