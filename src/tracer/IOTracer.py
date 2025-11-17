@@ -98,7 +98,7 @@ class IOTracer:
             comm = "[decode_error]"
         
         size_val = event.size if event.size is not None else 0
-        output = f"{timestamp},{op_name},{event.pid},{comm},{filename},{event.inode},{size_val},{flags_str}"
+        output = f"{timestamp},{op_name},{event.pid},{comm},{filename},{size_val},{event.inode},{flags_str}"
         self.writer.append_fs_log(output)
         
     def _print_event_cache(self, cpu, data, size):       
@@ -127,10 +127,7 @@ class IOTracer:
         parent_comm = event.parent_comm.decode('utf-8', errors='replace')
         bio_size = event.bio_size
 
-        output = (f"{timestamp},{pid},{tid},{comm},{sector},"
-                  f"{nr_sectors},{ops_str},"
-                  f"{cpu_id},{ppid},{parent_comm},"
-                  f"{bio_size}")
+        output = (f"{timestamp},{pid},{comm},{sector},{ops_str},{bio_size},{tid},{nr_sectors},{cpu_id},{ppid},{parent_comm}")
 
         if (sector == 0 and nr_sectors == 0) or (sector == '0' and nr_sectors == '0'):
             if self.verbose:
