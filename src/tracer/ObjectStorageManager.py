@@ -64,7 +64,7 @@ class ObjectStorageManager:
         if r.ok:
             os.remove(file_path)
             self.successful_upload += 1
-            logger("info", f"Successfully upload {self.successful_upload} files")
+            logger("info", f"Files Uploaded: {self.successful_upload}", True)
         else:
             raise RuntimeError(f"Upload failed: {r.status_code} {r.text}")
 
@@ -74,7 +74,7 @@ class ObjectStorageManager:
     def _automatic_upload_worker(self):
         backoff = 1
         while True:
-            if self._stop.is_set() and self.file_queue.empty():
+            if self._stop.is_set():
                 break
 
             try:
@@ -113,21 +113,19 @@ class ObjectStorageManager:
             except KeyboardInterrupt:
                 raise
             finally:
+                print(time.time() - start)
                 if timeout is not None and (time.time() - start) >= timeout:
                     return False
 
-    def stop_worker(self, timeout: float | None = None):
+    def stop_worker(self, timeout: float | None = 2):
         logger("info","Flushing pending uploads")
         self._stop.set()
 
-        drained = self.clean_queue(timeout=timeout)
+        # drained = self.clean_queue(timeout=timeout)
 
         if self._t:
             self._t.join(timeout=timeout)
             self._t = None
-
-        if not drained:
-            logger("warn"," timed out while flushing pending uploads.")
 
 
 
