@@ -54,7 +54,7 @@ if __name__ == "__main__":
             desktop_file.unlink()
             print("Autostart disabled")
         else:
-            print("Autostart was not enabled")
+            print("IOTracer Autostart was not enabled")
         sys.exit(0)
     output_dir = parse_args.output.strip()
 
