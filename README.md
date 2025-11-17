@@ -1,7 +1,7 @@
 # IO-Tracer
 
 ## How it works
-Visit [IO Tracer documentations](https://raflyhangga.github.io/iotracerdocs/) for more detail.
+Visit [IO Tracer documentations](https://cachemon.github.io/iotracerdocs/) for more detail.
 
 ## Installation
 [Installation Guide](https://cachemon.github.io/iotracerdocs/startlinux/)
