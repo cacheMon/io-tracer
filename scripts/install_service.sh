@@ -106,7 +106,6 @@ function show_status() {
     echo "============================================================"
 }
 
-# Parse arguments
 case "${1:-}" in
     --install)
         install_service
