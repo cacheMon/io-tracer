@@ -98,7 +98,7 @@ class IOTracer:
             comm = "[decode_error]"
         
         size_val = event.size if event.size is not None else 0
-        output = f"{timestamp},{op_name},{event.pid},{comm},{filename},{size_val},{event.inode},{flags_str}"
+        output = f"{timestamp},{op_name},{event.pid},{comm},{filename},{size_val},{event.inode},\"{flags_str}\""
         self.writer.append_fs_log(output)
         
     def _print_event_cache(self, cpu, data, size):       
@@ -248,17 +248,17 @@ class IOTracer:
 
         try:
             if self.duration is not None:
-                remaining = duration_target
+                remaining = duration_target # type: ignore
                 while remaining > 0 and self.running:
                     sleep_time = min(0.1, remaining)
                     time.sleep(sleep_time)
                     
                     current = time.time()
-                    remaining = end_time - current
+                    remaining = end_time - current # type: ignore
                     
                     if self.verbose and int(current) % 10 == 0 and int(current) > int(current - sleep_time):
                         elapsed = current - start
-                        logger("info", f"Progress: {elapsed:.1f}s/{duration_target}s")
+                        logger("info", f"Progress: {elapsed:.1f}s/{duration_target}s") # type: ignore
                         
                 self._cleanup(None, None)
             else:
