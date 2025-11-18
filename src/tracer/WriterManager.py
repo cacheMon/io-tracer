@@ -43,12 +43,12 @@ class WriteManager:
         self.process_buffer = deque()
         self.fs_snap_buffer = deque()
         
-        self.cache_max_events = 500000
-        self.vfs_max_events = 3000
-        self.block_max_events = 1000
-        self.network_max_events = 1000
+        self.cache_max_events = 2000
+        self.vfs_max_events = 300
+        self.block_max_events = 100
+        self.network_max_events = 100
 
-        self.process_max_events = 2000
+        self.process_max_events = 200
         self.fs_snap_max_events = 50000
 
         self._vfs_handle = None
@@ -235,7 +235,6 @@ class WriteManager:
             self._network_handle = open(self.output_network_file, 'a', buffering=8192)
 
     def force_flush(self):
-        time.sleep(5)
         self.compress_log(self.output_block_file)
         self.compress_log(self.output_vfs_file)
         self.compress_log(self.output_cache_file)
@@ -349,17 +348,20 @@ class WriteManager:
         self.clear_events()
 
     def compress_log(self, input_file):
-        src = input_file
-        dst = input_file + ".gz"
-        self.created_files += 1
-        logger('info',f"Files Created: {str(self.created_files)}", True)
-        with open(src, "rb") as f_in:
-            with gzip.open(dst, "wb") as f_out:
-                shutil.copyfileobj(f_in, f_out)
+        try:
+            src = input_file
+            dst = input_file + ".gz"
+            self.created_files += 1
+            logger('info',f"Files Created: {str(self.created_files)}", True)
+            with open(src, "rb") as f_in:
+                with gzip.open(dst, "wb") as f_out:
+                    shutil.copyfileobj(f_in, f_out)
 
-        if self.automatic_upload:
-            self.upload_manager.append_object(dst)
-        os.remove(input_file)
+            if self.automatic_upload:
+                self.upload_manager.append_object(dst)
+            os.remove(input_file)
+        except Exception as e:
+            logger("error", f"Failed compressing log {input_file}")
         
 
     def close_handles(self):
