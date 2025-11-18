@@ -42,7 +42,7 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
     
-    echo -e "${GREEN}Service file created at: $SYSTEM_SERVICE_FILE${NC}"
+    echo -e "${GREEN}service file created at: $SYSTEM_SERVICE_FILE${NC}"
     
     sudo systemctl daemon-reload
     
@@ -60,11 +60,11 @@ EOF
     echo "output directory: $DEFAULT_OUTPUT"
     echo ""
     echo "Commands:"
-    echo "  Start now:      sudo systemctl start $SERVICE_NAME"
-    echo "  Stop:           sudo systemctl stop $SERVICE_NAME"
-    echo "  Status:         sudo systemctl status $SERVICE_NAME"
-    echo "  View logs:      sudo journalctl -u $SERVICE_NAME -f"
-    echo "  Disable:        sudo systemctl disable $SERVICE_NAME"
+    echo "  start now:      sudo systemctl start $SERVICE_NAME"
+    echo "  stop:           sudo systemctl stop $SERVICE_NAME"
+    echo "  status:         sudo systemctl status $SERVICE_NAME"
+    echo "  siew logs:      sudo journalctl -u $SERVICE_NAME -f"
+    echo "  disable:        sudo systemctl disable $SERVICE_NAME"
     echo ""
 }
 
@@ -83,7 +83,7 @@ function uninstall_service() {
     
     sudo systemctl daemon-reload
     
-    echo -e "${GREEN}Service uninstalled successfully${NC}"
+    echo -e "${GREEN}service uninstalled successfully${NC}"
 }
 
 function show_status() {
@@ -92,15 +92,15 @@ function show_status() {
     echo "============================================================"
     
     if [ -f "$SYSTEM_SERVICE_FILE" ]; then
-        echo "Service file:     INSTALLED"
-        echo "Location:         $SYSTEM_SERVICE_FILE"
-        echo "Project root:     $PROJECT_ROOT"
+        echo "service file:     INSTALLED"
+        echo "location:         $SYSTEM_SERVICE_FILE"
+        echo "project root:     $PROJECT_ROOT"
         echo "IOTracer script:  $IOTRC_PATH"
         echo ""
         sudo systemctl status "$SERVICE_NAME.service" --no-pager
     else
-        echo "Service file:     NOT INSTALLED"
-        echo "Expected at:      $SYSTEM_SERVICE_FILE"
+        echo "service file:     NOT INSTALLED"
+        echo "expected at:      $SYSTEM_SERVICE_FILE"
     fi
     
     echo "============================================================"
@@ -119,15 +119,15 @@ case "${1:-}" in
         ;;
     --start)
         sudo systemctl start "$SERVICE_NAME.service"
-        echo "Service started. Check status with: sudo systemctl status $SERVICE_NAME"
+        echo "service started. Check status with: sudo systemctl status $SERVICE_NAME"
         ;;
     --stop)
         sudo systemctl stop "$SERVICE_NAME.service"
-        echo "Service stopped."
+        echo "service stopped."
         ;;
     --restart)
         sudo systemctl restart "$SERVICE_NAME.service"
-        echo "Service restarted."
+        echo "service restarted."
         ;;
     --logs)
         sudo journalctl -u "$SERVICE_NAME.service" -f
