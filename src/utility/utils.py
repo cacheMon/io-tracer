@@ -8,6 +8,8 @@ import shutil
 import hashlib
 import socket
 import struct
+import subprocess
+
 
 _HASH_CACHE: dict[str, str] = {}
 
@@ -125,3 +127,13 @@ def inet6_from_event(v6):
 
 def inet4_from_event(v4_u32):
     return socket.inet_ntop(socket.AF_INET, struct.pack("!I", int(v4_u32)))
+
+def get_current_tag() -> str:
+    try:
+        tag = subprocess.check_output(
+            ['git', 'describe', '--tags', '--abbrev=0'],
+            text=True
+        ).strip()
+        return tag.replace('.', '_')
+    except subprocess.CalledProcessError:
+        return "no_tags"

@@ -7,7 +7,7 @@ from pathlib import Path
 from queue import Queue, Empty
 import requests
 
-from src.utility.utils import capture_machine_id, logger
+from src.utility.utils import capture_machine_id, logger,get_current_tag
 
 
 class ObjectStorageManager:
@@ -15,10 +15,12 @@ class ObjectStorageManager:
         self._stop = threading.Event()
         self._t: threading.Thread | None = None
         self.backend_url = "https://io-tracer-worker.1a1a11a.workers.dev"
+        self.app_version = get_current_tag()
         self.machine_id = capture_machine_id()
         self.current_datetime = datetime.now()
         self.file_queue: Queue[str] = Queue()
         self.successful_upload = 0
+
 
     def test_connection(self) -> bool:
         try:
@@ -37,6 +39,7 @@ class ObjectStorageManager:
     def get_presigned_url(self, filename: str) -> str:
         r = requests.post(
             f"{self.backend_url}/linuxtrace/"
+            f"{self.app_version}/"
             f"{self.machine_id.upper()}/"
             f"{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}/"
             f"{filename}",
@@ -93,13 +96,17 @@ class ObjectStorageManager:
             finally:
                 self.file_queue.task_done()
 
-    def start_worker(self, daemon: bool = False):
-        if self._t and self._t.is_alive():
+    def start_worker(self, daemon: bool = False, num_workers: int = 4):
+        if self._t and any(t.is_alive() for t in self._t):
             return
-        logger("info","Starting uploader worker")
+        logger("info", f"Starting {num_workers} uploader workers")
         self._stop.clear()
-        self._t = threading.Thread(target=self._automatic_upload_worker, daemon=daemon)
-        self._t.start()
+        self._t = [
+            threading.Thread(target=self._automatic_upload_worker, daemon=daemon)
+            for _ in range(num_workers)
+        ]
+        for t in self._t:
+            t.start()
 
     def clean_queue(self, timeout: float | None = None) -> bool:
 
@@ -123,9 +130,10 @@ class ObjectStorageManager:
 
         # drained = self.clean_queue(timeout=timeout)
 
-        if self._t:
-            self._t.join(timeout=timeout)
-            self._t = None
+        for t in self._t:
+            if t:
+                t.join(timeout=timeout)
+                t = None
 
 
 
