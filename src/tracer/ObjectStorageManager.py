@@ -13,7 +13,7 @@ from src.utility.utils import capture_machine_id, logger,get_current_tag
 class ObjectStorageManager:
     def __init__(self):
         self._stop = threading.Event()
-        self._t: threading.Thread | None = None
+        self._t: list[threading.Thread] = []
         self.backend_url = "https://io-tracer-worker.1a1a11a.workers.dev"
         self.app_version = get_current_tag()
         self.machine_id = capture_machine_id()

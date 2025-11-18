@@ -96,7 +96,7 @@ def compress_log(input_file):
     dst = input_file + ".gz"
     with open(src, "rb") as f_in:
         with gzip.open(dst, "wb") as f_out:
-            shutil.copyfileobj(f_in, f_out)
+            shutil.copyfileobj(f_in, f_out) # type: ignore
 
     os.remove(input_file)
 

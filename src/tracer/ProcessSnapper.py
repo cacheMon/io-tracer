@@ -44,7 +44,3 @@ class ProcessSnapper:
         snapper_thread.daemon = True
         snapper_thread.start()
 
-
-if __name__ == "__main__":
-    snapper = ProcessSnapper()
-    snapper.process_snapshot()
