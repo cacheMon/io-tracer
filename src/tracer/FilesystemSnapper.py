@@ -1,4 +1,4 @@
-from ..utility.utils import logger, compress_log, hash_rel_path, hash_filename_in_path
+from ..utility.utils import format_csv_row, logger, compress_log, hash_rel_path, hash_filename_in_path
 from .WriterManager import WriteManager
 from pathlib import Path
 from datetime import datetime
@@ -51,7 +51,7 @@ class FilesystemSnapper:
                                     hashed_rel = hash_rel_path(rel, keep_ext=True, length=12)
                                     hashed_path = os.path.join(os.sep, str(hashed_rel))
                                     hashed_path = hash_filename_in_path(Path(hashed_path))
-                                    out = f"{hashed_path},{size},{ctime},{mtime}"
+                                    out = format_csv_row(hashed_path, size, ctime, mtime)
                                     self.wm.append_fs_snap_log(out)
                                 else:
                                     est = entry.stat(follow_symlinks=False)
@@ -59,7 +59,7 @@ class FilesystemSnapper:
                                     path = hash_filename_in_path(Path(entry.path))
                                     ctime = datetime.fromtimestamp(getattr(est, "st_birthtime", est.st_mtime))
                                     mtime = datetime.fromtimestamp(est.st_mtime)
-                                    out = f"{path},{size},{ctime},{mtime}"
+                                    out = format_csv_row(path, size, ctime, mtime)
                                     self.wm.append_fs_snap_log(out)
                             elif entry.is_dir(follow_symlinks=False):
                                 scan_dir(entry.path, depth + 1)

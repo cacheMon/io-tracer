@@ -1,5 +1,5 @@
 from datetime import datetime
-from ..utility.utils import logger, compress_log, simple_hash
+from ..utility.utils import format_csv_row, logger, compress_log, simple_hash
 from .WriterManager import WriteManager
 import psutil
 import time
@@ -33,7 +33,7 @@ class ProcessSnapper:
 
                     proc = psutil.Process(pid)
                     cpu_usage = proc.cpu_percent(interval=1)
-                    out = f"{ts},{pid},\"{name}\",\"{cmdline}\",{create_time},{cpu_usage},{mem},{status}"
+                    out = format_csv_row(ts, pid, name, cmdline, create_time, cpu_usage, mem, status)   
                     self.wm.append_process_log(out)
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     pass

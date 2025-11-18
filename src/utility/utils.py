@@ -1,3 +1,5 @@
+import csv
+import io
 from pathlib import Path
 import os
 import time
@@ -137,3 +139,14 @@ def get_current_tag() -> str:
         return tag.replace('.', '_')
     except subprocess.CalledProcessError:
         return "no_tags"
+
+def format_csv_row(*fields):
+    output = io.StringIO()
+    writer = csv.writer(output, lineterminator='')
+    writer.writerow(fields)
+    return output.getvalue()
+
+
+if __name__ == "__main__":
+    out = format_csv_row("field1", "field,with,commas", 'field "with" quotes', "simplefield")
+    print(out)  # for demonstration purposes

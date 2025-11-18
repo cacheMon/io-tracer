@@ -12,7 +12,7 @@ import socket
 import struct
 
 from .ObjectStorageManager import ObjectStorageManager
-from ..utility.utils import logger, hash_filename_in_path, inet6_from_event, simple_hash
+from ..utility.utils import format_csv_row, logger, hash_filename_in_path, inet6_from_event, simple_hash
 from .WriterManager import WriteManager
 from .FlagMapper import FlagMapper
 from .KernelProbeTracker import KernelProbeTracker
@@ -98,7 +98,7 @@ class IOTracer:
             comm = "[decode_error]"
         
         size_val = event.size if event.size is not None else 0
-        output = f"{timestamp},{op_name},{event.pid},{comm},{filename},{size_val},{event.inode},\"{flags_str}\""
+        output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, event.inode, flags_str)
         self.writer.append_fs_log(output)
         
     def _print_event_cache(self, cpu, data, size):       
@@ -108,8 +108,7 @@ class IOTracer:
         comm = event.comm.decode('utf-8', errors='replace')
         hit = "HIT" if event.type == 0 else "MISS"
 
-        output = f"{timestamp},{pid},{comm},{hit}"
-        
+        output = format_csv_row(timestamp, pid, comm, hit)
         self.writer.append_cache_log(output)
 
     def _print_event_block(self, cpu, data, size):        
@@ -127,7 +126,7 @@ class IOTracer:
         parent_comm = event.parent_comm.decode('utf-8', errors='replace')
         bio_size = event.bio_size
 
-        output = (f"{timestamp},{pid},{comm},{sector},{ops_str},{bio_size},{tid},{nr_sectors},{cpu_id},{ppid},{parent_comm}")
+        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, tid, nr_sectors, cpu_id, ppid, parent_comm)
 
         if (sector == 0 and nr_sectors == 0) or (sector == '0' and nr_sectors == '0'):
             if self.verbose:
@@ -159,18 +158,17 @@ class IOTracer:
             s_addr = simple_hash(s_addr,5)
             d_addr = simple_hash(d_addr,5)
 
-        row = [
+        output = format_csv_row(
             ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
             str(pid),
-            f"\"{comm}\"",
+            comm,
             s_addr,
             d_addr,
             str(e.sport),
             str(e.dport),
             str(size_bytes),
             ty,
-        ]
-        output = ",".join(row)
+        )
         self.writer.append_network_log(output)
 
 
