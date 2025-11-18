@@ -9,7 +9,8 @@ if __name__ == "__main__":
     parser.add_argument('-o', '--output', type=str, default="./result", help='Output Directory for logging, must be new!')
     parser.add_argument('-v', '--verbose', type=bool, default=False, help='Print verbose output')
     parser.add_argument('-a', '--anonimize', action='store_true', help='Enable anonymization of process and file names')
-    parser.add_argument('-au', '--auto-upload', action='store_true', help='Enable anonymization of process and file names')
+    parser.add_argument('-au', '--auto-upload', action='store_true', help='Enable automatic upload of logs')
+    parser.add_argument('-s', '--server-mode', action='store_true', help='Optimized for higher throughput in server environments')
 
     parse_args = parser.parse_args()
     output_dir = parse_args.output.strip()
@@ -21,5 +22,6 @@ if __name__ == "__main__":
         verbose=parse_args.verbose,
         anonymous=parse_args.anonimize,
         automatic_upload=parse_args.auto_upload,
+        server_mode=parse_args.server_mode,
     )
     tracer.trace()

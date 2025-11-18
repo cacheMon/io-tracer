@@ -89,7 +89,7 @@ class ObjectStorageManager:
                 self.put_object(fp)
                 backoff = 1  # reset backoff after success
             except Exception as e:
-                logger("warn",f"Upload error: {e}. Requeueing.")
+                logger("warn",f"Upload error. Requeueing.")
                 self.file_queue.put(fp)
                 self._stop.wait(backoff)
                 backoff = min(backoff * 2, 10)

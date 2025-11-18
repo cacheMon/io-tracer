@@ -13,7 +13,7 @@ import shutil
 import time
 
 class WriteManager:
-    def __init__(self, output_dir: str, upload_manager: ObjectStorageManager, automatic_upload: bool ):
+    def __init__(self, output_dir: str, upload_manager: ObjectStorageManager, automatic_upload: bool, server_mode: bool):
         self.current_datetime = datetime.now()
 
         self.created_files = 0
@@ -43,13 +43,21 @@ class WriteManager:
         self.process_buffer = deque()
         self.fs_snap_buffer = deque()
         
-        self.cache_max_events = 2000
-        self.vfs_max_events = 300
-        self.block_max_events = 100
-        self.network_max_events = 100
+        if server_mode:
+            self.cache_max_events = 500000
+            self.vfs_max_events = 30000
+            self.block_max_events = 10000
+            self.network_max_events = 90000
 
-        self.process_max_events = 200
-        self.fs_snap_max_events = 50000
+            self.process_max_events = 20000
+            self.fs_snap_max_events = 50000
+        else:
+            self.cache_max_events = 2000
+            self.vfs_max_events = 300
+            self.block_max_events = 100
+            self.network_max_events = 100
+            self.process_max_events = 200
+            self.fs_snap_max_events = 50000
 
         self._vfs_handle = None
         self._block_handle = None
@@ -355,7 +363,7 @@ class WriteManager:
             logger('info',f"Files Created: {str(self.created_files)}", True)
             with open(src, "rb") as f_in:
                 with gzip.open(dst, "wb") as f_out:
-                    shutil.copyfileobj(f_in, f_out)
+                    shutil.copyfileobj(f_in, f_out) # type: ignore
 
             if self.automatic_upload:
                 self.upload_manager.append_object(dst)
