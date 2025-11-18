@@ -202,7 +202,7 @@ class IOTracer:
         signal.signal(signal.SIGINT, self._cleanup)
         signal.signal(signal.SIGTERM, self._cleanup)
 
-        logger("info", "IO tracer started")
+        logger("info", "IO Tracer is running")
         logger("info", "Press Ctrl+C to exit")
         self.system_snapper.capture_spec_snapshot()
         self.fs_snapper.run()

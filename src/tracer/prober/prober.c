@@ -1,4 +1,23 @@
 #include <linux/ptrace.h>
+
+// compatibility wih kernel 6.14+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,14,0)
+#define BPF_NO_KFUNC_PROTO
+struct bpf_wq {};
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,17,0)
+struct bpf_timer {};
+#endif
+
+#ifndef BPF_PSEUDO_FUNC
+#define BPF_PSEUDO_FUNC 4
+#endif
+
+#ifndef BPF_F_BROADCAST
+#define BPF_F_BROADCAST (1ULL << 3)
+#endif
+
 #include <linux/fs.h>
 #include <linux/sched.h>
 #include <linux/dcache.h>
