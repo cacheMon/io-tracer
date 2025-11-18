@@ -44,13 +44,13 @@ class WriteManager:
         self.fs_snap_buffer = deque()
         
         if server_mode:
-            self.cache_max_events = 500000
-            self.vfs_max_events = 30000
-            self.block_max_events = 10000
-            self.network_max_events = 90000
+            self.cache_max_events = 5000000
+            self.vfs_max_events = 900000
+            self.block_max_events = 100000
+            self.network_max_events = 900000
 
-            self.process_max_events = 20000
-            self.fs_snap_max_events = 50000
+            self.process_max_events = 200000
+            self.fs_snap_max_events = 500000
         else:
             self.cache_max_events = 2000
             self.vfs_max_events = 300
