@@ -1,4 +1,11 @@
 #include <linux/ptrace.h>
+
+// compatibility wih kernel 6.14+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,14,0)
+#define BPF_NO_KFUNC_PROTO
+struct bpf_wq {};
+#endif
+
 #include <linux/fs.h>
 #include <linux/sched.h>
 #include <linux/dcache.h>
