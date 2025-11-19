@@ -62,7 +62,7 @@ class ObjectStorageManager:
                 presigned_url,
                 data=f,
                 headers={"Content-Type": content_type},
-                timeout=60,
+                timeout=10,
             )
         if r.ok:
             os.remove(file_path)
@@ -109,41 +109,32 @@ class ObjectStorageManager:
             t.start()
 
     def clean_queue(self, timeout: float | None = None) -> bool:
-
         start = time.time()
         while True:
-            try:
-                if self.file_queue.unfinished_tasks == 0:
-                    return True
-                self.file_queue.join()
+            if self.file_queue.unfinished_tasks == 0:
                 return True
-            except KeyboardInterrupt:
-                raise
-            finally:
-                print(time.time() - start)
-                if timeout is not None and (time.time() - start) >= timeout:
-                    return False
 
-    def stop_worker(self, timeout: float | None = 2):
-        logger("info","Flushing pending uploads")
+            if timeout is not None and (time.time() - start) >= timeout:
+                return False
+
+            time.sleep(0.1)
+
+
+    def stop_worker(self, server_mode: bool, timeout: float | None = 10):
+        logger("info", "Flushing pending uploads")
+
+        if server_mode:
+            drained = self.clean_queue(timeout=timeout)
+            if not drained:
+                logger("warn", "Timeout while waiting for uploads to finish. Some files may remain in the queue.")
+
         self._stop.set()
-
-        # drained = self.clean_queue(timeout=timeout)
 
         for t in self._t:
             if t:
                 t.join(timeout=timeout)
-                t = None
+        self._t = []
 
 
 
-if __name__ == "__main__":
-    obj = ObjectStorageManager()
-    obj.start_worker()
-    try:
-        obj.append_object("/users/raflybro/io-tracer/requirement.txt")
-        obj.file_queue.join()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        obj.stop_worker()
+

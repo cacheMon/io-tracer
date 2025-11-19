@@ -295,7 +295,7 @@ class IOTracer:
             self.writer.force_flush()
 
             if self.automatic_upload:
-                self.upload_manager.stop_worker()
+                self.upload_manager.stop_worker(self.server_mode)
                 if self.server_mode:
                     shutil.rmtree(self.writer.output_dir)
 
