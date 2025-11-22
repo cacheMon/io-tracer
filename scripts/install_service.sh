@@ -32,7 +32,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=$PROJECT_ROOT
-ExecStart=/usr/bin/python3 $IOTRC_PATH --output $DEFAULT_OUTPUT
+ExecStart=/usr/bin/python3 $IOTRC_PATH --output $DEFAULT_OUTPUT -au
 Restart=on-failure
 RestartSec=10s
 StandardOutput=journal
@@ -107,41 +107,41 @@ function show_status() {
 }
 
 case "${1:-}" in
-    --install)
+    install)
         install_service
         ;;
-    --uninstall)
+    uninstall)
         uninstall_service
         ;;
-    --status)
+    status)
         show_status
         ;;
-    --start)
+    start)
         sudo systemctl start "$SERVICE_NAME.service"
         echo "service started. Check status with: sudo systemctl status $SERVICE_NAME"
         ;;
-    --stop)
+    stop)
         sudo systemctl stop "$SERVICE_NAME.service"
         echo "service stopped."
         ;;
-    --restart)
+    restart)
         sudo systemctl restart "$SERVICE_NAME.service"
         echo "service restarted."
         ;;
-    --logs)
+    logs)
         sudo journalctl -u "$SERVICE_NAME.service" -f
         ;;
     *)
-        echo "Usage: $0 {--install|--uninstall|--status|--start|--stop|--restart|--logs}"
+        echo "Usage: $0 {install|uninstall|status|start|stop|restart|logs}"
         echo ""
         echo "Options:"
-        echo "  --install      Install and enable the service"
-        echo "  --uninstall    Stop and remove the service"
-        echo "  --status       Show service status"
-        echo "  --start        Start the service now"
-        echo "  --stop         Stop the service"
-        echo "  --restart      Restart the service"
-        echo "  --logs         View live service logs"
+        echo "  install      Install and enable the service"
+        echo "  uninstall    Stop and remove the service"
+        echo "  status       Show service status"
+        echo "  start        Start the service now"
+        echo "  stop         Stop the service"
+        echo "  restart      Restart the service"
+        echo "  logs         View live service logs"
         exit 1
         ;;
 esac

@@ -8,7 +8,7 @@ Visit [IO Tracer documentations](https://cachemon.github.io/iotracerdocs/) for m
 
 ## Usage
 ```
-usage: iotrc.py [-h] [-o OUTPUT] [-v VERBOSE] [-a] [-au]
+usage: sudo iotrc.py [-h] [-o OUTPUT] [-v VERBOSE] [-a] [-au]
 
 Trace IO syscalls
 
@@ -26,13 +26,14 @@ options:
 We provided a simple bash script that installs and enable IO Traces as a service. Feel free to tinker with it and suit it to your best needs!
 
 ```
-Usage: ./scripts/install_service.sh {--install|--uninstall|--status|--start|--stop|--restart|--logs}
+Usage: sudo bash ./scripts/install_service.sh {install|uninstall|status|start|stop|restart|logs}
 
 Options:
-  --install      Install and enable the service
-  --uninstall    Stop and remove the service
-  --status       Show service status
-  --start        Start the service now
-  --stop         Stop the service
-  --restart      Restart the service
-  --logs         View live service logs
+  install      Install and enable the service
+  uninstall    Stop and remove the service
+  status       Show service status
+  start        Start the service now
+  stop         Stop the service
+  restart      Restart the service
+  logs         View live service logs
+```

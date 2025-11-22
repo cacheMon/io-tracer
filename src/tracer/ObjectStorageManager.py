@@ -11,15 +11,16 @@ from src.utility.utils import capture_machine_id, logger,get_current_tag
 
 
 class ObjectStorageManager:
-    def __init__(self):
+    def __init__(self, version: str = "vdev"):
         self._stop = threading.Event()
         self._t: list[threading.Thread] = []
         self.backend_url = "https://io-tracer-worker.1a1a11a.workers.dev"
-        self.app_version = get_current_tag()
+        # self.app_version = get_current_tag()
         self.machine_id = capture_machine_id()
         self.current_datetime = datetime.now()
         self.file_queue: Queue[str] = Queue()
         self.successful_upload = 0
+        self.app_version = version
 
 
     def test_connection(self) -> bool:

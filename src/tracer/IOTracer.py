@@ -29,6 +29,7 @@ class IOTracer:
             bpf_file:           str,
             automatic_upload:   bool,
             server_mode:        bool,
+            version:            str,
             is_uncompressed:    bool = False,
             anonymous:          bool = False,
             page_cnt:           int = 8,
@@ -39,7 +40,7 @@ class IOTracer:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_dir = os.path.join(output_dir, f"run_{timestamp}")
 
-        self.upload_manager     = ObjectStorageManager()
+        self.upload_manager     = ObjectStorageManager(version)
         self.automatic_upload   = automatic_upload
 
         if self.automatic_upload:
