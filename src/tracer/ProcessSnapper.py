@@ -1,4 +1,5 @@
 from datetime import datetime
+import random
 from ..utility.utils import format_csv_row, logger, compress_log, simple_hash
 from .WriterManager import WriteManager
 import psutil
@@ -20,6 +21,7 @@ class ProcessSnapper:
 
         while self.running:
             for proc in psutil.process_iter(['pid', 'name', 'memory_info','cmdline','create_time','status']):
+                time.sleep(random.uniform(.2, .5))
                 try:
                     ts = timestamp
                     pid = proc.info['pid']

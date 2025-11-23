@@ -97,7 +97,7 @@ class ObjectStorageManager:
             finally:
                 self.file_queue.task_done()
 
-    def start_worker(self, daemon: bool = False, num_workers: int = 4):
+    def start_worker(self, daemon: bool = False, num_workers: int = 1):
         if self._t and any(t.is_alive() for t in self._t):
             return
         logger("info", f"Starting {num_workers} uploader workers")

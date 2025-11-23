@@ -28,7 +28,7 @@ class IOTracer:
             output_dir:         str,
             bpf_file:           str,
             automatic_upload:   bool,
-            server_mode:        bool,
+            developer_mode:     bool,
             version:            str,
             is_uncompressed:    bool = False,
             anonymous:          bool = False,
@@ -40,7 +40,10 @@ class IOTracer:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_dir = os.path.join(output_dir, f"run_{timestamp}")
 
-        self.upload_manager     = ObjectStorageManager(version)
+        temp_version = version if not developer_mode else f"vdev"
+        if developer_mode:
+            logger("warning", "Developer mode enabled: extra logs and checks are active.")
+        self.upload_manager     = ObjectStorageManager(temp_version)
         self.automatic_upload   = automatic_upload
 
         if self.automatic_upload:
@@ -48,9 +51,8 @@ class IOTracer:
             if not connection:
                 self.automatic_upload = False
 
-        self.server_mode       = server_mode
 
-        self.writer             = WriteManager(output_dir, self.upload_manager, automatic_upload, server_mode)
+        self.writer             = WriteManager(output_dir, self.upload_manager, automatic_upload)
         self.fs_snapper         = FilesystemSnapper(self.writer, anonymous)
         self.process_snapper    = ProcessSnapper(self.writer, anonymous)
         self.system_snapper     = SystemSnapper(self.writer)
@@ -296,9 +298,11 @@ class IOTracer:
             self.writer.force_flush()
 
             if self.automatic_upload:
-                self.upload_manager.stop_worker(self.server_mode)
-                if self.server_mode:
-                    shutil.rmtree(self.writer.output_dir)
+                self.upload_manager.stop_worker(False)
+                try:
+                    os.removedirs(self.writer.output_dir)
+                except OSError:
+                    pass
 
             
             logger("info", "Cleanup complete. Exited successfully.")

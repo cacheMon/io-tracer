@@ -1,3 +1,4 @@
+import random
 from ..utility.utils import format_csv_row, logger, compress_log, hash_rel_path, hash_filename_in_path
 from .WriterManager import WriteManager
 from pathlib import Path
@@ -19,6 +20,7 @@ class FilesystemSnapper:
 
     def filesystem_snapshot(self, max_depth=3):
         def scan_dir(path, depth=0):
+            time.sleep(random.uniform(.2, .5))  
             if self.interrupt or (max_depth is not None and depth > max_depth):
                 return
             try:

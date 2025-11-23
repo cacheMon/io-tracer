@@ -12,6 +12,7 @@ if __name__ == "__main__":
     parser.add_argument('-a', '--anonimize', action='store_true', help='Enable anonymization of process and file names')
     parser.add_argument('-au', '--auto-upload', action='store_true', help='Enable automatic upload of logs')
     parser.add_argument('-s', '--server-mode', action='store_true', help='Optimized for higher throughput in server environments')
+    parser.add_argument('--dev', action='store_true', help='Developer mode with extra logs and checks')
 
     parse_args = parser.parse_args()
     output_dir = parse_args.output.strip()
@@ -23,7 +24,7 @@ if __name__ == "__main__":
         verbose=parse_args.verbose,
         anonymous=parse_args.anonimize,
         automatic_upload=parse_args.auto_upload,
-        server_mode=parse_args.server_mode,
+        developer_mode=parse_args.dev,
         version=app_version,
     )
     tracer.trace()
