@@ -43,21 +43,32 @@ class WriteManager:
         self.process_buffer = deque()
         self.fs_snap_buffer = deque()
         
-        if server_mode:
-            self.cache_max_events = 500000
-            self.vfs_max_events = 300000
-            self.block_max_events = 20000
-            self.network_max_events = 90000
+        # event rate tracking
+        self.event_timestamps = {
+            'vfs': deque(maxlen=1000),
+            'block': deque(maxlen=1000),
+            'cache': deque(maxlen=1000),
+            'network': deque(maxlen=1000)
+        }
+        
+        # dynamic thresholds (min, max)
+        self.dynamic_limits = {
+            'vfs': (300, 500000),
+            'block': (100, 50000),
+            'cache': (2000, 1000000),
+            'network': (100, 200000)
+        }
+        
+        self.adaptive_thread = threading.Thread(target=self._adaptive_sizing, daemon=True)
+        self.adaptive_thread.start()
+        
 
-            self.process_max_events = 2000
-            self.fs_snap_max_events = 5000
-        else:
-            self.cache_max_events = 2000
-            self.vfs_max_events = 300
-            self.block_max_events = 100
-            self.network_max_events = 100
-            self.process_max_events = 200
-            self.fs_snap_max_events = 50000
+        self.cache_max_events = 2000
+        self.vfs_max_events = 300
+        self.block_max_events = 100
+        self.network_max_events = 100
+        self.process_max_events = 200
+        self.fs_snap_max_events = 50000
 
         self._vfs_handle = None
         self._block_handle = None
@@ -69,6 +80,43 @@ class WriteManager:
 
         self.cache_sample_rate = 1  # can be increased to reduce cache event volume
         self.cache_event_counter = 0
+
+    def _calculate_event_rate(self, event_type: str) -> float:
+        timestamps = self.event_timestamps[event_type]
+        if len(timestamps) < 2:
+            return 0.0
+        
+        time_span = timestamps[-1] - timestamps[0]
+        if time_span <= 0:
+            return 0.0
+        
+        return len(timestamps) / time_span
+
+    def _adaptive_sizing(self):
+        while True:
+            time.sleep(10)  
+            
+            for event_type in ['vfs', 'block', 'cache', 'network']:
+                rate = self._calculate_event_rate(event_type)
+                min_limit, max_limit = self.dynamic_limits[event_type]
+                
+                if rate > 10000:  
+                    new_limit = max_limit
+                elif rate > 1000: 
+                    new_limit = int(min_limit + (max_limit - min_limit) * 0.7)
+                elif rate > 100: 
+                    new_limit = int(min_limit + (max_limit - min_limit) * 0.4)
+                else:  
+                    new_limit = min_limit
+                
+                if event_type == 'vfs':
+                    self.vfs_max_events = new_limit
+                elif event_type == 'block':
+                    self.block_max_events = new_limit
+                elif event_type == 'cache':
+                    self.cache_max_events = new_limit
+                elif event_type == 'network':
+                    self.network_max_events = new_limit
 
     def set_cache_sampling(self, sample_rate: int):
         self.cache_sample_rate = sample_rate
@@ -107,6 +155,7 @@ class WriteManager:
     def append_fs_log(self, log_output: str):
         if isinstance(log_output, str):
             self.vfs_buffer.append(log_output)
+            self.event_timestamps['vfs'].append(time.time())
             
             if self.should_flush_vfs():
                 self.flush_vfs_only()
@@ -125,6 +174,7 @@ class WriteManager:
     def append_block_log(self, log_output: str):
         if isinstance(log_output, str):
             self.block_buffer.append(log_output)
+            self.event_timestamps['block'].append(time.time())
             
             if self.should_flush_block():
                 self.flush_block_only()
@@ -138,6 +188,7 @@ class WriteManager:
                 return 
             
             self.cache_buffer.append(log_output)
+            self.event_timestamps['cache'].append(time.time())
             
             if self.should_flush_cache():
                 self.flush_cache_only()
@@ -147,7 +198,8 @@ class WriteManager:
     def append_network_log(self, log_output: str):
         if isinstance(log_output, str):
             self.network_buffer.append(log_output)
-            
+            self.event_timestamps['network'].append(time.time())
+
             if self.should_flush_network():
                 self.flush_network_only()
         else:
