@@ -13,7 +13,7 @@ import shutil
 import time
 
 class WriteManager:
-    def __init__(self, output_dir: str, upload_manager: ObjectStorageManager, automatic_upload: bool, server_mode: bool):
+    def __init__(self, output_dir: str, upload_manager: ObjectStorageManager, automatic_upload: bool):
         self.current_datetime = datetime.now()
 
         self.created_files = 0
