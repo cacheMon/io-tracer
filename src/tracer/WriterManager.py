@@ -23,13 +23,14 @@ class WriteManager:
         self.output_cache_file = f"{self.output_dir}/cache/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_process_file = f"{self.output_dir}/process_state/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_network_file = f"{self.output_dir}/network/network_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_paths.csv"
+        self.output_fs_snapshot_file = f"{self.output_dir}/fs_state/filesystem_paths_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_device_spec = f"{self.output_dir}/device_spec.txt"
 
         os.makedirs(f"{self.output_dir}/vfs", exist_ok=True)
         os.makedirs(f"{self.output_dir}/block", exist_ok=True)
         os.makedirs(f"{self.output_dir}/cache", exist_ok=True)
         os.makedirs(f"{self.output_dir}/process_state", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/fs_state", exist_ok=True)
         os.makedirs(f"{self.output_dir}/network", exist_ok=True)
 
         self.upload_manager = upload_manager
@@ -48,7 +49,9 @@ class WriteManager:
             'vfs': deque(maxlen=1000),
             'block': deque(maxlen=1000),
             'cache': deque(maxlen=1000),
-            'network': deque(maxlen=1000)
+            'network': deque(maxlen=1000),
+            'fs_state': deque(maxlen=1000),
+            'proc_state': deque(maxlen=1000),
         }
         
         # dynamic thresholds (min, max)
@@ -56,7 +59,9 @@ class WriteManager:
             'vfs': (300, 500000),
             'block': (100, 50000),
             'cache': (2000, 1000000),
-            'network': (100, 200000)
+            'network': (100, 200000),
+            'fs_state': (50, 1000),
+            'proc_state': (20, 500)
         }
         
         self.adaptive_thread = threading.Thread(target=self._adaptive_sizing, daemon=True)
@@ -67,8 +72,8 @@ class WriteManager:
         self.vfs_max_events = 300
         self.block_max_events = 100
         self.network_max_events = 100
-        self.process_max_events = 200
-        self.fs_snap_max_events = 50000
+        self.process_max_events = 20
+        self.fs_snap_max_events = 50
 
         self._vfs_handle = None
         self._block_handle = None
@@ -96,7 +101,7 @@ class WriteManager:
         while True:
             time.sleep(10)  
             
-            for event_type in ['vfs', 'block', 'cache', 'network']:
+            for event_type in ['vfs', 'block', 'cache', 'network','fs_state','proc_state']:
                 rate = self._calculate_event_rate(event_type)
                 min_limit, max_limit = self.dynamic_limits[event_type]
                 
@@ -117,6 +122,10 @@ class WriteManager:
                     self.cache_max_events = new_limit
                 elif event_type == 'network':
                     self.network_max_events = new_limit
+                elif event_type == 'fs_state':
+                    self.fs_snap_max_events = new_limit
+                elif event_type == 'proc_state':
+                    self.process_max_events = new_limit
 
     def set_cache_sampling(self, sample_rate: int):
         self.cache_sample_rate = sample_rate
@@ -146,6 +155,7 @@ class WriteManager:
             if self._fs_snap_handle is None:
                 self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
             self.fs_snap_buffer.append(log_output)
+            self.event_timestamps['fs_state'].append(time.time())
             
             if self.should_flush_fssnap():
                 self.flush_fssnap_only()
@@ -165,6 +175,7 @@ class WriteManager:
     def append_process_log(self, log_output: str):
         if isinstance(log_output, str):
             self.process_buffer.append(log_output)
+            self.event_timestamps['proc_state'].append(time.time())
 
             if self.should_flush_process():
                 self.flush_process_state_only()
@@ -223,7 +234,8 @@ class WriteManager:
             self.current_datetime = datetime.now()
 
             self._write_buffer_to_file(self.fs_snap_buffer, self._fs_snap_handle, "Filesystem Snapshot")
-            # self.compress_log(self.output_fs_snapshot_file)
+            self.compress_log(self.output_fs_snapshot_file)
+            self.output_fs_snapshot_file = f"{self.output_dir}/fs_state/filesystem_paths_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._fs_snap_handle.close()
             self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
