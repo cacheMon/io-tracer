@@ -56,24 +56,24 @@ class WriteManager:
         
         # dynamic thresholds (min, max)
         self.dynamic_limits = {
-            'vfs': (300, 500000),
-            'block': (100, 50000),
-            'cache': (2000, 1000000),
-            'network': (100, 200000),
-            'fs_state': (50, 1000),
-            'proc_state': (20, 500)
+            'vfs': (3000, 500000),
+            'block': (1000, 50000),
+            'cache': (20000, 1000000),
+            'network': (1000, 200000),
+            'fs_state': (500, 1000),
+            'proc_state': (200, 500)
         }
         
         self.adaptive_thread = threading.Thread(target=self._adaptive_sizing, daemon=True)
         self.adaptive_thread.start()
         
 
-        self.cache_max_events = 2000
-        self.vfs_max_events = 300
-        self.block_max_events = 100
-        self.network_max_events = 100
-        self.process_max_events = 20
-        self.fs_snap_max_events = 50
+        self.cache_max_events = 20000
+        self.vfs_max_events = 3000
+        self.block_max_events = 1000
+        self.network_max_events = 1000
+        self.process_max_events = 200
+        self.fs_snap_max_events = 500
 
         self._vfs_handle = None
         self._block_handle = None
