@@ -160,9 +160,6 @@ class IOTracer:
         else:
             s_addr = d_addr = "unknown"
 
-        if self.anonymous:
-            s_addr = simple_hash(s_addr,5)
-            d_addr = simple_hash(d_addr,5)
 
         output = format_csv_row(
             ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
