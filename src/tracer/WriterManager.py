@@ -26,6 +26,7 @@ class WriteManager:
         self.output_fs_snapshot_file = f"{self.output_dir}/fs_state/filesystem_paths_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_device_spec = f"{self.output_dir}/device_spec.txt"
 
+        os.makedirs(f"{self.output_dir}/system_spec", exist_ok=True)
         os.makedirs(f"{self.output_dir}/vfs", exist_ok=True)
         os.makedirs(f"{self.output_dir}/block", exist_ok=True)
         os.makedirs(f"{self.output_dir}/cache", exist_ok=True)
@@ -219,7 +220,7 @@ class WriteManager:
 
     def direct_write(self, output_path: str, spec_str: str):
         try:
-            dst = f"{self.output_dir}/{output_path}"
+            dst = f"{self.output_dir}/system_spec/{output_path}"
             with open(dst, 'w') as f:
                 f.write(spec_str)
             if self.automatic_upload:

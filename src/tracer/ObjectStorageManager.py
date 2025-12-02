@@ -37,12 +37,13 @@ class ObjectStorageManager:
             logger("info", "saving traces locally")
             return False
 
-    def get_presigned_url(self, filename: str) -> str:
+    def get_presigned_url(self, filename: str, file_type: str) -> str:
         r = requests.post(
-            f"{self.backend_url}/linuxtrace/"
+            f"{self.backend_url}/linux_trace/"
             f"{self.app_version}/"
             f"{self.machine_id.upper()}/"
             f"{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}/"
+            f"{file_type}/"
             f"{filename}",
             timeout=10,
         )
@@ -55,7 +56,7 @@ class ObjectStorageManager:
         if not path.is_file():
             raise FileNotFoundError(f"Not a file: {path}")
 
-        presigned_url = self.get_presigned_url(path.name)
+        presigned_url = self.get_presigned_url(filename=path.name, file_type = path.parts[-2])
         content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
 
         with path.open("rb") as f:
