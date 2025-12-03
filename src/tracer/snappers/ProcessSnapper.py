@@ -45,7 +45,6 @@ class ProcessSnapper:
                     cpu_1h = self.sampler.cpu_percent_for_interval(pid, create_time, 3600.0) or 0.0
 
                     out = format_csv_row(ts, pid, name, cmdline, datetime.fromtimestamp(create_time), cpu_5s, cpu_2m, cpu_1h, mem, status)
-                    print(out)
                     
                     self.wm.append_process_log(out)
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, Exception):
