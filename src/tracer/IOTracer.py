@@ -18,9 +18,9 @@ from .FlagMapper import FlagMapper
 from .KernelProbeTracker import KernelProbeTracker
 from .PollingThread import PollingThread
 from .PathResolver import PathResolver
-from .FilesystemSnapper import FilesystemSnapper
-from .ProcessSnapper import ProcessSnapper
-from .SystemSnapper import SystemSnapper
+from .snappers.FilesystemSnapper import FilesystemSnapper
+from .snappers.ProcessSnapper import ProcessSnapper
+from .snappers.SystemSnapper import SystemSnapper
 
 class IOTracer:
     def __init__(

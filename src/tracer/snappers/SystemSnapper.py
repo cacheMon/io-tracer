@@ -1,5 +1,5 @@
-from .WriterManager import WriteManager
-from ..utility.utils import logger
+from ..WriterManager import WriteManager
+from ...utility.utils import logger
 import subprocess
 import psutil
 import platform
