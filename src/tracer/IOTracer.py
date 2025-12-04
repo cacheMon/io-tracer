@@ -126,13 +126,16 @@ class IOTracer:
         comm = event.comm.decode('utf-8', errors='replace')
         sector = event.sector
         nr_sectors = event.nr_sectors
-        ops_str = self.flag_mapper.format_block_operation(event.op)
+        ops_str = event.op.decode('utf-8', errors='replace')
+        ops_str = self.flag_mapper.format_block_ops(ops_str)
+        latency_ns = event.latency_ns
         cpu_id = event.cpu_id
         ppid = event.ppid
         parent_comm = event.parent_comm.decode('utf-8', errors='replace')
         bio_size = event.bio_size
 
-        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, tid, nr_sectors, cpu_id, ppid, parent_comm)
+        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, latency_ns, tid, nr_sectors, cpu_id, ppid, parent_comm)
+
 
         if (sector == 0 and nr_sectors == 0) or (sector == '0' and nr_sectors == '0'):
             if self.verbose:

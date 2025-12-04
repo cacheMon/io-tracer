@@ -84,7 +84,8 @@ class KernelProbeTracker:
             self.add_kretprobe("__fput", "trace_fput_exit")
             
             
-            self.add_kprobe("blk_mq_start_request", "trace_blk_mq_start_request")
+            # self.add_kprobe("blk_mq_start_request", "trace_blk_mq_start_request")
+            # self.add_kprobe("blk_account_io_done", "trace_blk_account_io_done")
 
             if BPF.get_kprobe_functions(b'filemap_add_folio'):
                 # logger("info", "Using filemap_add_folio for page cache tracking")

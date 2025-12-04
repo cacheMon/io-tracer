@@ -72,6 +72,7 @@ struct bpf_timer {};
 #define RPCAUTH_GSSMAGIC      0x67596969 
 #define OVERLAYFS_SUPER_MAGIC 0x794c7630 
 #define TRACEFS_MAGIC         0x74726163 
+#define OP_LEN 8
 
 enum op_type {
     OP_READ = 1,
@@ -99,14 +100,15 @@ struct block_event {
     char comm[TASK_COMM_LEN];
     u64 sector;
     u32 nr_sectors;
-    u32 op;
+    char op[OP_LEN];
     
     u32 tid;                   
     u32 cpu_id;                 
     u32 ppid;                  
     char parent_comm[TASK_COMM_LEN]; 
     u32 flags;               
-    u64 bio_size;              
+    u64 bio_size;
+    u64 latency_ns;              
 };
 
 struct cache_data {
@@ -149,6 +151,7 @@ struct vfs_info {
     enum op_type op;
 };
 
+BPF_HASH(block_start_times, u64, u64);
 BPF_HASH(vfs_start, u64, struct vfs_info);
 BPF_HASH(start, u64, u64);
 BPF_HASH(file_positions, u64, u64, 1024);
@@ -694,52 +697,60 @@ int trace_fput_exit(struct pt_regs *ctx) {
     return 0;
 }
 
-int trace_blk_mq_start_request(struct pt_regs *ctx, struct request *rq) {
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-    
-    u32 tracer_pid_key = 0;
-    u32 *tracer_pid = tracer_config.lookup(&tracer_pid_key);
-    if (tracer_pid && pid == *tracer_pid) {
-        return 0;
-    }
 
-    if (!rq) {
+TRACEPOINT_PROBE(block, block_rq_issue)
+{
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    u32 key_pid = 0;
+    u32 *tracer_pid = tracer_config.lookup(&key_pid);
+    if (tracer_pid && pid == *tracer_pid)
         return 0;
-    }
+
+    u64 key = ((u64)args->dev << 32) | args->sector;
+    u64 ts = bpf_ktime_get_ns();
+    block_start_times.update(&key, &ts);
+
+    return 0;
+}
+
+
+TRACEPOINT_PROBE(block, block_rq_complete)
+{
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    u32 key_pid = 0;
+    u32 *tracer_pid = tracer_config.lookup(&key_pid);
+    if (tracer_pid && pid == *tracer_pid)
+        return 0;
+
+    u64 key = ((u64)args->dev << 32) | args->sector;
+    u64 *start_ts = block_start_times.lookup(&key);
+    if (!start_ts)
+        return 0;
+
+    u64 end_ts = bpf_ktime_get_ns();
+    u64 latency = end_ts - *start_ts;
 
     struct block_event event = {};
-    event.ts = bpf_ktime_get_ns();
+    event.ts = end_ts;
     event.pid = pid;
     event.tid = bpf_get_current_pid_tgid();
     event.cpu_id = bpf_get_smp_processor_id();
-    
     bpf_get_current_comm(&event.comm, sizeof(event.comm));
-    
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    if (task && task->real_parent) {
-        event.ppid = task->real_parent->tgid;
-        bpf_probe_read_kernel_str(event.parent_comm, sizeof(event.parent_comm), 
-                                task->real_parent->comm);
-    }
-    
-    bpf_probe_read_kernel(&event.sector, sizeof(event.sector), &rq->__sector);
-    
-    u32 data_len = 0;
-    bpf_probe_read_kernel(&data_len, sizeof(data_len), &rq->__data_len);
-    event.bio_size = data_len;
-    event.nr_sectors = data_len >> 9;
-    
-    u32 cmd_flags = 0;
-    bpf_probe_read_kernel(&cmd_flags, sizeof(cmd_flags), &rq->cmd_flags);
-    event.op = cmd_flags & REQ_OP_MASK;
-    event.flags = cmd_flags;
-    
-    if (event.bio_size > 0 && event.sector > 0) {
-        bl_events.perf_submit(ctx, &event, sizeof(event));
-    }
-    
+
+    event.sector = args->sector;
+    event.nr_sectors = args->nr_sector;
+    event.bio_size = ((u64)args->nr_sector) << 9;
+    event.latency_ns = latency;
+
+    bpf_probe_read_kernel(&event.op, sizeof(event.op), &args->rwbs);
+
+    bl_events.perf_submit(args, &event, sizeof(event));
+
+    block_start_times.delete(&key);
     return 0;
 }
+
+
 
 
 static int get_filename(struct dentry *dentry, char *buf) {

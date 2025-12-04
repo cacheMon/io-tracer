@@ -93,3 +93,12 @@ class FlagMapper:
                 result.append(name)
         
         return "|".join(result) if result else "NO_FLAGS"
+    
+    def format_block_ops(self, flag:str):
+        first_char = flag[0]
+        if first_char == "W":
+            return "write"
+        elif first_char == "R":
+            return "read"
+        else:
+            return flag
