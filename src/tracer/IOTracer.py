@@ -104,7 +104,7 @@ class IOTracer:
             comm = "[decode_error]"
         
         size_val = event.size if event.size is not None else 0
-        output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, event.inode, flags_str)
+        output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, event.latency_ns , event.inode, flags_str)
         self.writer.append_fs_log(output)
         
     def _print_event_cache(self, cpu, data, size):       
