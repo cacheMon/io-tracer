@@ -72,6 +72,7 @@ struct bpf_timer {};
 #define RPCAUTH_GSSMAGIC      0x67596969 
 #define OVERLAYFS_SUPER_MAGIC 0x794c7630 
 #define TRACEFS_MAGIC         0x74726163 
+#define OP_LEN 8
 
 enum op_type {
     OP_READ = 1,
@@ -90,6 +91,7 @@ struct data_t {
     u64 size;
     u32 flags;
     enum op_type op;
+    u64 latency_ns;
 };
 
 struct block_event {
@@ -98,14 +100,14 @@ struct block_event {
     char comm[TASK_COMM_LEN];
     u64 sector;
     u32 nr_sectors;
-    u32 op;
+    char op[OP_LEN];
     
     u32 tid;                   
     u32 cpu_id;                 
     u32 ppid;                  
-    char parent_comm[TASK_COMM_LEN]; 
     u32 flags;               
-    u64 bio_size;              
+    u64 bio_size;
+    u64 latency_ns;              
 };
 
 struct cache_data {
@@ -140,6 +142,15 @@ struct network_data {
     u32 size_bytes;
 };
 
+struct vfs_info {
+    u64 start_ts;
+    struct file *file;
+    size_t size;
+    loff_t *pos;
+    enum op_type op;
+};
+
+BPF_HASH(block_start_times, u64, u64);
 BPF_HASH(start, u64, u64);
 BPF_HASH(file_positions, u64, u64, 1024);
 BPF_HASH(tracer_config, u32, u32, 1);
@@ -164,6 +175,7 @@ static __always_inline int read_addrs_ports(struct sock *sk, struct network_data
         struct inet_sock *inet = (struct inet_sock *)sk;
         u32 saddr = 0, daddr = 0;
         u16 sport = 0, dport = 0;
+
 
         bpf_probe_read_kernel(&saddr, sizeof(saddr), &inet->inet_saddr);
         bpf_probe_read_kernel(&daddr, sizeof(daddr), &inet->inet_daddr);
@@ -310,73 +322,138 @@ static int get_file_path(struct file *file, char *buf, int size) {
     return 0;
 }
 
-static int submit_event(struct pt_regs *ctx, struct file *file, size_t size, loff_t *pos, enum op_type op) {
-    if (file == NULL) {
-        return 0;
-    }
 
-    struct data_t data = {};
-    u32 pid;
-    u64 file_inode = 0;
-    u64 position = 0;
-    u64 next_position = 0;
-    u64 lba_value = 0;
+int trace_vfs_read(struct pt_regs *ctx, struct file *file, char __user *buf, size_t count, loff_t *pos) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = pid_tgid >> 32;
     
-    pid = bpf_get_current_pid_tgid() >> 32;
-        
-    u32 config_key = 0;  // 0 = tracer_pid
+    u32 config_key = 0;
     u32 *tracer_pid = tracer_config.lookup(&config_key);
     if (tracer_pid && pid == *tracer_pid) {
-        return 0;  // Skip tracing our own process
+        return 0;
     }
     
+    if (!is_regular_file(file)) {
+        return 0;
+    }
+    
+    struct data_t data = {};
     data.pid = pid;
     data.ts = bpf_ktime_get_ns();
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
-    data.op = op;
+    data.op = OP_READ;
+    data.inode = get_file_inode(file);
+    data.size = count;
+    get_file_path(file, data.filename, sizeof(data.filename));
+    bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
     
-    if (is_regular_file(file)) {
-        data.inode = get_file_inode(file);
-        data.size = size;
-        get_file_path(file, data.filename, sizeof(data.filename));
-
-        
-        if (pos) {
-            bpf_probe_read_kernel(&position, sizeof(position), pos);
-        }
-        
-        bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
-        events.perf_submit(ctx, &data, sizeof(data));
-    }
-
+    events.perf_submit(ctx, &data, sizeof(data));
     
-    return 0;
-}
-
-int trace_vfs_read(struct pt_regs *ctx, struct file *file, char __user *buf, size_t count, loff_t *pos) {
-    submit_event(ctx, file, count, pos, OP_READ);
     return 0;
 }
 
 int trace_vfs_write(struct pt_regs *ctx, struct file *file, const char __user *buf, size_t count, loff_t *pos) {
-    submit_event(ctx, file, count, pos, OP_WRITE);
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = pid_tgid >> 32;
+    
+    u32 config_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
+    
+    if (!is_regular_file(file)) {
+        return 0;
+    }
+    
+    struct data_t data = {};
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.op = OP_WRITE;
+    data.inode = get_file_inode(file);
+    data.size = count;
+    get_file_path(file, data.filename, sizeof(data.filename));
+    bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
+    
+    events.perf_submit(ctx, &data, sizeof(data));
+    
     return 0;
 }
 
 int trace_vfs_open(struct pt_regs *ctx, const struct path *path, struct file *file) {
-    if (file)
-        submit_event(ctx, file, 0, NULL, OP_OPEN);
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = pid_tgid >> 32;
+    
+    u32 config_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
+    
+    if (!is_regular_file(file)) {
+        return 0;
+    }
+    
+    struct data_t data = {};
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.op = OP_OPEN;
+    data.inode = get_file_inode(file);
+    data.size = 0;
+    get_file_path(file, data.filename, sizeof(data.filename));
+    bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
+    
+    events.perf_submit(ctx, &data, sizeof(data));
+    
     return 0;
 }
 
 int trace_vfs_fsync(struct pt_regs *ctx, struct file *file, int datasync) {
-    submit_event(ctx, file, 0, NULL, OP_FSYNC);
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = pid_tgid >> 32;
+    
+    u32 config_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
+    
+    if (!is_regular_file(file)) {
+        return 0;
+    }
+    
+    struct data_t data = {};
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.op = OP_FSYNC;
+    data.inode = get_file_inode(file);
+    data.size = 0;
+    get_file_path(file, data.filename, sizeof(data.filename));
+    bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
+    
+    events.perf_submit(ctx, &data, sizeof(data));
+    
     return 0;
 }
 
 int trace_vfs_fsync_range(struct pt_regs *ctx, struct file *file, loff_t start, loff_t end, int datasync) {
-    loff_t range_size;
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = pid_tgid >> 32;
     
+    u32 config_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
+    
+    if (!is_regular_file(file)) {
+        return 0;
+    }
+    
+    loff_t range_size;
     loff_t file_size = 0;
     if (file && file->f_inode) {
         bpf_probe_read_kernel(&file_size, sizeof(file_size), &file->f_inode->i_size);
@@ -388,68 +465,104 @@ int trace_vfs_fsync_range(struct pt_regs *ctx, struct file *file, loff_t start, 
         range_size = end - start;
     }
     
-    loff_t pos = start;
-    submit_event(ctx, file, range_size, &pos, OP_FSYNC);
+    struct data_t data = {};
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.op = OP_FSYNC;
+    data.inode = get_file_inode(file);
+    data.size = range_size;
+    get_file_path(file, data.filename, sizeof(data.filename));
+    bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
+    
+    events.perf_submit(ctx, &data, sizeof(data));
+    
     return 0;
 }
 
 int trace_fput(struct pt_regs *ctx, struct file *file) {
-    if (file) {
-        loff_t *pos = NULL;
-        if (file->f_pos) {
-            pos = &file->f_pos;
-        }
-        submit_event(ctx, file, 0, pos, OP_CLOSE);
-    }
-    return 0;
-}
-
-int trace_blk_mq_start_request(struct pt_regs *ctx, struct request *rq) {
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = pid_tgid >> 32;
     
-    u32 tracer_pid_key = 0;
-    u32 *tracer_pid = tracer_config.lookup(&tracer_pid_key);
+    u32 config_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
     if (tracer_pid && pid == *tracer_pid) {
         return 0;
     }
-
-    if (!rq) {
+    
+    if (!is_regular_file(file)) {
         return 0;
     }
-
-    struct block_event event = {};
-    event.ts = bpf_ktime_get_ns();
-    event.pid = pid;
-    event.tid = bpf_get_current_pid_tgid();
-    event.cpu_id = bpf_get_smp_processor_id();
     
-    bpf_get_current_comm(&event.comm, sizeof(event.comm));
+    struct data_t data = {};
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.op = OP_CLOSE;
+    data.inode = get_file_inode(file);
+    data.size = 0;
+    get_file_path(file, data.filename, sizeof(data.filename));
+    bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
     
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    if (task && task->real_parent) {
-        event.ppid = task->real_parent->tgid;
-        bpf_probe_read_kernel_str(event.parent_comm, sizeof(event.parent_comm), 
-                                task->real_parent->comm);
-    }
-    
-    bpf_probe_read_kernel(&event.sector, sizeof(event.sector), &rq->__sector);
-    
-    u32 data_len = 0;
-    bpf_probe_read_kernel(&data_len, sizeof(data_len), &rq->__data_len);
-    event.bio_size = data_len;
-    event.nr_sectors = data_len >> 9;
-    
-    u32 cmd_flags = 0;
-    bpf_probe_read_kernel(&cmd_flags, sizeof(cmd_flags), &rq->cmd_flags);
-    event.op = cmd_flags & REQ_OP_MASK;
-    event.flags = cmd_flags;
-    
-    if (event.bio_size > 0 && event.sector > 0) {
-        bl_events.perf_submit(ctx, &event, sizeof(event));
-    }
+    events.perf_submit(ctx, &data, sizeof(data));
     
     return 0;
 }
+
+
+TRACEPOINT_PROBE(block, block_rq_issue)
+{
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    u32 key_pid = 0;
+    u32 *tracer_pid = tracer_config.lookup(&key_pid);
+    if (tracer_pid && pid == *tracer_pid)
+        return 0;
+
+    u64 key = ((u64)args->dev << 32) | args->sector;
+    u64 ts = bpf_ktime_get_ns();
+    block_start_times.update(&key, &ts);
+
+    return 0;
+}
+
+
+TRACEPOINT_PROBE(block, block_rq_complete)
+{
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    u32 key_pid = 0;
+    u32 *tracer_pid = tracer_config.lookup(&key_pid);
+    if (tracer_pid && pid == *tracer_pid)
+        return 0;
+
+    u64 key = ((u64)args->dev << 32) | args->sector;
+    u64 *start_ts = block_start_times.lookup(&key);
+    if (!start_ts)
+        return 0;
+
+    u64 end_ts = bpf_ktime_get_ns();
+    u64 latency = end_ts - *start_ts;
+
+    struct block_event event = {};
+    event.ts = end_ts;
+    event.pid = pid;
+    event.tid = bpf_get_current_pid_tgid();
+    event.cpu_id = bpf_get_smp_processor_id();
+    bpf_get_current_comm(&event.comm, sizeof(event.comm));
+
+    event.sector = args->sector;
+    event.nr_sectors = args->nr_sector;
+    event.bio_size = ((u64)args->nr_sector) << 9;
+    event.latency_ns = latency;
+
+    bpf_probe_read_kernel(&event.op, sizeof(event.op), &args->rwbs);
+
+    bl_events.perf_submit(args, &event, sizeof(event));
+
+    block_start_times.delete(&key);
+    return 0;
+}
+
+
 
 
 static int get_filename(struct dentry *dentry, char *buf) {

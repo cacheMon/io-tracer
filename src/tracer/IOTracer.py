@@ -105,6 +105,7 @@ class IOTracer:
         
         size_val = event.size if event.size is not None else 0
         output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, event.inode, flags_str)
+        # print(output)
         self.writer.append_fs_log(output)
         
     def _print_event_cache(self, cpu, data, size):       
@@ -126,13 +127,17 @@ class IOTracer:
         comm = event.comm.decode('utf-8', errors='replace')
         sector = event.sector
         nr_sectors = event.nr_sectors
-        ops_str = self.flag_mapper.format_block_operation(event.op)
+        ops_str = event.op.decode('utf-8', errors='replace')
+        ops_str = self.flag_mapper.format_block_ops(ops_str)
+        latency_ns = event.latency_ns
+        latency_ms = latency_ns / 1_000_000.0
         cpu_id = event.cpu_id
         ppid = event.ppid
         parent_comm = event.parent_comm.decode('utf-8', errors='replace')
         bio_size = event.bio_size
 
-        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, tid, nr_sectors, cpu_id, ppid, parent_comm)
+        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, latency_ms, tid, nr_sectors, cpu_id, ppid)
+
 
         if (sector == 0 and nr_sectors == 0) or (sector == '0' and nr_sectors == '0'):
             if self.verbose:

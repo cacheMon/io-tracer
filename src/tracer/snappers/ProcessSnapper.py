@@ -32,7 +32,8 @@ class ProcessSnapper:
                     ts = timestamp
                     pid = proc.info['pid']
                     name = proc.info['name'] or ''
-                    mem = proc.info['memory_info'].rss / 1024 
+                    working_set_size = proc.info['memory_info'].rss / 1024 
+                    virtual_mem = proc.info['memory_info'].vms / 1024
                     cmdline = ' '.join(proc.info['cmdline'])
                     if self.anonymous:
                         cmdline = simple_hash(cmdline, length=12)
@@ -44,7 +45,7 @@ class ProcessSnapper:
                     cpu_2m = self.sampler.cpu_percent_for_interval(pid, create_time, 120.0) or 0.0
                     cpu_1h = self.sampler.cpu_percent_for_interval(pid, create_time, 3600.0) or 0.0
 
-                    out = format_csv_row(ts, pid, name, cmdline, datetime.fromtimestamp(create_time), cpu_5s, cpu_2m, cpu_1h, mem, status)
+                    out = format_csv_row(ts, pid, name, cmdline, virtual_mem, working_set_size, datetime.fromtimestamp(create_time), cpu_5s, cpu_2m, cpu_1h, status)
                     
                     self.wm.append_process_log(out)
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, Exception):

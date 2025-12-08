@@ -66,10 +66,20 @@ class KernelProbeTracker:
     def attach_probes(self):
         try:
             self.add_kprobe("vfs_read", "trace_vfs_read")
+            
             self.add_kprobe("vfs_write", "trace_vfs_write")
+            
             self.add_kprobe("vfs_open", "trace_vfs_open")
+            
             self.add_kprobe("vfs_fsync", "trace_vfs_fsync")
-            self.add_kprobe("blk_mq_start_request", "trace_blk_mq_start_request")
+            
+            self.add_kprobe("vfs_fsync_range", "trace_vfs_fsync_range")
+            
+            self.add_kprobe("__fput", "trace_fput")
+            
+            
+            # self.add_kprobe("blk_mq_start_request", "trace_blk_mq_start_request")
+            # self.add_kprobe("blk_account_io_done", "trace_blk_account_io_done")
 
             if BPF.get_kprobe_functions(b'filemap_add_folio'):
                 # logger("info", "Using filemap_add_folio for page cache tracking")

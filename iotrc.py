@@ -5,7 +5,7 @@ import argparse
 from src.tracer.IOTracer import IOTracer
 
 if __name__ == "__main__":
-    app_version = "v1_2_0"
+    app_version = "vRelease"
     parser = argparse.ArgumentParser(description='Trace IO syscalls')
     parser.add_argument('-o', '--output', type=str, default="./result", help='Output Directory for logging, must be new!')
     parser.add_argument('-v', '--verbose', type=bool, default=False, help='Print verbose output')
