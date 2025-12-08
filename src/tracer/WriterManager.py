@@ -18,21 +18,20 @@ class WriteManager:
 
         self.created_files = 0
         self.output_dir = output_dir
-        self.output_vfs_file = f"{self.output_dir}/vfs/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_block_file = f"{self.output_dir}/block/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_cache_file = f"{self.output_dir}/cache/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_process_file = f"{self.output_dir}/process_state/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_network_file = f"{self.output_dir}/network/network_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_fs_snapshot_file = f"{self.output_dir}/fs_state/filesystem_paths_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_device_spec = f"{self.output_dir}/device_spec.txt"
+        self.output_vfs_file = f"{self.output_dir}/fs/fs_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_block_file = f"{self.output_dir}/ds/ds_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_cache_file = f"{self.output_dir}/cache/cache_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_process_file = f"{self.output_dir}/process/process_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_network_file = f"{self.output_dir}/nw/nw_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_snapshot/filesystem_snapshot_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
         os.makedirs(f"{self.output_dir}/system_spec", exist_ok=True)
-        os.makedirs(f"{self.output_dir}/vfs", exist_ok=True)
-        os.makedirs(f"{self.output_dir}/block", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/fs", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/ds", exist_ok=True)
         os.makedirs(f"{self.output_dir}/cache", exist_ok=True)
-        os.makedirs(f"{self.output_dir}/process_state", exist_ok=True)
-        os.makedirs(f"{self.output_dir}/fs_state", exist_ok=True)
-        os.makedirs(f"{self.output_dir}/network", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/process", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/filesystem_snapshot", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/nw", exist_ok=True)
 
         self.upload_manager = upload_manager
         self.automatic_upload = automatic_upload
@@ -236,7 +235,7 @@ class WriteManager:
 
             self._write_buffer_to_file(self.fs_snap_buffer, self._fs_snap_handle, "Filesystem Snapshot")
             self.compress_log(self.output_fs_snapshot_file)
-            self.output_fs_snapshot_file = f"{self.output_dir}/fs_state/filesystem_paths_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_snapshot/filesystem_snapshot_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._fs_snap_handle.close()
             self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
@@ -249,7 +248,7 @@ class WriteManager:
 
             self._write_buffer_to_file(self.process_buffer, self._process_handle, "Process State")
             self.compress_log(self.output_process_file)
-            self.output_process_file = f"{self.output_dir}/process_state/process_state_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_process_file = f"{self.output_dir}/process/process_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._process_handle.close()
             self._process_handle = open(self.output_process_file, 'a', buffering=8192)
@@ -262,7 +261,7 @@ class WriteManager:
 
             self._write_buffer_to_file(self.cache_buffer, self._cache_handle, "Cache")
             self.compress_log(self.output_cache_file)
-            self.output_cache_file = f"{self.output_dir}/cache/cache_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_cache_file = f"{self.output_dir}/cache/cache_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._cache_handle.close()
             self._cache_handle = open(self.output_cache_file, 'a', buffering=8192)
@@ -276,7 +275,7 @@ class WriteManager:
             
             self._write_buffer_to_file(self.vfs_buffer, self._vfs_handle, "VFS")
             self.compress_log(self.output_vfs_file)
-            self.output_vfs_file = f"{self.output_dir}/vfs/vfs_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_vfs_file = f"{self.output_dir}/fs/fs_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._vfs_handle.close()
             self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
@@ -289,7 +288,7 @@ class WriteManager:
             
             self._write_buffer_to_file(self.block_buffer, self._block_handle, "Block")
             self.compress_log(self.output_block_file)
-            self.output_block_file = f"{self.output_dir}/block/block_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_block_file = f"{self.output_dir}/ds/ds_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._block_handle.close()
             self._block_handle = open(self.output_block_file, 'a', buffering=8192)
@@ -302,7 +301,7 @@ class WriteManager:
             
             self._write_buffer_to_file(self.network_buffer, self._network_handle, "Network")
             self.compress_log(self.output_network_file)
-            self.output_network_file = f"{self.output_dir}/network/network_trace_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+            self.output_network_file = f"{self.output_dir}/nw/nw_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
             self._network_handle.close()
             self._network_handle = open(self.output_network_file, 'a', buffering=8192)
