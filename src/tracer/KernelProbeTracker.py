@@ -66,22 +66,16 @@ class KernelProbeTracker:
     def attach_probes(self):
         try:
             self.add_kprobe("vfs_read", "trace_vfs_read")
-            self.add_kretprobe("vfs_read", "trace_vfs_read_exit")
             
             self.add_kprobe("vfs_write", "trace_vfs_write")
-            self.add_kretprobe("vfs_write", "trace_vfs_write_exit")
             
             self.add_kprobe("vfs_open", "trace_vfs_open")
-            self.add_kretprobe("vfs_open", "trace_vfs_open_exit")
             
             self.add_kprobe("vfs_fsync", "trace_vfs_fsync")
-            self.add_kretprobe("vfs_fsync", "trace_vfs_fsync_exit")
             
             self.add_kprobe("vfs_fsync_range", "trace_vfs_fsync_range")
-            self.add_kretprobe("vfs_fsync_range", "trace_vfs_fsync_range_exit")
             
             self.add_kprobe("__fput", "trace_fput")
-            self.add_kretprobe("__fput", "trace_fput_exit")
             
             
             # self.add_kprobe("blk_mq_start_request", "trace_blk_mq_start_request")

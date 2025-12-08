@@ -105,7 +105,6 @@ struct block_event {
     u32 tid;                   
     u32 cpu_id;                 
     u32 ppid;                  
-    char parent_comm[TASK_COMM_LEN]; 
     u32 flags;               
     u64 bio_size;
     u64 latency_ns;              
@@ -152,7 +151,6 @@ struct vfs_info {
 };
 
 BPF_HASH(block_start_times, u64, u64);
-BPF_HASH(vfs_start, u64, struct vfs_info);
 BPF_HASH(start, u64, u64);
 BPF_HASH(file_positions, u64, u64, 1024);
 BPF_HASH(tracer_config, u32, u32, 1);
@@ -335,52 +333,21 @@ int trace_vfs_read(struct pt_regs *ctx, struct file *file, char __user *buf, siz
         return 0;
     }
     
-    struct vfs_info info = {};
-    info.start_ts = bpf_ktime_get_ns();
-    info.file = file;
-    info.size = count;
-    info.pos = pos;
-    info.op = OP_READ;
-    
-    vfs_start.update(&pid_tgid, &info);
-    return 0;
-}
-
-int trace_vfs_read_exit(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    struct vfs_info *info = vfs_start.lookup(&pid_tgid);
-    
-    if (!info) {
-        return 0;
-    }
-    
-    u64 end_ts = bpf_ktime_get_ns();
-    u64 latency = end_ts - info->start_ts;
-    
-    struct file *file = info->file;
-    if (file == NULL) {
-        vfs_start.delete(&pid_tgid);
-        return 0;
-    }
-    
     if (!is_regular_file(file)) {
-        vfs_start.delete(&pid_tgid);
         return 0;
     }
     
     struct data_t data = {};
-    data.pid = pid_tgid >> 32;
-    data.ts = end_ts;
-    data.latency_ns = latency;
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
-    data.op = info->op;
+    data.op = OP_READ;
     data.inode = get_file_inode(file);
-    data.size = info->size;
+    data.size = count;
     get_file_path(file, data.filename, sizeof(data.filename));
     bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
     
     events.perf_submit(ctx, &data, sizeof(data));
-    vfs_start.delete(&pid_tgid);
     
     return 0;
 }
@@ -395,52 +362,21 @@ int trace_vfs_write(struct pt_regs *ctx, struct file *file, const char __user *b
         return 0;
     }
     
-    struct vfs_info info = {};
-    info.start_ts = bpf_ktime_get_ns();
-    info.file = file;
-    info.size = count;
-    info.pos = pos;
-    info.op = OP_WRITE;
-    
-    vfs_start.update(&pid_tgid, &info);
-    return 0;
-}
-
-int trace_vfs_write_exit(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    struct vfs_info *info = vfs_start.lookup(&pid_tgid);
-    
-    if (!info) {
-        return 0;
-    }
-    
-    u64 end_ts = bpf_ktime_get_ns();
-    u64 latency = end_ts - info->start_ts;
-    
-    struct file *file = info->file;
-    if (file == NULL) {
-        vfs_start.delete(&pid_tgid);
-        return 0;
-    }
-    
     if (!is_regular_file(file)) {
-        vfs_start.delete(&pid_tgid);
         return 0;
     }
     
     struct data_t data = {};
-    data.pid = pid_tgid >> 32;
-    data.ts = end_ts;
-    data.latency_ns = latency;
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
-    data.op = info->op;
+    data.op = OP_WRITE;
     data.inode = get_file_inode(file);
-    data.size = info->size;
+    data.size = count;
     get_file_path(file, data.filename, sizeof(data.filename));
     bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
     
     events.perf_submit(ctx, &data, sizeof(data));
-    vfs_start.delete(&pid_tgid);
     
     return 0;
 }
@@ -455,52 +391,21 @@ int trace_vfs_open(struct pt_regs *ctx, const struct path *path, struct file *fi
         return 0;
     }
     
-    struct vfs_info info = {};
-    info.start_ts = bpf_ktime_get_ns();
-    info.file = file;
-    info.size = 0;
-    info.pos = NULL;
-    info.op = OP_OPEN;
-    
-    vfs_start.update(&pid_tgid, &info);
-    return 0;
-}
-
-int trace_vfs_open_exit(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    struct vfs_info *info = vfs_start.lookup(&pid_tgid);
-    
-    if (!info) {
-        return 0;
-    }
-    
-    u64 end_ts = bpf_ktime_get_ns();
-    u64 latency = end_ts - info->start_ts;
-    
-    struct file *file = info->file;
-    if (file == NULL) {
-        vfs_start.delete(&pid_tgid);
-        return 0;
-    }
-    
     if (!is_regular_file(file)) {
-        vfs_start.delete(&pid_tgid);
         return 0;
     }
     
     struct data_t data = {};
-    data.pid = pid_tgid >> 32;
-    data.ts = end_ts;
-    data.latency_ns = latency;
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
-    data.op = info->op;
+    data.op = OP_OPEN;
     data.inode = get_file_inode(file);
     data.size = 0;
     get_file_path(file, data.filename, sizeof(data.filename));
     bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
     
     events.perf_submit(ctx, &data, sizeof(data));
-    vfs_start.delete(&pid_tgid);
     
     return 0;
 }
@@ -515,52 +420,21 @@ int trace_vfs_fsync(struct pt_regs *ctx, struct file *file, int datasync) {
         return 0;
     }
     
-    struct vfs_info info = {};
-    info.start_ts = bpf_ktime_get_ns();
-    info.file = file;
-    info.size = 0;
-    info.pos = NULL;
-    info.op = OP_FSYNC;
-    
-    vfs_start.update(&pid_tgid, &info);
-    return 0;
-}
-
-int trace_vfs_fsync_exit(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    struct vfs_info *info = vfs_start.lookup(&pid_tgid);
-    
-    if (!info) {
-        return 0;
-    }
-    
-    u64 end_ts = bpf_ktime_get_ns();
-    u64 latency = end_ts - info->start_ts;
-    
-    struct file *file = info->file;
-    if (file == NULL) {
-        vfs_start.delete(&pid_tgid);
-        return 0;
-    }
-    
     if (!is_regular_file(file)) {
-        vfs_start.delete(&pid_tgid);
         return 0;
     }
     
     struct data_t data = {};
-    data.pid = pid_tgid >> 32;
-    data.ts = end_ts;
-    data.latency_ns = latency;
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
-    data.op = info->op;
+    data.op = OP_FSYNC;
     data.inode = get_file_inode(file);
     data.size = 0;
     get_file_path(file, data.filename, sizeof(data.filename));
     bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
     
     events.perf_submit(ctx, &data, sizeof(data));
-    vfs_start.delete(&pid_tgid);
     
     return 0;
 }
@@ -572,6 +446,10 @@ int trace_vfs_fsync_range(struct pt_regs *ctx, struct file *file, loff_t start, 
     u32 config_key = 0;
     u32 *tracer_pid = tracer_config.lookup(&config_key);
     if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
+    
+    if (!is_regular_file(file)) {
         return 0;
     }
     
@@ -587,52 +465,17 @@ int trace_vfs_fsync_range(struct pt_regs *ctx, struct file *file, loff_t start, 
         range_size = end - start;
     }
     
-    struct vfs_info info = {};
-    info.start_ts = bpf_ktime_get_ns();
-    info.file = file;
-    info.size = range_size;
-    info.pos = &start;
-    info.op = OP_FSYNC;
-    
-    vfs_start.update(&pid_tgid, &info);
-    return 0;
-}
-
-int trace_vfs_fsync_range_exit(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    struct vfs_info *info = vfs_start.lookup(&pid_tgid);
-    
-    if (!info) {
-        return 0;
-    }
-    
-    u64 end_ts = bpf_ktime_get_ns();
-    u64 latency = end_ts - info->start_ts;
-    
-    struct file *file = info->file;
-    if (file == NULL) {
-        vfs_start.delete(&pid_tgid);
-        return 0;
-    }
-    
-    if (!is_regular_file(file)) {
-        vfs_start.delete(&pid_tgid);
-        return 0;
-    }
-    
     struct data_t data = {};
-    data.pid = pid_tgid >> 32;
-    data.ts = end_ts;
-    data.latency_ns = latency;
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
-    data.op = info->op;
+    data.op = OP_FSYNC;
     data.inode = get_file_inode(file);
-    data.size = info->size;
+    data.size = range_size;
     get_file_path(file, data.filename, sizeof(data.filename));
     bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
     
     events.perf_submit(ctx, &data, sizeof(data));
-    vfs_start.delete(&pid_tgid);
     
     return 0;
 }
@@ -647,52 +490,21 @@ int trace_fput(struct pt_regs *ctx, struct file *file) {
         return 0;
     }
     
-    struct vfs_info info = {};
-    info.start_ts = bpf_ktime_get_ns();
-    info.file = file;
-    info.size = 0;
-    info.pos = NULL;
-    info.op = OP_CLOSE;
-    
-    vfs_start.update(&pid_tgid, &info);
-    return 0;
-}
-
-int trace_fput_exit(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    struct vfs_info *info = vfs_start.lookup(&pid_tgid);
-    
-    if (!info) {
-        return 0;
-    }
-    
-    u64 end_ts = bpf_ktime_get_ns();
-    u64 latency = end_ts - info->start_ts;
-    
-    struct file *file = info->file;
-    if (file == NULL) {
-        vfs_start.delete(&pid_tgid);
-        return 0;
-    }
-    
     if (!is_regular_file(file)) {
-        vfs_start.delete(&pid_tgid);
         return 0;
     }
     
     struct data_t data = {};
-    data.pid = pid_tgid >> 32;
-    data.ts = end_ts;
-    data.latency_ns = latency;
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
-    data.op = info->op;
+    data.op = OP_CLOSE;
     data.inode = get_file_inode(file);
     data.size = 0;
     get_file_path(file, data.filename, sizeof(data.filename));
     bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
     
     events.perf_submit(ctx, &data, sizeof(data));
-    vfs_start.delete(&pid_tgid);
     
     return 0;
 }
