@@ -38,7 +38,7 @@ class IOTracer:
             cache_sample_rate:  int = 1
         ):
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_dir = os.path.join(output_dir, capture_machine_id().upper() ,str(timestamp))
+        output_dir = os.path.join(output_dir, "linux_trace" ,capture_machine_id().upper() ,str(timestamp))
 
         temp_version = version if not developer_mode else f"vdev"
         if developer_mode:
