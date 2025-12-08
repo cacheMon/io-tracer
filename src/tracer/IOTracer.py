@@ -12,7 +12,7 @@ import socket
 import struct
 
 from .ObjectStorageManager import ObjectStorageManager
-from ..utility.utils import format_csv_row, logger, hash_filename_in_path, inet6_from_event, simple_hash
+from ..utility.utils import capture_machine_id, format_csv_row, logger, hash_filename_in_path, inet6_from_event, simple_hash
 from .WriterManager import WriteManager
 from .FlagMapper import FlagMapper
 from .KernelProbeTracker import KernelProbeTracker
@@ -38,7 +38,7 @@ class IOTracer:
             cache_sample_rate:  int = 1
         ):
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_dir = os.path.join(output_dir, f"run_{timestamp}")
+        output_dir = os.path.join(output_dir, capture_machine_id().upper() ,str(timestamp))
 
         temp_version = version if not developer_mode else f"vdev"
         if developer_mode:
@@ -133,7 +133,6 @@ class IOTracer:
         latency_ms = latency_ns / 1_000_000.0
         cpu_id = event.cpu_id
         ppid = event.ppid
-        parent_comm = event.parent_comm.decode('utf-8', errors='replace')
         bio_size = event.bio_size
 
         output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, latency_ms, tid, nr_sectors, cpu_id, ppid)

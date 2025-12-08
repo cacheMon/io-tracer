@@ -3,6 +3,7 @@ import sys
 import json
 import io
 from datetime import datetime
+import tarfile
 
 from .ObjectStorageManager import ObjectStorageManager
 from ..utility.utils import logger, create_tar_gz
@@ -313,6 +314,7 @@ class WriteManager:
         self.compress_log(self.output_process_file)
         self.compress_log(self.output_fs_snapshot_file)
         self.compress_log(self.output_network_file)
+        self.compress_dir(self.output_dir)
 
 
     def clear_events(self):
@@ -434,6 +436,25 @@ class WriteManager:
             os.remove(input_file)
         except Exception as e:
             logger("error", f"Failed compressing log {input_file}")
+            
+    def compress_dir(self, input_dir):
+        try:
+            src = input_dir
+            dst = input_dir.rstrip("/").rstrip("\\") + ".tar.gz"
+
+            self.created_files += 1
+            logger("info", f"Files Created: {self.created_files}", True)
+
+            with tarfile.open(dst, "w:gz") as tar:
+                tar.add(src, arcname=os.path.basename(src))
+
+            if self.automatic_upload:
+                self.upload_manager.append_object(dst)
+
+            shutil.rmtree(src)
+
+        except Exception as e:
+            logger("error", f"Failed compressing directory {input_dir}")
         
 
     def close_handles(self):

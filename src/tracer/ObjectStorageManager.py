@@ -40,7 +40,6 @@ class ObjectStorageManager:
     def get_presigned_url(self, filename: str, file_type: str) -> str:
         r = requests.post(
             f"{self.backend_url}/linux_trace/"
-            f"{self.app_version}/"
             f"{self.machine_id.upper()}/"
             f"{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}/"
             f"{file_type}/"
