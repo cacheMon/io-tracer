@@ -51,7 +51,9 @@ class FlagMapper:
             6: "MMAP",
             7: "MUNMAP",
             8: "GETATTR",
-            9: "SETATTR"
+            9: "SETATTR",
+            10: "CHDIR",
+            11: "READDIR"
         }
 
     def format_block_operation(self, flags):

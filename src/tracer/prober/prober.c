@@ -83,7 +83,9 @@ enum op_type {
     OP_MMAP,
     OP_MUNMAP,
     OP_GETATTR,
-    OP_SETATTR
+    OP_SETATTR,
+    OP_CHDIR,
+    OP_READDIR
 };
 
 struct data_t {
@@ -644,6 +646,57 @@ int trace_vfs_setattr(struct pt_regs *ctx, struct dentry *dentry, struct iattr *
     data.size = 0;
     get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
     data.flags = 0;
+    
+    events.perf_submit(ctx, &data, sizeof(data));
+    
+    return 0;
+}
+
+TRACEPOINT_PROBE(syscalls, sys_enter_chdir)
+{
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    u32 config_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
+    
+    struct data_t data = {};
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.op = OP_CHDIR;
+    data.inode = 0;
+    data.size = 0;
+    
+    bpf_probe_read_user_str(data.filename, sizeof(data.filename), (void *)args->filename);
+    data.flags = 0;
+    
+    events.perf_submit(args, &data, sizeof(data));
+    
+    return 0;
+}
+
+int trace_readdir(struct pt_regs *ctx, struct file *file, struct dir_context *ctx_dir) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = pid_tgid >> 32;
+    
+    u32 config_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
+    
+    
+    struct data_t data = {};
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.op = OP_READDIR;
+    data.inode = get_file_inode(file);
+    data.size = 0;
+    get_file_path(file, data.filename, sizeof(data.filename));
+    bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
     
     events.perf_submit(ctx, &data, sizeof(data));
     
