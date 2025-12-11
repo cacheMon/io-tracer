@@ -85,7 +85,9 @@ enum op_type {
     OP_GETATTR,
     OP_SETATTR,
     OP_CHDIR,
-    OP_READDIR
+    OP_READDIR,
+    OP_UNLINK,
+    OP_TRUNCATE
 };
 
 struct data_t {
@@ -703,6 +705,75 @@ int trace_readdir(struct pt_regs *ctx, struct file *file, struct dir_context *ct
     return 0;
 }
 
+int trace_vfs_unlink(struct pt_regs *ctx, struct inode *dir, struct dentry *dentry) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = pid_tgid >> 32;
+    
+    u32 config_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
+    
+    struct data_t data = {};
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.op = OP_UNLINK;
+    
+    if (dentry && dentry->d_inode) {
+        bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &dentry->d_inode->i_ino);
+    }
+    
+    const unsigned char *name_ptr;
+    if (dentry) {
+        bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &dentry->d_name.name);
+        if (name_ptr) {
+            bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
+        }
+    }
+    
+    data.size = 0;
+    data.flags = 0;
+    
+    events.perf_submit(ctx, &data, sizeof(data));
+    return 0;
+}
+
+int trace_vfs_truncate(struct pt_regs *ctx, const struct path *path) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = pid_tgid >> 32;
+    
+    u32 config_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
+    
+    struct data_t data = {};
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.op = OP_TRUNCATE;
+    
+    if (path && path->dentry && path->dentry->d_inode) {
+        bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &path->dentry->d_inode->i_ino);
+    }
+    
+    const unsigned char *name_ptr;
+    if (path && path->dentry) {
+        bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &path->dentry->d_name.name);
+        if (name_ptr) {
+            bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
+        }
+    }
+    
+    data.size = 0;
+    data.flags = 0;
+    
+    events.perf_submit(ctx, &data, sizeof(data));
+    return 0;
+}
 
 TRACEPOINT_PROBE(block, block_rq_issue)
 {

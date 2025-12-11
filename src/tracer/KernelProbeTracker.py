@@ -86,6 +86,9 @@ class KernelProbeTracker:
             
             self.add_kprobe("iterate_dir", "trace_readdir")
             
+            self.add_kprobe("vfs_unlink", "trace_vfs_unlink")
+            self.add_kprobe("do_truncate", "trace_vfs_truncate")
+            
             # self.add_kprobe("blk_mq_start_request", "trace_blk_mq_start_request")
             # self.add_kprobe("blk_account_io_done", "trace_blk_account_io_done")
 
