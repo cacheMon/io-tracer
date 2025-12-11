@@ -79,7 +79,9 @@ enum op_type {
     OP_WRITE,
     OP_OPEN,
     OP_CLOSE,
-    OP_FSYNC
+    OP_FSYNC,
+    OP_MMAP,
+    OP_MUNMAP
 };
 
 struct data_t {
@@ -503,6 +505,60 @@ int trace_fput(struct pt_regs *ctx, struct file *file) {
     data.size = 0;
     get_file_path(file, data.filename, sizeof(data.filename));
     bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
+    
+    events.perf_submit(ctx, &data, sizeof(data));
+    
+    return 0;
+}
+
+int trace_mmap(struct pt_regs *ctx, struct file *file, unsigned long addr, unsigned long len, unsigned long prot, unsigned long flags) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = pid_tgid >> 32;
+    
+    u32 config_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
+    
+    if (!file || !is_regular_file(file)) {
+        return 0;
+    }
+    
+    struct data_t data = {};
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.op = OP_MMAP;
+    data.inode = get_file_inode(file);
+    data.size = len;
+    get_file_path(file, data.filename, sizeof(data.filename));
+    data.flags = (u32)prot | ((u32)flags << 16);
+    
+    events.perf_submit(ctx, &data, sizeof(data));
+    
+    return 0;
+}
+
+int trace_munmap(struct pt_regs *ctx, unsigned long addr, size_t len) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = pid_tgid >> 32;
+    
+    u32 config_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
+    
+    struct data_t data = {};
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.op = OP_MUNMAP;
+    data.inode = 0;
+    data.size = len;
+    __builtin_memcpy(data.filename, "", 9);
+    data.flags = 0;
     
     events.perf_submit(ctx, &data, sizeof(data));
     

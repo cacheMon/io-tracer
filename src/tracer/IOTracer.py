@@ -95,7 +95,6 @@ class IOTracer:
             filename = "[decode_error]"
             filepath = "[decode_error]"
         
-        flags_str = self.flag_mapper.format_fs_flags(event.flags)
         timestamp = datetime.today()
         
         try:
@@ -104,8 +103,8 @@ class IOTracer:
             comm = "[decode_error]"
         
         size_val = event.size if event.size is not None else 0
-        output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, event.inode, flags_str)
-        # print(output)
+        output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, event.inode)
+
         self.writer.append_fs_log(output)
         
     def _print_event_cache(self, cpu, data, size):       

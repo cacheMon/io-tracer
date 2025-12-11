@@ -47,7 +47,9 @@ class FlagMapper:
             2: "WRITE",
             3: "OPEN",
             4: "CLOSE",
-            5: "FSYNC"
+            5: "FSYNC",
+            6: "MMAP",
+            7: "MUNMAP"
         }
 
     def format_block_operation(self, flags):
