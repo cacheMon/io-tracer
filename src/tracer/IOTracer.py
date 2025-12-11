@@ -106,8 +106,8 @@ class IOTracer:
         
         size_val = event.size if event.size is not None else 0
         output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, inode_val)
-        # if event.op == 12 or event.op == 13:
-            # print(output)
+        # if event.op == 14:
+        #     print(output)
         self.writer.append_fs_log(output)
         
     def _print_event_cache(self, cpu, data, size):       

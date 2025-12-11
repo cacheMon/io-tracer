@@ -55,7 +55,8 @@ class FlagMapper:
             10: "CHDIR",
             11: "READDIR",
             12: "UNLINK",
-            13: "TRUNCATE"
+            13: "TRUNCATE",
+            14: "SYNC"
         }
 
     def format_block_operation(self, flags):

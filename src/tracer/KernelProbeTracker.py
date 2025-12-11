@@ -72,6 +72,7 @@ class KernelProbeTracker:
             self.add_kprobe("vfs_open", "trace_vfs_open")
             
             self.add_kprobe("vfs_fsync", "trace_vfs_fsync")
+            self.add_kprobe("ksys_sync", "trace_ksys_sync")
             
             self.add_kprobe("vfs_fsync_range", "trace_vfs_fsync_range")
             
