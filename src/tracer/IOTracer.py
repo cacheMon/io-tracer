@@ -101,10 +101,13 @@ class IOTracer:
             comm = event.comm.decode()
         except UnicodeDecodeError:
             comm = "[decode_error]"
+            
+        inode_val = event.inode if event.inode != 0 else ""
         
         size_val = event.size if event.size is not None else 0
-        output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, event.inode)
-
+        output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, inode_val)
+        # if event.op == 8 or event.op == 9:
+        # print(output)
         self.writer.append_fs_log(output)
         
     def _print_event_cache(self, cpu, data, size):       

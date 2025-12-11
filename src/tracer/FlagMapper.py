@@ -49,7 +49,9 @@ class FlagMapper:
             4: "CLOSE",
             5: "FSYNC",
             6: "MMAP",
-            7: "MUNMAP"
+            7: "MUNMAP",
+            8: "GETATTR",
+            9: "SETATTR"
         }
 
     def format_block_operation(self, flags):

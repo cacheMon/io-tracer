@@ -81,6 +81,9 @@ class KernelProbeTracker:
             self.add_kprobe("do_mmap", "trace_mmap")
             self.add_kprobe("__vm_munmap", "trace_munmap")
             
+            self.add_kprobe("vfs_getattr", "trace_vfs_getattr")
+            self.add_kprobe("notify_change", "trace_vfs_setattr") 
+            
             # self.add_kprobe("blk_mq_start_request", "trace_blk_mq_start_request")
             # self.add_kprobe("blk_account_io_done", "trace_blk_account_io_done")
 

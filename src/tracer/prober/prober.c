@@ -81,7 +81,9 @@ enum op_type {
     OP_CLOSE,
     OP_FSYNC,
     OP_MMAP,
-    OP_MUNMAP
+    OP_MUNMAP,
+    OP_GETATTR,
+    OP_SETATTR
 };
 
 struct data_t {
@@ -324,6 +326,31 @@ static int get_file_path(struct file *file, char *buf, int size) {
     return 0;
 }
 
+static u64 get_file_inode_from_dentry(struct dentry *dentry) {
+    u64 inode = 0;
+    if (dentry && dentry->d_inode) {
+        inode = dentry->d_inode->i_ino;
+    }
+    return inode;
+}
+
+static int get_file_path_from_dentry(struct dentry *dentry, char *buf, int size) {
+    if (!dentry) {
+        __builtin_memcpy(buf, "[no_dentry]", 12);
+        return 0;
+    }
+    
+    const unsigned char *name_ptr;
+    bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &dentry->d_name.name);
+    
+    if (name_ptr) {
+        bpf_probe_read_kernel_str(buf, size, name_ptr);
+    } else {
+        __builtin_memcpy(buf, "", 10);
+    }
+    
+    return 0;
+}
 
 int trace_vfs_read(struct pt_regs *ctx, struct file *file, char __user *buf, size_t count, loff_t *pos) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
@@ -558,6 +585,64 @@ int trace_munmap(struct pt_regs *ctx, unsigned long addr, size_t len) {
     data.inode = 0;
     data.size = len;
     __builtin_memcpy(data.filename, "", 9);
+    data.flags = 0;
+    
+    events.perf_submit(ctx, &data, sizeof(data));
+    
+    return 0;
+}
+
+int trace_vfs_getattr(struct pt_regs *ctx, const struct path *path, struct kstat *stat, u32 request_mask, unsigned int query_flags) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = pid_tgid >> 32;
+    
+    u32 config_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
+    
+    if (!path || !path->dentry) {
+        return 0;
+    }
+    
+    struct data_t data = {};
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.op = OP_GETATTR;
+    data.inode = get_file_inode_from_dentry(path->dentry);
+    data.size = 0;
+    get_file_path_from_dentry(path->dentry, data.filename, sizeof(data.filename));
+    data.flags = 0;
+    
+    events.perf_submit(ctx, &data, sizeof(data));
+    
+    return 0;
+}
+
+int trace_vfs_setattr(struct pt_regs *ctx, struct dentry *dentry, struct iattr *attr) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = pid_tgid >> 32;
+    
+    u32 config_key = 0;
+    u32 *tracer_pid = tracer_config.lookup(&config_key);
+    if (tracer_pid && pid == *tracer_pid) {
+        return 0;
+    }
+    
+    if (!dentry) {
+        return 0;
+    }
+    
+    struct data_t data = {};
+    data.pid = pid;
+    data.ts = bpf_ktime_get_ns();
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    data.op = OP_SETATTR;
+    data.inode = get_file_inode_from_dentry(dentry);
+    data.size = 0;
+    get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
     data.flags = 0;
     
     events.perf_submit(ctx, &data, sizeof(data));
