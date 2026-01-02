@@ -1,10 +1,9 @@
 #include <linux/ptrace.h>
 
-// compatibility wih kernel 6.14+
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,14,0)
-#define BPF_NO_KFUNC_PROTO
-struct bpf_wq {};
-#endif
+// #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,14,0)
+// #define BPF_NO_KFUNC_PROTO
+// struct bpf_wq {};
+// #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,17,0)
 struct bpf_timer {};
