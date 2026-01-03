@@ -1,3 +1,4 @@
+#define BPF_NO_KFUNC_PROTO
 #include <linux/ptrace.h>
 
 // #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,14,0)
