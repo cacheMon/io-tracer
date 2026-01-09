@@ -17,8 +17,6 @@ if __name__ == "__main__":
     parse_args = parser.parse_args()
     output_dir = parse_args.output.strip()
     
-    is_upload = not parse_args.local_only
-    
     if parse_args.computer_id:
         print(f"Here is your computer ID: {capture_machine_id().upper()}")
         exit(0)
