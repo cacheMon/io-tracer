@@ -10,12 +10,25 @@
 struct bpf_timer {};
 #endif
 
+#ifndef BPF_LOAD_ACQ
+#define BPF_LOAD_ACQ 0xe1
+#endif
+
+#ifndef BPF_STORE_REL
+#define BPF_STORE_REL 0xe2
+#endif
+
+
 #ifndef BPF_PSEUDO_FUNC
 #define BPF_PSEUDO_FUNC 4
 #endif
 
 #ifndef BPF_F_BROADCAST
 #define BPF_F_BROADCAST (1ULL << 3)
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,14,0)
+struct bpf_task_work {};
 #endif
 
 #include <linux/fs.h>
