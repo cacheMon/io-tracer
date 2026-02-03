@@ -28,7 +28,7 @@ if __name__ == "__main__":
         page_cnt=8,
         verbose=parse_args.verbose,
         anonymous=parse_args.anonimize,
-        automatic_upload=True,
+        automatic_upload=not parse_args.dev,
         developer_mode=parse_args.dev,
         version=app_version,
     )
