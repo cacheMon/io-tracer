@@ -122,7 +122,9 @@ class IOTracer:
             2: "DIRTY",
             3: "WRITEBACK_START",
             4: "WRITEBACK_END",
-            5: "EVICT"
+            5: "EVICT",
+            6: "INVALIDATE",
+            7: "DROP"
         }
         event_name = event_types.get(event.type, "UNKNOWN")
         inode = event.inode if event.inode != 0 else ""

@@ -136,6 +136,8 @@ enum cache_event_type {
   CACHE_WRITEBACK_START = 3,
   CACHE_WRITEBACK_END = 4,
   CACHE_EVICT = 5,
+  CACHE_INVALIDATE = 6,
+  CACHE_DROP = 7,
 };
 
 struct cache_data {
@@ -1280,6 +1282,128 @@ TRACEPOINT_PROBE(filemap, mm_filemap_delete_from_page_cache) {
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
   cache_events.perf_submit(args, &data, sizeof(data));
+  return 0;
+}
+
+/* Cache Invalidation - invalidate_mapping_pages */
+int trace_invalidate_mapping(struct pt_regs *ctx, struct address_space *mapping,
+                             pgoff_t start, pgoff_t end) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
+  struct cache_data data = {};
+  data.ts = bpf_ktime_get_ns();
+  data.pid = pid;
+  data.type = CACHE_INVALIDATE;
+  data.index = start;
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+
+  if (mapping) {
+    struct inode *host = NULL;
+    bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
+    if (host) {
+      bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+    }
+  }
+
+  cache_events.perf_submit(ctx, &data, sizeof(data));
+  return 0;
+}
+
+/* Cache Invalidation - truncate_inode_pages_range */
+int trace_truncate_pages(struct pt_regs *ctx, struct address_space *mapping,
+                         loff_t lstart, loff_t lend) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
+  struct cache_data data = {};
+  data.ts = bpf_ktime_get_ns();
+  data.pid = pid;
+  data.type = CACHE_INVALIDATE;
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+
+  if (mapping) {
+    struct inode *host = NULL;
+    bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
+    if (host) {
+      bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+    }
+  }
+
+  cache_events.perf_submit(ctx, &data, sizeof(data));
+  return 0;
+}
+
+/* Cache Drop - folio version for kernel 5.18+ */
+int trace_cache_drop_folio(struct pt_regs *ctx, struct address_space *mapping,
+                           struct folio *folio) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
+  struct cache_data data = {};
+  data.ts = bpf_ktime_get_ns();
+  data.pid = pid;
+  data.type = CACHE_DROP;
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+
+  if (folio) {
+    bpf_probe_read_kernel(&data.index, sizeof(data.index), &folio->index);
+  }
+
+  if (mapping) {
+    struct inode *host = NULL;
+    bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
+    if (host) {
+      bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+    }
+  }
+
+  cache_events.perf_submit(ctx, &data, sizeof(data));
+  return 0;
+}
+
+/* Cache Drop - page version for older kernels */
+int trace_cache_drop_page(struct pt_regs *ctx, struct page *page) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
+  struct cache_data data = {};
+  data.ts = bpf_ktime_get_ns();
+  data.pid = pid;
+  data.type = CACHE_DROP;
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+
+  if (page) {
+    struct address_space *mapping = NULL;
+    bpf_probe_read_kernel(&mapping, sizeof(mapping), &page->mapping);
+    bpf_probe_read_kernel(&data.index, sizeof(data.index), &page->index);
+
+    if (mapping) {
+      struct inode *host = NULL;
+      bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
+      if (host) {
+        bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      }
+    }
+  }
+
+  cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
 

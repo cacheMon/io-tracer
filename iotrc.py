@@ -25,7 +25,7 @@ if __name__ == "__main__":
     if parse_args.reward:
         reward_code = get_reward_code()
         if reward_code:
-            print(f"Congratulations! Your reward code: {reward_code}")
+            print(f"Your Prolific submissions code: {reward_code}")
         else:
             print("Reward not yet unlocked. Upload at least one trace to complete your submission!")
         exit(0)

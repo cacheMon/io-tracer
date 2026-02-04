@@ -142,6 +142,30 @@ class KernelProbeTracker:
             else:
                 logger("warning", "No eviction probe available")
 
+            # Cache invalidation probes
+            if BPF.get_kprobe_functions(b'invalidate_mapping_pages'):
+                self.add_kprobe("invalidate_mapping_pages", "trace_invalidate_mapping")
+            else:
+                logger("warning", "invalidate_mapping_pages not found, invalidation events may be incomplete")
+
+            if BPF.get_kprobe_functions(b'truncate_inode_pages_range'):
+                self.add_kprobe("truncate_inode_pages_range", "trace_truncate_pages")
+            else:
+                logger("warning", "truncate_inode_pages_range not found")
+
+            # Cache drop probes - kernel version dependent
+            if BPF.get_kprobe_functions(b'__filemap_remove_folio'):
+                # Kernel 5.18+ uses this for explicit page removal
+                self.add_kprobe("__filemap_remove_folio", "trace_cache_drop_folio")
+            elif BPF.get_kprobe_functions(b'delete_from_page_cache'):
+                # Older kernels
+                self.add_kprobe("delete_from_page_cache", "trace_cache_drop_page")
+            elif BPF.get_kprobe_functions(b'__delete_from_page_cache'):
+                # Fallback for some kernel versions
+                self.add_kprobe("__delete_from_page_cache", "trace_cache_drop_page")
+            else:
+                logger("warning", "No cache drop function found, drop events will not be traced")
+
             self.add_kprobe("vfs_fsync_range", "trace_vfs_fsync_range")
             self.add_kprobe("__fput", "trace_fput") 
             
