@@ -107,7 +107,7 @@ def capture_machine_id():
         machine_id = f.read().strip()
         return simple_hash(machine_id, 16)
 
-REWARD_CODE = "R3D33MC0D3"
+REWARD_CODE = "CKXDRTBX"
 
 def get_reward_marker_path() -> Path:
     return Path.home() / ".io-tracer" / ".reward_unlocked"
