@@ -129,8 +129,6 @@ class IOTracer:
         index = event.index if event.index != 0 else ""
 
         output = format_csv_row(timestamp, pid, comm, event_name, inode, index)
-        if event.type == 5:
-            print(output)
         self.writer.append_cache_log(output)
 
     def _print_event_block(self, cpu, data, size):        
