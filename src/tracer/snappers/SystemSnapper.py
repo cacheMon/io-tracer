@@ -4,6 +4,7 @@ import subprocess
 import psutil
 import platform
 import shutil
+import requests
 
 class SystemSnapper:
     def __init__(self, writer_manager: WriteManager):
@@ -52,16 +53,34 @@ class SystemSnapper:
             return []
         return []
 
+    def get_country_code(self) -> str:
+        try:
+            r = requests.get("https://ipapi.co/country_code/", timeout=5)
+            if r.ok:
+                return r.text.strip()
+        except Exception:
+            pass
+        try:
+            r = requests.get("http://ip-api.com/json/", timeout=5)
+            if r.ok:
+                return r.json().get("countryCode", "Unknown")
+        except Exception:
+            pass
+        return "Unknown"
+
     def capture_spec_snapshot(self):
         mem = psutil.virtual_memory()
         gpus = self.get_gpu_brand()
         storages = self.get_storage_brands()
 
+        country = self.get_country_code()
+
         device_specs_str = (
     f"System: {platform.system()}\n"
     f"Release: {platform.release()}\n"
     f"Version: {platform.version()}\n"
-    f"Machine: {platform.machine()}\n\n"
+    f"Machine: {platform.machine()}\n"
+    f"Country: {country}\n\n"
     f"CPU Brand: {self.get_cpu_brand()}\n"
     f"CPU Cores (logical): {psutil.cpu_count(logical=True)}\n"
     f"CPU Cores (physical): {psutil.cpu_count(logical=False)}\n"

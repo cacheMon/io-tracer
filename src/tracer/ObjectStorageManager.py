@@ -7,7 +7,7 @@ from pathlib import Path
 from queue import Queue, Empty
 import requests
 
-from src.utility.utils import capture_machine_id, logger,get_current_tag
+from src.utility.utils import capture_machine_id, logger, get_current_tag, unlock_reward
 
 
 class ObjectStorageManager:
@@ -39,7 +39,7 @@ class ObjectStorageManager:
 
     def get_presigned_url(self, filename: str, file_type: str) -> str:
         r = requests.post(
-            f"{self.backend_url}/linux_trace/"
+            f"{self.backend_url}/linux_trace_v2/"
             f"{self.machine_id.upper()}/"
             f"{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}/"
             f"{file_type}/"
@@ -68,6 +68,7 @@ class ObjectStorageManager:
         if r.ok:
             os.remove(file_path)
             self.successful_upload += 1
+            unlock_reward()  
             logger("info", f"Files Uploaded: {self.successful_upload}", True)
         else:
             raise RuntimeError(f"Upload failed: {r.status_code} {r.text}")

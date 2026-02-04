@@ -90,28 +90,87 @@ class KernelProbeTracker:
             self.add_kprobe("vfs_unlink", "trace_vfs_unlink")
             self.add_kprobe("do_truncate", "trace_vfs_truncate")
             
-            # self.add_kprobe("blk_mq_start_request", "trace_blk_mq_start_request")
-            # self.add_kprobe("blk_account_io_done", "trace_blk_account_io_done")
-
+            # Cache Miss probes
             if BPF.get_kprobe_functions(b'filemap_add_folio'):
-                # logger("info", "Using filemap_add_folio for page cache tracking")
-                self.add_kprobe("filemap_add_folio","trace_miss")
+                self.add_kprobe("filemap_add_folio", "trace_filemap_add_folio")
+            elif BPF.get_kprobe_functions(b'add_to_page_cache_lru'):
+                self.add_kprobe("add_to_page_cache_lru", "trace_miss")
             else:
-                # logger("info", "Using add_to_page_cache_lru for page cache tracking")
-                self.add_kprobe("add_to_page_cache_lru","trace_miss")
+                logger("warning", "No cache miss probe available")
+
+            # Cache Hit probes
             if BPF.get_kprobe_functions(b'folio_mark_accessed'):
-                # logger("info", "Using folio_mark_accessed for page access tracking")
-                self.add_kprobe("folio_mark_accessed", "trace_hit")
-            else:
-                # logger("info", "Using mark_page_accessed for page access tracking")
+                self.add_kprobe("folio_mark_accessed", "trace_folio_mark_accessed")
+            elif BPF.get_kprobe_functions(b'mark_page_accessed'):
                 self.add_kprobe("mark_page_accessed", "trace_hit")
+            else:
+                logger("warning", "No cache hit probe available")
+
+            # Dirty Page probes
+            if BPF.get_kprobe_functions(b'__folio_mark_dirty'):
+                self.add_kprobe("__folio_mark_dirty", "trace_folio_mark_dirty")
+            elif BPF.get_kprobe_functions(b'account_page_dirtied'):
+                self.add_kprobe("account_page_dirtied", "trace_account_page_dirtied")
+            else:
+                logger("warning", "No dirty page probe available")
+
+            # Writeback Start probes
+            if BPF.get_kprobe_functions(b'folio_clear_dirty_for_io'):
+                self.add_kprobe("folio_clear_dirty_for_io", "trace_folio_clear_dirty_for_io")
+            elif BPF.get_kprobe_functions(b'clear_page_dirty_for_io'):
+                self.add_kprobe("clear_page_dirty_for_io", "trace_clear_page_dirty_for_io")
+            else:
+                logger("warning", "No writeback start probe available")
+
+            # Writeback End probes
+            if BPF.get_kprobe_functions(b'folio_end_writeback'):
+                self.add_kprobe("folio_end_writeback", "trace_folio_end_writeback")
+            elif BPF.get_kprobe_functions(b'__folio_end_writeback'):
+                self.add_kprobe("__folio_end_writeback", "trace_folio_end_writeback")
+            elif BPF.get_kprobe_functions(b'test_clear_page_writeback'):
+                self.add_kprobe("test_clear_page_writeback", "trace_test_clear_page_writeback")
+            else:
+                logger("warning", "No writeback end probe available")
+
+            # Eviction probes
+            if BPF.get_kprobe_functions(b'filemap_remove_folio'):
+                self.add_kprobe("filemap_remove_folio", "trace_filemap_remove_folio")
+            elif BPF.get_kprobe_functions(b'__filemap_remove_folio'):
+                self.add_kprobe("__filemap_remove_folio", "trace_filemap_remove_folio")
+            elif BPF.get_kprobe_functions(b'__delete_from_page_cache'):
+                self.add_kprobe("__delete_from_page_cache", "trace_delete_from_page_cache")
+            else:
+                logger("warning", "No eviction probe available")
+
+            # Cache invalidation probes
+            if BPF.get_kprobe_functions(b'invalidate_mapping_pages'):
+                self.add_kprobe("invalidate_mapping_pages", "trace_invalidate_mapping")
+            else:
+                logger("warning", "invalidate_mapping_pages not found, invalidation events may be incomplete")
+
+            if BPF.get_kprobe_functions(b'truncate_inode_pages_range'):
+                self.add_kprobe("truncate_inode_pages_range", "trace_truncate_pages")
+            else:
+                logger("warning", "truncate_inode_pages_range not found")
+
+            # Cache drop probes - kernel version dependent
+            if BPF.get_kprobe_functions(b'__filemap_remove_folio'):
+                # Kernel 5.18+ uses this for explicit page removal
+                self.add_kprobe("__filemap_remove_folio", "trace_cache_drop_folio")
+            elif BPF.get_kprobe_functions(b'delete_from_page_cache'):
+                # Older kernels
+                self.add_kprobe("delete_from_page_cache", "trace_cache_drop_page")
+            elif BPF.get_kprobe_functions(b'__delete_from_page_cache'):
+                # Fallback for some kernel versions
+                self.add_kprobe("__delete_from_page_cache", "trace_cache_drop_page")
+            else:
+                logger("warning", "No cache drop function found, drop events will not be traced")
 
             self.add_kprobe("vfs_fsync_range", "trace_vfs_fsync_range")
-                # logger("info", "vfs_fsync_range not found, using only vfs_fsync")
             self.add_kprobe("__fput", "trace_fput") 
             
             if not self.kprobes:
-                # logger("error", "no kprobes attached successfully!")
+                logger("error", "no kprobes attached successfully!")
                 sys.exit(1)   
         except Exception as e:
             logger("error", f"failed to attach to kernel functions: {e}")

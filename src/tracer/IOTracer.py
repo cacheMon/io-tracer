@@ -115,9 +115,22 @@ class IOTracer:
         timestamp = datetime.today()
         pid = event.pid
         comm = event.comm.decode('utf-8', errors='replace')
-        hit = "HIT" if event.type == 0 else "MISS"
+        
+        event_types = {
+            0: "HIT",
+            1: "MISS",
+            2: "DIRTY",
+            3: "WRITEBACK_START",
+            4: "WRITEBACK_END",
+            5: "EVICT",
+            6: "INVALIDATE",
+            7: "DROP"
+        }
+        event_name = event_types.get(event.type, "UNKNOWN")
+        inode = event.inode if event.inode != 0 else ""
+        index = event.index if event.index != 0 else ""
 
-        output = format_csv_row(timestamp, pid, comm, hit)
+        output = format_csv_row(timestamp, pid, comm, event_name, inode, index)
         self.writer.append_cache_log(output)
 
     def _print_event_block(self, cpu, data, size):        
