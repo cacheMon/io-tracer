@@ -107,6 +107,24 @@ def capture_machine_id():
         machine_id = f.read().strip()
         return simple_hash(machine_id, 16)
 
+REWARD_CODE = "R3D33MC0D3"
+
+def get_reward_marker_path() -> Path:
+    return Path.home() / ".io-tracer" / ".reward_unlocked"
+
+def is_reward_unlocked() -> bool:
+    return get_reward_marker_path().exists()
+
+def unlock_reward() -> None:
+    marker_path = get_reward_marker_path()
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    marker_path.touch()
+
+def get_reward_code() -> str | None:
+    if is_reward_unlocked():
+        return REWARD_CODE
+    return None
+
 def to_bytes16(x):
     if isinstance(x, (bytes, bytearray)):
         if len(x) != 16:
