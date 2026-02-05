@@ -5,12 +5,13 @@ Visit [IO Tracer documentations](https://cachemon.github.io/iotracerdocs/) for m
 
 ## Installation
 
-One-line installation
+### One-line installation
 ```bash
 curl -sSL https://raw.githubusercontent.com/cacheMon/io-tracer/refs/heads/main/install.sh | sudo bash
 ```
 
-[Installation Guide](https://cachemon.github.io/iotracerdocs/startlinux/)
+### Manual Installation
+
 
 1. Clone the repo
 
