@@ -1,8 +1,4 @@
 #!/bin/bash
-#
-# IO-Tracer One-Line Installation Script
-# Usage: curl -sSL https://raw.githubusercontent.com/cacheMon/io-tracer/main/install.sh | sudo bash
-#
 
 set -e
 
@@ -72,7 +68,6 @@ detect_distro() {
         DISTRO="unknown"
     fi
     
-    # Normalize to lowercase
     DISTRO=$(echo "$DISTRO" | tr '[:upper:]' '[:lower:]')
     
     log_info "Detected distribution: $DISTRO"
