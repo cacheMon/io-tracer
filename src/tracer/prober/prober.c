@@ -911,7 +911,8 @@ int trace_folio_mark_accessed(struct pt_regs *ctx, struct folio *folio) {
   return 0;
 }
 
-/* Cache Hit - page version for kernel < 5.16 */
+/* Cache Hit - page version for kernel < 5.17 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
 int trace_hit(struct pt_regs *ctx, struct page *page) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
 
@@ -942,6 +943,7 @@ int trace_hit(struct pt_regs *ctx, struct page *page) {
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /* Cache Miss - folio version for kernel >= 5.16 */
 int trace_filemap_add_folio(struct pt_regs *ctx, struct address_space *mapping,
@@ -972,7 +974,8 @@ int trace_filemap_add_folio(struct pt_regs *ctx, struct address_space *mapping,
   return 0;
 }
 
-/* Cache Miss - page version for kernel < 5.16 */
+/* Cache Miss - page version for kernel < 5.17 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
 int trace_miss(struct pt_regs *ctx, struct page *page,
                struct address_space *mapping, pgoff_t offset, gfp_t gfp_mask) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
@@ -1000,8 +1003,10 @@ int trace_miss(struct pt_regs *ctx, struct page *page,
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
-/* Dirty Page - page version */
+/* Dirty Page - page version for kernel < 5.17 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
 int trace_account_page_dirtied(struct pt_regs *ctx, struct page *page,
                                struct address_space *mapping) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
@@ -1032,6 +1037,7 @@ int trace_account_page_dirtied(struct pt_regs *ctx, struct page *page,
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /* Dirty Page - folio version for newer kernels */
 int trace_folio_mark_dirty(struct pt_regs *ctx, struct folio *folio) {
@@ -1066,7 +1072,8 @@ int trace_folio_mark_dirty(struct pt_regs *ctx, struct folio *folio) {
   return 0;
 }
 
-/* Writeback Start - page version */
+/* Writeback Start - page version for kernel < 5.17 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
 int trace_clear_page_dirty_for_io(struct pt_regs *ctx, struct page *page) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
 
@@ -1098,6 +1105,7 @@ int trace_clear_page_dirty_for_io(struct pt_regs *ctx, struct page *page) {
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /* Writeback Start - folio version for newer kernels */
 int trace_folio_clear_dirty_for_io(struct pt_regs *ctx, struct folio *folio) {
@@ -1132,7 +1140,8 @@ int trace_folio_clear_dirty_for_io(struct pt_regs *ctx, struct folio *folio) {
   return 0;
 }
 
-/* Writeback End - page version */
+/* Writeback End - page version for kernel < 5.17 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
 int trace_test_clear_page_writeback(struct pt_regs *ctx, struct page *page) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
 
@@ -1164,6 +1173,7 @@ int trace_test_clear_page_writeback(struct pt_regs *ctx, struct page *page) {
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /* Writeback End - folio version for newer kernels */
 int trace_folio_end_writeback(struct pt_regs *ctx, struct folio *folio) {
@@ -1231,7 +1241,8 @@ int trace_filemap_remove_folio(struct pt_regs *ctx, struct folio *folio) {
   return 0;
 }
 
-/* Eviction - page version for older kernels */
+/* Eviction - page version for kernel < 5.17 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
 int trace_delete_from_page_cache(struct pt_regs *ctx, struct page *page) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
 
@@ -1263,6 +1274,7 @@ int trace_delete_from_page_cache(struct pt_regs *ctx, struct page *page) {
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /* Eviction via tracepoint - most reliable for drop_caches */
 TRACEPOINT_PROBE(filemap, mm_filemap_delete_from_page_cache) {
@@ -1374,7 +1386,8 @@ int trace_cache_drop_folio(struct pt_regs *ctx, struct address_space *mapping,
   return 0;
 }
 
-/* Cache Drop - page version for older kernels */
+/* Cache Drop - page version for kernel < 5.17 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
 int trace_cache_drop_page(struct pt_regs *ctx, struct page *page) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
 
@@ -1406,6 +1419,7 @@ int trace_cache_drop_page(struct pt_regs *ctx, struct page *page) {
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /* Network probes */
 
