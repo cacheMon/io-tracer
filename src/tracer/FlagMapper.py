@@ -67,6 +67,7 @@ class FlagMapper:
             2: "REQ_OP_FLUSH",
             3: "REQ_OP_DISCARD",
             5: "REQ_OP_SECURE_ERASE",
+            6: "REQ_OP_WRITE_SAME",
             7: "REQ_OP_ZONE_APPEND",
             9: "REQ_OP_WRITE_ZEROES",
             10: "REQ_OP_ZONE_OPEN",
@@ -77,6 +78,40 @@ class FlagMapper:
             34: "REQ_OP_DRV_IN",
             35: "REQ_OP_DRV_OUT",
             36: "REQ_OP_LAST"
+        }
+
+        # Block request flags (from rwbs string)
+        self.block_flags = {
+            'R': 'READ',
+            'W': 'WRITE',
+            'D': 'DISCARD',
+            'E': 'SECURE_ERASE',
+            'F': 'FLUSH',
+            'N': 'NONE',
+            'S': 'SYNC',
+            'M': 'META',
+            'A': 'AHEAD',
+            'P': 'PRIO',
+            'B': 'BARRIER',
+        }
+
+        # Block request command flags (REQ_* from cmd_flags)
+        self.block_req_flags = {
+            0x01: 'REQ_FAILFAST_DEV',
+            0x02: 'REQ_FAILFAST_TRANSPORT',
+            0x04: 'REQ_FAILFAST_DRIVER',
+            0x08: 'REQ_SYNC',
+            0x10: 'REQ_META',
+            0x20: 'REQ_PRIO',
+            0x40: 'REQ_NOMERGE',
+            0x80: 'REQ_IDLE',
+            0x100: 'REQ_INTEGRITY',
+            0x200: 'REQ_FUA',
+            0x400: 'REQ_PREFLUSH',
+            0x800: 'REQ_RAHEAD',
+            0x1000: 'REQ_BACKGROUND',
+            0x2000: 'REQ_NOWAIT',
+            0x4000: 'REQ_CGROUP_PUNT',
         }
 
         # File system operation types
@@ -94,7 +129,49 @@ class FlagMapper:
             11: "READDIR",
             12: "UNLINK",
             13: "TRUNCATE",
-            14: "SYNC"
+            14: "SYNC",
+            15: "RENAME",
+            16: "MKDIR",
+            17: "RMDIR",
+            18: "LINK",
+            19: "SYMLINK",
+            20: "FALLOCATE",
+            21: "SENDFILE"
+        }
+
+        # mmap protection flags
+        self.mmap_prot_flags = {
+            0x0: "PROT_NONE",
+            0x1: "PROT_READ",
+            0x2: "PROT_WRITE",
+            0x4: "PROT_EXEC"
+        }
+
+        # mmap mapping flags
+        self.mmap_map_flags = {
+            0x01: "MAP_SHARED",
+            0x02: "MAP_PRIVATE",
+            0x10: "MAP_FIXED",
+            0x20: "MAP_ANONYMOUS",
+            0x0100: "MAP_GROWSDOWN",
+            0x0800: "MAP_DENYWRITE",
+            0x1000: "MAP_EXECUTABLE",
+            0x2000: "MAP_LOCKED",
+            0x4000: "MAP_NORESERVE",
+            0x8000: "MAP_POPULATE",
+            0x10000: "MAP_NONBLOCK",
+            0x20000: "MAP_STACK",
+            0x40000: "MAP_HUGETLB"
+        }
+
+        # fallocate mode flags
+        self.fallocate_flags = {
+            0x01: "FALLOC_FL_KEEP_SIZE",
+            0x02: "FALLOC_FL_PUNCH_HOLE",
+            0x08: "FALLOC_FL_COLLAPSE_RANGE",
+            0x10: "FALLOC_FL_ZERO_RANGE",
+            0x20: "FALLOC_FL_INSERT_RANGE",
+            0x40: "FALLOC_FL_UNSHARE_RANGE"
         }
 
     def format_block_operation(self, flags):
@@ -166,29 +243,141 @@ class FlagMapper:
         
         return "|".join(result) if result else "NO_FLAGS"
     
+    def decode_mmap_flags(self, flags):
+        """
+        Decode mmap protection and mapping flags.
+        
+        The flags parameter contains both protection (lower 16 bits) and
+        mapping flags (upper 16 bits) packed together.
+        
+        Args:
+            flags: Integer containing packed protection and mapping flags.
+            
+        Returns:
+            str: Comma-separated protection and mapping flags (e.g., "PROT_READ|PROT_WRITE,MAP_SHARED")
+        """
+        prot = flags & 0xFFFF
+        map_flags = (flags >> 16) & 0xFFFF
+        
+        # Decode protection flags
+        prot_result = []
+        if prot == 0:
+            prot_result.append("PROT_NONE")
+        else:
+            for flag, name in self.mmap_prot_flags.items():
+                if flag != 0 and prot & flag:
+                    prot_result.append(name)
+        
+        # Decode mapping flags
+        map_result = []
+        for flag, name in self.mmap_map_flags.items():
+            if map_flags & flag:
+                map_result.append(name)
+        
+        prot_str = "|".join(prot_result) if prot_result else "NO_PROT"
+        map_str = "|".join(map_result) if map_result else "NO_MAP"
+        
+        return f"{prot_str},{map_str}"
+
+    def decode_fallocate_flags(self, flags):
+        """
+        Decode fallocate mode flags.
+        
+        Args:
+            flags: Integer representing fallocate mode flags.
+            
+        Returns:
+            str: Pipe-separated list of flag names or "NO_FLAGS" if none set.
+        """
+        result = []
+        for flag, name in self.fallocate_flags.items():
+            if flags & flag:
+                result.append(name)
+        
+        return "|".join(result) if result else "NO_FLAGS"
+
+    def decode_rwbs(self, rwbs_str):
+        """
+        Decode the rwbs string from block layer tracepoints.
+        
+        The rwbs string contains flags like:
+        - R/W/D/E/F/N = operation type
+        - S = synchronous
+        - M = metadata
+        - A = read-ahead
+        - F = FUA
+        
+        Args:
+            rwbs_str: String containing rwbs flags.
+            
+        Returns:
+            str: Pipe-separated list of decoded flag names or "UNKNOWN".
+        """
+        if not rwbs_str:
+            return "UNKNOWN"
+            
+        result = []
+        for char in rwbs_str:
+            flag_name = self.block_flags.get(char)
+            if flag_name and flag_name not in result:
+                result.append(flag_name)
+        
+        return "|".join(result) if result else "UNKNOWN"
+
+    def decode_block_req_flags(self, flags):
+        """
+        Decode block request command flags.
+        
+        Args:
+            flags: Integer representing block request command flags.
+            
+        Returns:
+            str: Pipe-separated list of flag names or "NO_FLAGS" if none set.
+        """
+        result = []
+        for bit, name in self.block_req_flags.items():
+            if flags & bit:
+                result.append(name)
+        
+        return "|".join(result) if result else "NO_FLAGS"
+    
     def format_block_ops(self, flag: str):
         """
         Normalize block operation strings to simple read/write format.
+        Enhanced to recognize more operation types from rwbs strings.
         
-        Takes an operation string and returns a simplified "read" or "write"
-        representation based on the first character.
+        Takes an operation string and returns a simplified representation
+        based on the first character.
         
         Args:
             flag: String representing the operation (e.g., "REQ_OP_READ").
             
         Returns:
-            str: "read", "write", or the original flag if it doesn't match.
+            str: "read", "write", "discard", "flush", "secure_erase", "none",
+                 or the lowercased original flag if it doesn't match.
             
         Example:
             >>> mapper.format_block_ops("REQ_OP_READ")
             'read'
-            >>> mapper.format_block_ops("REQ_OP_WRITE")
+            >>> mapper.format_block_ops("WS")
             'write'
         """
-        first_char = flag[0]
-        if first_char == "W":
+        if not flag:
+            return "unknown"
+            
+        first_char = flag[0].upper()
+        
+        if first_char == 'W':
             return "write"
-        elif first_char == "R":
+        elif first_char == 'R':
             return "read"
+        elif first_char == 'D':
+            return "discard"
+        elif first_char == 'F':
+            return "flush"
+        elif first_char == 'E':
+            return "secure_erase"
+        elif first_char == 'N':
+            return "none"
         else:
-            return flag
+            return flag.lower()
