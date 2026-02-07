@@ -81,6 +81,7 @@ class IOTracer:
             self.probe_tracker = KernelProbeTracker(self.b)
         except Exception as e:
             logger("error", f"failed to initialize BPF: {e}")
+            print("Your device are incompatible with this version of IO Tracer. Please notify us at io-tracer@googlegroups.com")
             sys.exit(1)
 
     def _print_event(self, cpu, data, size):        
