@@ -18,6 +18,46 @@ IO Tracer uses eBPF/BPF technology to intercept kernel functions and collect var
 - `do_mmap` / `__vm_munmap` - Memory-mapped file operations
 - `iterate_dir` - Directory listing operations
 - `do_truncate` - File truncation operations
+- `vfs_rename` - File/directory rename operations
+- `vfs_mkdir` - Directory creation operations
+- `vfs_rmdir` - Directory removal operations
+- `vfs_link` - Hard link creation operations
+- `vfs_symlink` - Symbolic link creation operations
+- `vfs_fallocate` - File space pre-allocation operations
+- `do_sendfile` - Efficient file-to-file transfer operations
+
+**Operation Types:**
+| Operation | Description | Dual-Path |
+|-----------|-------------|-----------|
+| READ | File read operation | No |
+| WRITE | File write operation | No |
+| OPEN | File open operation | No |
+| CLOSE | File close operation | No |
+| FSYNC | File synchronization | No |
+| MMAP | Memory-map a file | No |
+| MUNMAP | Unmap memory-mapped file | No |
+| GETATTR | Query file attributes | No |
+| SETATTR | Set file attributes | No |
+| CHDIR | Change directory | No |
+| READDIR | Read directory entries | No |
+| UNLINK | Delete a file | No |
+| TRUNCATE | Truncate file | No |
+| SYNC | System-wide sync | No |
+| RENAME | Rename/move file or directory | Yes |
+| MKDIR | Create directory | No |
+| RMDIR | Remove directory | No |
+| LINK | Create hard link | Yes |
+| SYMLINK | Create symbolic link | No |
+| FALLOCATE | Pre-allocate file space | No |
+| SENDFILE | Zero-copy file transfer | No |
+
+**Dual-Path Operations:**
+Some operations (RENAME, LINK) involve two paths (source and destination). These are formatted as: `old_path -> new_path` in the filename column.
+
+**Flag Decoding:**
+- **Open Flags:** O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND, O_SYNC, O_DIRECT, etc.
+- **Mmap Flags:** Protection (PROT_READ, PROT_WRITE, PROT_EXEC) and mapping (MAP_SHARED, MAP_PRIVATE, MAP_ANONYMOUS, etc.)
+- **Fallocate Flags:** FALLOC_FL_KEEP_SIZE, FALLOC_FL_PUNCH_HOLE, FALLOC_FL_ZERO_RANGE, etc.
 
 **Data Captured:**
 - Timestamp

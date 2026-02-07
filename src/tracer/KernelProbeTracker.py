@@ -188,6 +188,22 @@ class KernelProbeTracker:
             self.add_kprobe("vfs_unlink", "trace_vfs_unlink")
             self.add_kprobe("do_truncate", "trace_vfs_truncate")
             
+            # New filesystem operation probes
+            self.add_kprobe("vfs_rename", "trace_vfs_rename")
+            self.add_kprobe("vfs_mkdir", "trace_vfs_mkdir")
+            self.add_kprobe("vfs_rmdir", "trace_vfs_rmdir")
+            self.add_kprobe("vfs_link", "trace_vfs_link")
+            self.add_kprobe("vfs_symlink", "trace_vfs_symlink")
+            self.add_kprobe("vfs_fallocate", "trace_vfs_fallocate")
+            
+            # Try to attach sendfile probe (may not be available on all kernels)
+            if BPF.get_kprobe_functions(b'do_sendfile'):
+                self.add_kprobe("do_sendfile", "trace_sendfile")
+            elif BPF.get_kprobe_functions(b'__do_sendfile'):
+                self.add_kprobe("__do_sendfile", "trace_sendfile")
+            else:
+                logger("warning", "sendfile probe not available on this kernel version")
+            
             # Cache Miss probes - kernel version dependent
             if BPF.get_kprobe_functions(b'filemap_add_folio'):
                 self.add_kprobe("filemap_add_folio", "trace_filemap_add_folio")

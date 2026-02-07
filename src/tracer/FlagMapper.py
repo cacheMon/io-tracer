@@ -94,7 +94,49 @@ class FlagMapper:
             11: "READDIR",
             12: "UNLINK",
             13: "TRUNCATE",
-            14: "SYNC"
+            14: "SYNC",
+            15: "RENAME",
+            16: "MKDIR",
+            17: "RMDIR",
+            18: "LINK",
+            19: "SYMLINK",
+            20: "FALLOCATE",
+            21: "SENDFILE"
+        }
+
+        # mmap protection flags
+        self.mmap_prot_flags = {
+            0x0: "PROT_NONE",
+            0x1: "PROT_READ",
+            0x2: "PROT_WRITE",
+            0x4: "PROT_EXEC"
+        }
+
+        # mmap mapping flags
+        self.mmap_map_flags = {
+            0x01: "MAP_SHARED",
+            0x02: "MAP_PRIVATE",
+            0x10: "MAP_FIXED",
+            0x20: "MAP_ANONYMOUS",
+            0x0100: "MAP_GROWSDOWN",
+            0x0800: "MAP_DENYWRITE",
+            0x1000: "MAP_EXECUTABLE",
+            0x2000: "MAP_LOCKED",
+            0x4000: "MAP_NORESERVE",
+            0x8000: "MAP_POPULATE",
+            0x10000: "MAP_NONBLOCK",
+            0x20000: "MAP_STACK",
+            0x40000: "MAP_HUGETLB"
+        }
+
+        # fallocate mode flags
+        self.fallocate_flags = {
+            0x01: "FALLOC_FL_KEEP_SIZE",
+            0x02: "FALLOC_FL_PUNCH_HOLE",
+            0x08: "FALLOC_FL_COLLAPSE_RANGE",
+            0x10: "FALLOC_FL_ZERO_RANGE",
+            0x20: "FALLOC_FL_INSERT_RANGE",
+            0x40: "FALLOC_FL_UNSHARE_RANGE"
         }
 
     def format_block_operation(self, flags):
@@ -162,6 +204,59 @@ class FlagMapper:
                 
             # Handle all other regular flags
             if name not in ["O_SYNC", "O_TMPFILE"] and flags & flag:
+                result.append(name)
+        
+        return "|" .join(result) if result else "NO_FLAGS"
+    
+    def decode_mmap_flags(self, flags):
+        """
+        Decode mmap protection and mapping flags.
+        
+        The flags parameter contains both protection (lower 16 bits) and
+        mapping flags (upper 16 bits) packed together.
+        
+        Args:
+            flags: Integer with prot in lower 16 bits, map flags in upper 16 bits.
+            
+        Returns:
+            str: Human-readable string like "PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS"
+        """
+        prot = flags & 0xFFFF
+        map_flags = (flags >> 16) & 0xFFFF
+        
+        # Decode protection flags
+        prot_result = []
+        if prot == 0:
+            prot_result.append("PROT_NONE")
+        else:
+            for flag, name in self.mmap_prot_flags.items():
+                if flag != 0 and prot & flag:
+                    prot_result.append(name)
+        
+        # Decode mapping flags
+        map_result = []
+        for flag, name in self.mmap_map_flags.items():
+            if map_flags & flag:
+                map_result.append(name)
+        
+        prot_str = "|".join(prot_result) if prot_result else "NO_PROT"
+        map_str = "|".join(map_result) if map_result else "NO_MAP"
+        
+        return f"{prot_str},{map_str}"
+    
+    def decode_fallocate_flags(self, flags):
+        """
+        Decode fallocate mode flags.
+        
+        Args:
+            flags: Integer representing fallocate mode flags.
+            
+        Returns:
+            str: Pipe-separated string of flag names or "NO_FLAGS".
+        """
+        result = []
+        for flag, name in self.fallocate_flags.items():
+            if flags & flag:
                 result.append(name)
         
         return "|".join(result) if result else "NO_FLAGS"
