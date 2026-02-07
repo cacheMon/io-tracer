@@ -1,11 +1,6 @@
 #define BPF_NO_KFUNC_PROTO
 #include <linux/ptrace.h>
 
-// #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,14,0)
-// #define BPF_NO_KFUNC_PROTO
-// struct bpf_wq {};
-// #endif
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
 struct bpf_timer {};
 #endif
@@ -26,8 +21,21 @@ struct bpf_timer {};
 #define BPF_F_BROADCAST (1ULL << 3)
 #endif
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wredefinition"
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0)
+struct bpf_wq {};
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
 struct bpf_task_work {};
+#endif
+
+#ifdef __clang__
+#pragma clang diagnostic pop
 #endif
 
 #include <bcc/proto.h>
