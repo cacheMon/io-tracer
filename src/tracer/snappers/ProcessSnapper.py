@@ -1,3 +1,20 @@
+"""
+ProcessSnapper - Captures process state snapshots during tracing.
+
+This module provides the ProcessSnapper class which periodically captures
+information about running processes, including:
+- Process ID (PID) and name
+- Memory usage (RSS, VMS)
+- Command line
+- Creation time and status
+- CPU utilization over various intervals
+
+Example:
+    snapper = ProcessSnapper(writer_manager=wm, anonymous=False)
+    snapper.run()  # Start snapshot thread
+    snapper.stop_snapper()  # Stop the snapper
+"""
+
 from datetime import datetime
 import random
 
@@ -8,8 +25,38 @@ import psutil
 import time
 import threading
 
+
 class ProcessSnapper:
+    """
+    Captures periodic snapshots of running processes.
+    
+    This class iterates through all running processes at regular intervals
+    and records their state, including memory usage, command line, and
+    CPU utilization. The data provides context about which processes
+    were active during the trace.
+    
+    Attributes:
+        wm: WriteManager for outputting snapshot data
+        processes: List of process information
+        anonymous: Whether to anonymize process names/command lines
+        sampler: ProcessSampler for CPU utilization data
+        running: Flag controlling the snapshot loop
+        
+    Example:
+        snapper = ProcessSnapper(wm, anonymous=True)
+        snapper.run()
+        # ... later ...
+        snapper.stop_snapper()
+    """
+    
     def __init__(self, wm: WriteManager, anonymous: bool):
+        """
+        Initialize the ProcessSnapper.
+        
+        Args:
+            wm: WriteManager for outputting snapshot data
+            anonymous: Whether to anonymize process information
+        """
         self.wm = wm
         self.processes = []
         self.anonymous = anonymous
@@ -19,11 +66,17 @@ class ProcessSnapper:
         self.running = True
 
     def stop_snapper(self):
+        """Stop the snapshot thread and sampler."""
         self.running = False
         self.sampler.stop()
 
     def process_snapshot(self):
-
+        """
+        Main loop for capturing process snapshots.
+        
+        Iterates through all running processes at 60-second intervals,
+        collecting process information and CPU utilization data.
+        """
         while self.running:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             for proc in psutil.process_iter(['pid', 'name', 'memory_info','cmdline','create_time','status']):
@@ -53,7 +106,7 @@ class ProcessSnapper:
             time.sleep(60)
 
     def run(self):
+        """Start the process snapshot in a background daemon thread."""
         snapper_thread = threading.Thread(target=self.process_snapshot)
         snapper_thread.daemon = True
         snapper_thread.start()
-

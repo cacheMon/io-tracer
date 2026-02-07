@@ -1,3 +1,26 @@
+"""
+WriterManager - Manages writing trace data to files with buffering and compression.
+
+This module provides the WriteManager class which handles:
+- Creating output directory structure
+- Buffering trace events for different subsystems
+- Writing events to CSV files
+- Compressing output files with gzip
+- Optionally uploading files to cloud storage
+
+The manager uses adaptive buffering to handle high event rates and
+supports multiple output streams (VFS, block, cache, network, etc.).
+
+Example:
+    writer = WriteManager(
+        output_dir="/path/to/output",
+        upload_manager=upload_manager,
+        automatic_upload=True
+    )
+    writer.append_fs_log("event_data")
+    writer.force_flush()  # Flush all buffers on shutdown
+"""
+
 import os
 import sys
 import json
@@ -13,8 +36,42 @@ import gzip
 import shutil
 import time
 
+
 class WriteManager:
+    """
+    Manages writing trace data to disk with buffering and compression.
+    
+    This class handles all file I/O operations for the tracer, including:
+    - Creating and managing output directories
+    - Buffering events for different subsystems
+    - Flushing buffers to CSV files
+    - Compressing output files
+    - Optional automatic upload
+    
+    Attributes:
+        output_dir: Base directory for all output files
+        upload_manager: ObjectStorageManager for uploads
+        automatic_upload: Whether to auto-upload compressed files
+        
+    Output Files:
+        fs/*.csv: File system operation traces
+        ds/*.csv: Block device traces
+        cache/*.csv: Page cache event traces
+        process/*.csv: Process state snapshots
+        nw/*.csv: Network operation traces
+        filesystem_snapshot/*.csv: Filesystem snapshot
+        system_spec/*: System specification files
+    """
+    
     def __init__(self, output_dir: str, upload_manager: ObjectStorageManager, automatic_upload: bool):
+        """
+        Initialize the WriteManager.
+        
+        Args:
+            output_dir: Base directory for output files
+            upload_manager: ObjectStorageManager for uploads
+            automatic_upload: Whether to auto-upload files
+        """
         self.current_datetime = datetime.now()
 
         self.created_files = 0
@@ -26,6 +83,7 @@ class WriteManager:
         self.output_network_file = f"{self.output_dir}/nw/nw_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_snapshot/filesystem_snapshot_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
+        # Create output directories
         os.makedirs(f"{self.output_dir}/system_spec", exist_ok=True)
         os.makedirs(f"{self.output_dir}/fs", exist_ok=True)
         os.makedirs(f"{self.output_dir}/ds", exist_ok=True)
@@ -37,15 +95,15 @@ class WriteManager:
         self.upload_manager = upload_manager
         self.automatic_upload = automatic_upload
 
+        # Event buffers for each subsystem
         self.vfs_buffer = deque()
         self.block_buffer = deque()
         self.cache_buffer = deque()
         self.network_buffer = deque()
-
         self.process_buffer = deque()
         self.fs_snap_buffer = deque()
         
-        # event rate tracking
+        # Event rate tracking
         self.event_timestamps = {
             'vfs': deque(maxlen=1000),
             'block': deque(maxlen=1000),
@@ -55,7 +113,7 @@ class WriteManager:
             'proc_state': deque(maxlen=1000),
         }
         
-        # dynamic thresholds (min, max)
+        # Dynamic thresholds (min, max)
         self.dynamic_limits = {
             'vfs': (3000, 500000),
             'block': (1000, 50000),
@@ -65,10 +123,12 @@ class WriteManager:
             'proc_state': (200, 500)
         }
         
+        # Start adaptive sizing thread
         self.adaptive_thread = threading.Thread(target=self._adaptive_sizing, daemon=True)
         self.adaptive_thread.start()
         
 
+        # Buffer flush thresholds
         self.cache_max_events = 20000
         self.vfs_max_events = 3000
         self.block_max_events = 1000
@@ -76,18 +136,28 @@ class WriteManager:
         self.process_max_events = 200
         self.fs_snap_max_events = 500
 
+        # File handles for each output
         self._vfs_handle = None
         self._block_handle = None
         self._cache_handle = None
         self._network_handle = None
-
         self._process_handle = None
         self._fs_snap_handle = None
 
-        self.cache_sample_rate = 1  # can be increased to reduce cache event volume
+        # Cache sampling configuration
+        self.cache_sample_rate = 1  # Can be increased to reduce cache event volume
         self.cache_event_counter = 0
 
     def _calculate_event_rate(self, event_type: str) -> float:
+        """
+        Calculate the event rate for a given event type.
+        
+        Args:
+            event_type: Type of events ('vfs', 'block', 'cache', etc.)
+            
+        Returns:
+            float: Events per second, or 0.0 if insufficient data
+        """
         timestamps = self.event_timestamps[event_type]
         if len(timestamps) < 2:
             return 0.0
@@ -99,6 +169,12 @@ class WriteManager:
         return len(timestamps) / time_span
 
     def _adaptive_sizing(self):
+        """
+        Background thread that adjusts buffer thresholds based on event rates.
+        
+        Monitors event rates for each subsystem and adjusts buffer flush
+        thresholds dynamically to handle high-load situations.
+        """
         while True:
             time.sleep(10)  
             
@@ -129,29 +205,48 @@ class WriteManager:
                     self.process_max_events = new_limit
 
     def set_cache_sampling(self, sample_rate: int):
+        """
+        Set the sampling rate for cache events.
+        
+        Args:
+            sample_rate: N where only 1 in N events is recorded (default: 1 = no sampling)
+        """
         self.cache_sample_rate = sample_rate
         logger("info", f"Cache sampling set to 1:{sample_rate} (every {sample_rate}th event)")
 
-    def should_flush_cache(self):
+    # Buffer threshold check methods
+    def should_flush_cache(self) -> bool:
+        """Check if cache buffer should be flushed."""
         return (len(self.cache_buffer) >= self.cache_max_events)
 
-    def should_flush_vfs(self):
+    def should_flush_vfs(self) -> bool:
+        """Check if VFS buffer should be flushed."""
         return (len(self.vfs_buffer) >= self.vfs_max_events)
 
-    def should_flush_block(self):
+    def should_flush_block(self) -> bool:
+        """Check if block buffer should be flushed."""
         return (len(self.block_buffer) >= self.block_max_events)
 
-    def should_flush_process(self):
+    def should_flush_process(self) -> bool:
+        """Check if process buffer should be flushed."""
         return (len(self.process_buffer) >= self.process_max_events)
 
-    def should_flush_fssnap(self):
+    def should_flush_fssnap(self) -> bool:
+        """Check if filesystem snapshot buffer should be flushed."""
         return (len(self.fs_snap_buffer) >= self.fs_snap_max_events)
 
-    def should_flush_network(self):
+    def should_flush_network(self) -> bool:
+        """Check if network buffer should be flushed."""
         return (len(self.network_buffer) >= self.network_max_events)
 
 
     def append_fs_snap_log(self, log_output: str):
+        """
+        Add a filesystem snapshot log entry.
+        
+        Args:
+            log_output: CSV-formatted log string
+        """
         if isinstance(log_output, str):
             if self._fs_snap_handle is None:
                 self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
@@ -164,6 +259,12 @@ class WriteManager:
             logger("error", "Invalid log output format. Expected a string.")
 
     def append_fs_log(self, log_output: str):
+        """
+        Add a filesystem VFS log entry.
+        
+        Args:
+            log_output: CSV-formatted log string
+        """
         if isinstance(log_output, str):
             self.vfs_buffer.append(log_output)
             self.event_timestamps['vfs'].append(time.time())
@@ -174,6 +275,12 @@ class WriteManager:
             logger("error", "Invalid log output format. Expected a string.")
 
     def append_process_log(self, log_output: str):
+        """
+        Add a process state log entry.
+        
+        Args:
+            log_output: CSV-formatted log string
+        """
         if isinstance(log_output, str):
             self.process_buffer.append(log_output)
             self.event_timestamps['proc_state'].append(time.time())
@@ -184,6 +291,12 @@ class WriteManager:
             logger("error", "Invalid process log output format. Expected a string.")
 
     def append_block_log(self, log_output: str):
+        """
+        Add a block device log entry.
+        
+        Args:
+            log_output: CSV-formatted log string
+        """
         if isinstance(log_output, str):
             self.block_buffer.append(log_output)
             self.event_timestamps['block'].append(time.time())
@@ -194,6 +307,12 @@ class WriteManager:
             logger("error", "Invalid block log output format. Expected a string.")
 
     def append_cache_log(self, log_output: str):
+        """
+        Add a cache event log entry.
+        
+        Args:
+            log_output: CSV-formatted log string
+        """
         if isinstance(log_output, str):
             self.cache_event_counter += 1
             if self.cache_sample_rate > 1 and (self.cache_event_counter % self.cache_sample_rate) != 0:
@@ -208,6 +327,12 @@ class WriteManager:
             logger("error", "Invalid cache log output format. Expected a string.")
 
     def append_network_log(self, log_output: str):
+        """
+        Add a network event log entry.
+        
+        Args:
+            log_output: CSV-formatted log string
+        """
         if isinstance(log_output, str):
             self.network_buffer.append(log_output)
             self.event_timestamps['network'].append(time.time())
@@ -219,6 +344,13 @@ class WriteManager:
 
 
     def direct_write(self, output_path: str, spec_str: str):
+        """
+        Write a system specification file directly.
+        
+        Args:
+            output_path: Filename for the output
+            spec_str: Content to write
+        """
         try:
             dst = f"{self.output_dir}/system_spec/{output_path}"
             with open(dst, 'w') as f:
@@ -229,6 +361,7 @@ class WriteManager:
             logger("error", f"Error writing device spec to {output_path}: {e}")
 
     def flush_fssnap_only(self):
+        """Flush filesystem snapshot buffer to file."""
         if self.fs_snap_buffer:
             if self._fs_snap_handle is None:
                 self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
@@ -242,6 +375,7 @@ class WriteManager:
             self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
 
     def flush_process_state_only(self):
+        """Flush process state buffer to file."""
         if self.process_buffer:
             if self._process_handle is None:
                 self._process_handle = open(self.output_process_file, 'a', buffering=8192)
@@ -255,6 +389,7 @@ class WriteManager:
             self._process_handle = open(self.output_process_file, 'a', buffering=8192)
 
     def flush_cache_only(self):
+        """Flush cache buffer to file."""
         if self.cache_buffer:
             if self._cache_handle is None:
                 self._cache_handle = open(self.output_cache_file, 'a', buffering=8192)
@@ -269,6 +404,7 @@ class WriteManager:
 
 
     def flush_vfs_only(self):
+        """Flush VFS buffer to file."""
         if self.vfs_buffer:
             if self._vfs_handle is None:
                 self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
@@ -282,6 +418,7 @@ class WriteManager:
             self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
 
     def flush_block_only(self):
+        """Flush block buffer to file."""
         if self.block_buffer:
             if self._block_handle is None:
                 self._block_handle = open(self.output_block_file, 'a', buffering=8192)
@@ -295,6 +432,7 @@ class WriteManager:
             self._block_handle = open(self.output_block_file, 'a', buffering=8192)
 
     def flush_network_only(self):
+        """Flush network buffer to file."""
         if self.network_buffer:
             if self._network_handle is None:
                 self._network_handle = open(self.output_network_file, 'a', buffering=8192)
@@ -308,6 +446,7 @@ class WriteManager:
             self._network_handle = open(self.output_network_file, 'a', buffering=8192)
 
     def force_flush(self):
+        """Flush all buffers and compress all output files."""
         self.compress_log(self.output_block_file)
         self.compress_log(self.output_vfs_file)
         self.compress_log(self.output_cache_file)
@@ -318,6 +457,7 @@ class WriteManager:
 
 
     def clear_events(self):
+        """Clear all event buffers."""
         print("Clear initiated")
         self.vfs_buffer.clear()
         self.block_buffer.clear() 
@@ -326,7 +466,15 @@ class WriteManager:
         self.fs_snap_buffer.clear()
         self.network_buffer.clear()
 
-    def _write_buffer_to_file(self, buffer, file_handle, buffer_name):
+    def _write_buffer_to_file(self, buffer, file_handle, buffer_name: str):
+        """
+        Write buffer contents to a file handle.
+        
+        Args:
+            buffer: Deque containing log entries
+            file_handle: Open file handle to write to
+            buffer_name: Name for error logging
+        """
         if not buffer:
             return
             
@@ -348,6 +496,7 @@ class WriteManager:
             logger("error", f"Error writing {buffer_name} buffer: {e}")
 
     def write_to_disk(self):
+        """Write all buffered data to disk using parallel threads."""
         def write_vfs():
             if self.vfs_buffer:
                 if self._vfs_handle is None:
@@ -386,6 +535,7 @@ class WriteManager:
 
         threads = []
         
+        # Start parallel write threads for each buffer
         if self.vfs_buffer:
             t1 = threading.Thread(target=write_vfs)
             threads.append(t1)
@@ -416,28 +566,41 @@ class WriteManager:
             threads.append(t6)
             t6.start()
 
+        # Wait for all threads to complete
         for thread in threads:
             thread.join()
 
         self.clear_events()
 
-    def compress_log(self, input_file):
+    def compress_log(self, input_file: str):
+        """
+        Compress a log file with gzip and optionally upload.
+        
+        Args:
+            input_file: Path to the file to compress
+        """
         try:
             src = input_file
             dst = input_file + ".gz"
             self.created_files += 1
-            logger('info',f"Files Created: {str(self.created_files)}", True)
+            logger('info', f"Files Created: {str(self.created_files)}", True)
             with open(src, "rb") as f_in:
                 with gzip.open(dst, "wb") as f_out:
                     shutil.copyfileobj(f_in, f_out) # type: ignore
 
             if self.automatic_upload:
                 self.upload_manager.append_object(dst)
-            os.remove(input_file)
+            os.remove(src)
         except Exception as e:
             logger("error", f"Failed compressing log {input_file}")
             
-    def compress_dir(self, input_dir):
+    def compress_dir(self, input_dir: str):
+        """
+        Compress a directory to tar.gz and optionally upload.
+        
+        Args:
+            input_dir: Path to the directory to compress
+        """
         try:
             src = input_dir
             dst = input_dir.rstrip("/").rstrip("\\") + ".tar.gz"
@@ -458,6 +621,7 @@ class WriteManager:
         
 
     def close_handles(self):
+        """Close all open file handles."""
         handles = [
             (self._vfs_handle, "VFS"),
             (self._block_handle, "Block"), 

@@ -1,9 +1,44 @@
 #!/usr/bin/env python3
+"""
+IO Tracer - A Linux I/O syscall tracing utility.
+
+This module serves as the entry point for the IO Tracer application, which
+traces file system, block device, cache, and network I/O operations on Linux
+systems using eBPF/BPF technology.
+
+Usage:
+    python iotrc.py [OPTIONS]
+
+Options:
+    -o, --output DIRECTORY    Output directory for logging (default: ./result)
+    -v, --verbose             Print verbose output
+    -a, --anonimize           Enable anonymization of process and file names
+    --dev                     Developer mode with extra logs and checks
+    --computer-id             Print this machine ID and exit
+    --reward                  Show your reward code (unlocked after uploading traces)
+
+Examples:
+    # Run with default settings
+    python iotrc.py
+
+    # Run with verbose output and custom output directory
+    python iotrc.py -v -o /tmp/traces
+
+    # Run in developer mode
+    python iotrc.py --dev
+
+    # Print machine ID
+    python iotrc.py --computer-id
+
+    # Check reward status
+    python iotrc.py --reward
+"""
 
 import argparse
 
 from src.tracer.IOTracer import IOTracer
 from src.utility.utils import capture_machine_id, get_reward_code, is_reward_unlocked
+
 
 if __name__ == "__main__":
     app_version = "vRelease"
@@ -18,10 +53,12 @@ if __name__ == "__main__":
     parse_args = parser.parse_args()
     output_dir = parse_args.output.strip()
     
+    # Handle --computer-id flag: print machine ID and exit
     if parse_args.computer_id:
         print(f"Here is your computer ID: {capture_machine_id().upper()}")
         exit(0)
     
+    # Handle --reward flag: show reward code if available
     if parse_args.reward:
         reward_code = get_reward_code()
         if reward_code:
@@ -31,6 +68,7 @@ if __name__ == "__main__":
         exit(0)
     
 
+    # Initialize and start the IO tracer
     tracer = IOTracer(
         output_dir=output_dir,
         bpf_file='./src/tracer/prober/prober.c',

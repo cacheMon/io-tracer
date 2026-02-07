@@ -1,4 +1,21 @@
 #!/usr/bin/python3
+"""
+IOTracer - Main tracing class for Linux I/O syscall monitoring.
+
+This module contains the IOTracer class which orchestrates all tracing
+operations using eBPF/BPF technology. It captures:
+- File system operations (VFS calls: read, write, open, close, etc.)
+- Block device I/O operations
+- Page cache events (hits, misses, dirty pages, etc.)
+- Network operations (send/receive)
+
+The tracer uses kernel probes (kprobes) to intercept I/O syscalls and
+collects data in real-time, writing it to compressed CSV files.
+
+Usage:
+    tracer = IOTracer(output_dir="/path/to/output", bpf_file="path/to/prober.c")
+    tracer.trace()
+"""
 
 import shutil
 import signal
@@ -22,7 +39,28 @@ from .snappers.FilesystemSnapper import FilesystemSnapper
 from .snappers.ProcessSnapper import ProcessSnapper
 from .snappers.SystemSnapper import SystemSnapper
 
+
 class IOTracer:
+    """
+    Main class for tracing Linux I/O operations.
+    
+    IOTracer initializes and manages the entire tracing pipeline, including:
+    - BPF program compilation and kernel probe attachment
+    - Event collection from perf buffers
+    - Snapshot capture for filesystem and process state
+    - Data writing and optional automatic upload
+    
+    Attributes:
+        writer: WriteManager instance for handling data output
+        fs_snapper: FilesystemSnapper for capturing filesystem state
+        process_snapper: ProcessSnapper for capturing process information
+        system_snapper: SystemSnapper for capturing system specifications
+        flag_mapper: FlagMapper for decoding operation flags
+        running: Boolean indicating if tracing is active
+        verbose: Boolean enabling verbose output
+        anonymous: Boolean enabling data anonymization
+    """
+    
     def __init__(
             self, 
             output_dir:         str,
@@ -37,6 +75,26 @@ class IOTracer:
             duration:           int | None = None,
             cache_sample_rate:  int = 1
         ):
+        """
+        Initialize the IOTracer.
+        
+        Args:
+            output_dir: Directory path for output files
+            bpf_file: Path to the BPF C source file
+            automatic_upload: Whether to automatically upload traces
+            developer_mode: Enable developer mode with extra logging
+            version: Application version string
+            is_uncompressed: Whether to skip compression (default: False)
+            anonymous: Whether to anonymize process/file names (default: False)
+            page_cnt: Number of pages for perf buffer (default: 8)
+            verbose: Enable verbose output (default: False)
+            duration: Trace duration in seconds (default: None for indefinite)
+            cache_sample_rate: Sample rate for cache events (default: 1 = no sampling)
+            
+        Raises:
+            SystemExit: If page count or duration is invalid
+            SystemExit: If BPF initialization fails
+        """
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_dir = os.path.join(output_dir, "linux_trace" ,capture_machine_id().upper() ,str(timestamp))
 
@@ -46,6 +104,7 @@ class IOTracer:
         self.upload_manager     = ObjectStorageManager(temp_version)
         self.automatic_upload   = automatic_upload
 
+        # Test connection for automatic upload
         if self.automatic_upload:
             connection = self.upload_manager.test_connection()
             if not connection:
@@ -77,6 +136,7 @@ class IOTracer:
             sys.exit(1)
 
         try:
+            # Initialize BPF with the provided source file
             self.b = BPF(src_file=bpf_file.encode(), cflags=["-Wno-duplicate-decl-specifier", "-Wno-macro-redefined"])
             self.probe_tracker = KernelProbeTracker(self.b)
         except Exception as e:
@@ -85,6 +145,17 @@ class IOTracer:
             sys.exit(1)
 
     def _print_event(self, cpu, data, size):        
+        """
+        Callback for processing file system VFS events from the perf buffer.
+        
+        This method is called for each VFS (Virtual File System) operation
+        captured by the kernel probes.
+        
+        Args:
+            cpu: CPU number where the event was captured
+            data: Raw event data pointer
+            size: Size of the event data
+        """
         event = self.b["events"].event(data)
         op_name = self.flag_mapper.op_fs_types.get(event.op, "[unknown]")
         
@@ -107,11 +178,19 @@ class IOTracer:
         
         size_val = event.size if event.size is not None else 0
         output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, inode_val)
-        # if event.op == 14:
-        #     print(output)
         self.writer.append_fs_log(output)
         
     def _print_event_cache(self, cpu, data, size):       
+        """
+        Callback for processing page cache events from the perf buffer.
+        
+        Captures cache hits, misses, dirty pages, writebacks, evictions, etc.
+        
+        Args:
+            cpu: CPU number where the event was captured
+            data: Raw event data pointer
+            size: Size of the event data
+        """
         event = self.b["cache_events"].event(data)
         timestamp = datetime.today()
         pid = event.pid
@@ -135,6 +214,17 @@ class IOTracer:
         self.writer.append_cache_log(output)
 
     def _print_event_block(self, cpu, data, size):        
+        """
+        Callback for processing block device I/O events from the perf buffer.
+        
+        Captures block-level operations including sector locations, sizes,
+        and latency information.
+        
+        Args:
+            cpu: CPU number where the event was captured
+            data: Raw event data pointer
+            size: Size of the event data
+        """
         event = self.b["bl_events"].event(data)
         
         timestamp = datetime.today()
@@ -164,6 +254,17 @@ class IOTracer:
         self.writer.append_block_log(output)
 
     def _print_event_net(self, cpu, data, size):
+        """
+        Callback for processing network I/O events from the perf buffer.
+        
+        Captures send and receive operations with source/destination
+        addresses and port numbers.
+        
+        Args:
+            cpu: CPU number where the event was captured
+            data: Raw event data pointer
+            size: Size of the event data
+        """
         e = self.b["net_events"].event(data)
         ts = datetime.today()
         pid = e.pid
@@ -171,9 +272,11 @@ class IOTracer:
         size_bytes = e.size_bytes
         ty = "send" if e.dir == 0 else "receive"
 
+        # Handle IPv4 addresses
         if e.ipver == 4:
             s_addr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.saddr_v4))
             d_addr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.daddr_v4))
+        # Handle IPv6 addresses
         elif e.ipver == 6:
             s_addr = inet6_from_event(e.saddr_v6)
             d_addr = inet6_from_event(e.daddr_v6)
@@ -196,8 +299,19 @@ class IOTracer:
 
 
     def _cleanup(self, signum, frame):
+        """
+        Signal handler for graceful shutdown.
+        
+        Stops all tracing, flushes buffers, closes file handles,
+        and optionally cleans up for upload.
+        
+        Args:
+            signum: Signal number that triggered the handler
+            frame: Current stack frame
+        """
         self.running = False
     
+        # Detach all kernel probes
         self.probe_tracker.detach_kprobes()
         
         logger("info", "Performing final flush...")
@@ -211,11 +325,30 @@ class IOTracer:
             logger("CLEANUP", "Cleanup complete")
 
     def _lost_cb(self, lost):
+        """
+        Callback for handling lost events in the perf buffer.
+        
+        Args:
+            lost: Number of events that were lost
+        """
         if lost > 0:
             if self.verbose:
                 logger("warning", f"Lost {lost} events in kernel buffer")
 
     def trace(self):
+        """
+        Main method to start tracing operations.
+        
+        This method:
+        1. Attaches all kernel probes
+        2. Starts the upload worker if enabled
+        3. Captures initial system/process/filesystem snapshots
+        4. Opens perf buffers for all event types
+        5. Runs the polling loop until duration expires or interrupted
+        
+        The trace runs indefinitely if no duration is specified,
+        or for the specified number of seconds otherwise.
+        """
         self.probe_tracker.attach_probes()
         if self.automatic_upload:
             self.upload_manager.start_worker()
@@ -225,6 +358,8 @@ class IOTracer:
 
         logger("info", "IO Tracer is running")
         logger("info", "Press Ctrl+C to exit")
+        
+        # Capture initial snapshots
         self.system_snapper.capture_spec_snapshot()
         self.fs_snapper.run()
         self.process_snapper.run()
@@ -232,6 +367,7 @@ class IOTracer:
         if self.writer.cache_sample_rate > 1:
             logger("info", f"Cache sampling enabled: 1:{self.writer.cache_sample_rate}")
 
+        # Open perf buffers for each event type
         self.b["events"].open_perf_buffer(
             self._print_event, 
             page_cnt=self.page_cnt, 
@@ -264,6 +400,7 @@ class IOTracer:
         else:
             logger("info", "Tracing indefinitely. Ctrl + C to stop.")
 
+        # Start the polling thread for perf buffer
         self.polling_thread = PollingThread(self.b, True)
         self.polling_thread.create_thread()
 
@@ -323,4 +460,3 @@ class IOTracer:
 
             
             logger("info", "Cleanup complete. Exited successfully.")
-
