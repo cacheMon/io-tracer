@@ -67,6 +67,10 @@ options:
   --computer-id         Print this machine ID and exit
 ```
 
+## Trace Types
+
+Internal documentation on trace types and collection methods is available in [docs/TRACE_TYPES.md](docs/TRACE_TYPES.md).
+
 ## Use as a service
 We provided a simple bash script that installs and enable IO Traces as a service. Feel free to tinker with it and suit it to your best needs!
 
