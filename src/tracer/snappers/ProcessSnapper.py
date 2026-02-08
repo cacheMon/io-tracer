@@ -74,7 +74,8 @@ class ProcessSnapper:
         Capture a single process snapshot.
         
         Iterates through all running processes, collecting process
-        information and CPU utilization data.
+        information and CPU utilization data. Flushes immediately
+        after completion to ensure one snapshot = one file.
         """
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for proc in psutil.process_iter(['pid', 'name', 'memory_info','cmdline','create_time','status']):
@@ -104,6 +105,9 @@ class ProcessSnapper:
             except Exception as e:
                 # Log unexpected errors to avoid silently hiding issues in the snapshot loop.
                 logger.warning("Unexpected error while collecting process snapshot data", exc_info=True)
+        
+        # Flush immediately after snapshot completes to ensure one snapshot = one file
+        self.wm.flush_process_state_only()
 
     def process_snapshot(self):
         """

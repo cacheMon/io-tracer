@@ -128,8 +128,7 @@ class WriteManager:
         self.adaptive_thread.start()
         
         # Start periodic flush thread (every 20 minutes)
-        self._periodic_flush_active = True
-        self.periodic_flush_thread = threading.Thread(target=self._periodic_flush, daemon=True)
+        self._periodic_flush_active = True        self._last_flush_time = time.time()        self.periodic_flush_thread = threading.Thread(target=self._periodic_flush, daemon=True)
         self.periodic_flush_thread.start()
         
 
@@ -215,15 +214,27 @@ class WriteManager:
         
         This ensures data is written to disk periodically even if buffers
         haven't reached their thresholds, preventing data loss and reducing
-        memory usage during long traces.
+        memory usage during long traces. Timer resets after each manual flush.
         """
+        flush_interval = 300  # 5 minutes in seconds
+        
         while self._periodic_flush_active:
-            time.sleep(1200)  # 1200 seconds = 20 minutes
-            if self._periodic_flush_active:  # Check again in case stopped during sleep
+            time.sleep(10)  # Check every 10 seconds
+            
+            if not self._periodic_flush_active:
+                break
+                
+            elapsed = time.time() - self._last_flush_time
+            if elapsed >= flush_interval:
                 try:
                     self.write_to_disk()
+                    self._last_flush_time = time.time()
                 except Exception as e:
                     logger("error", f"Error in periodic flush: {e}")
+
+    def _reset_flush_timer(self):
+        """Reset the periodic flush timer (called after manual flushes)."""
+        self._last_flush_time = time.time()
 
     def set_cache_sampling(self, sample_rate: int):
         """
@@ -265,6 +276,9 @@ class WriteManager:
         """
         Add a filesystem snapshot log entry.
         
+        Note: Does not auto-flush. Snapshots are flushed explicitly
+        after completion to ensure one snapshot = one file.
+        
         Args:
             log_output: CSV-formatted log string
         """
@@ -273,9 +287,6 @@ class WriteManager:
                 self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
             self.fs_snap_buffer.append(log_output)
             self.event_timestamps['fs_state'].append(time.time())
-            
-            if self.should_flush_fssnap():
-                self.flush_fssnap_only()
         else:
             logger("error", "Invalid log output format. Expected a string.")
 
@@ -299,15 +310,15 @@ class WriteManager:
         """
         Add a process state log entry.
         
+        Note: Does not auto-flush. Snapshots are flushed explicitly
+        after completion to ensure one snapshot = one file.
+        
         Args:
             log_output: CSV-formatted log string
         """
         if isinstance(log_output, str):
             self.process_buffer.append(log_output)
             self.event_timestamps['proc_state'].append(time.time())
-
-            if self.should_flush_process():
-                self.flush_process_state_only()
         else:
             logger("error", "Invalid process log output format. Expected a string.")
 
@@ -394,6 +405,7 @@ class WriteManager:
 
             self._fs_snap_handle.close()
             self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
+            self._reset_flush_timer()
 
     def flush_process_state_only(self):
         """Flush process state buffer to file."""
@@ -408,6 +420,7 @@ class WriteManager:
 
             self._process_handle.close()
             self._process_handle = open(self.output_process_file, 'a', buffering=8192)
+            self._reset_flush_timer()
 
     def flush_cache_only(self):
         """Flush cache buffer to file."""
@@ -422,6 +435,7 @@ class WriteManager:
 
             self._cache_handle.close()
             self._cache_handle = open(self.output_cache_file, 'a', buffering=8192)
+            self._reset_flush_timer()
 
 
     def flush_vfs_only(self):
@@ -437,6 +451,7 @@ class WriteManager:
 
             self._vfs_handle.close()
             self._vfs_handle = open(self.output_vfs_file, 'a', buffering=8192)
+            self._reset_flush_timer()
 
     def flush_block_only(self):
         """Flush block buffer to file."""
@@ -451,6 +466,7 @@ class WriteManager:
 
             self._block_handle.close()
             self._block_handle = open(self.output_block_file, 'a', buffering=8192)
+            self._reset_flush_timer()
 
     def flush_network_only(self):
         """Flush network buffer to file."""
@@ -465,6 +481,7 @@ class WriteManager:
 
             self._network_handle.close()
             self._network_handle = open(self.output_network_file, 'a', buffering=8192)
+            self._reset_flush_timer()
 
     def force_flush(self):
         """Flush all buffers and compress all output files."""
