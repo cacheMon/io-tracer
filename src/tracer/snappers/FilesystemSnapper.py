@@ -76,9 +76,12 @@ class FilesystemSnapper:
         Args:
             max_depth: Maximum directory depth to traverse (default: 3)
         """
+        # Capture snapshot timestamp once for all files in this snapshot
+        snapshot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         def scan_dir(path: str, depth: int = 0):
             """Inner function for recursive directory scanning."""
-            time.sleep(random.uniform(.2, .5))  
+            time.sleep(0.02) 
             if self.interrupt or (max_depth is not None and depth > max_depth):
                 return
             try:
@@ -106,20 +109,22 @@ class FilesystemSnapper:
                                     size = est.st_size
                                     ctime = datetime.fromtimestamp(getattr(est, "st_birthtime", est.st_mtime))
                                     mtime = datetime.fromtimestamp(est.st_mtime)
+                                    atime = datetime.fromtimestamp(est.st_atime)
 
                                     rel = Path(os.path.relpath(entry.path, start=self.root_path))
                                     hashed_rel = hash_rel_path(rel, keep_ext=True, length=12)
                                     hashed_path = os.path.join(os.sep, str(hashed_rel))
                                     hashed_path = hash_filename_in_path(Path(hashed_path))
-                                    out = format_csv_row(hashed_path, size, ctime, mtime)
+                                    out = format_csv_row(snapshot_timestamp, hashed_path, size, ctime, mtime, atime)
                                     self.wm.append_fs_snap_log(out)
                                 else:
                                     est = entry.stat(follow_symlinks=False)
                                     size = est.st_size
-                                    path = hash_filename_in_path(Path(entry.path))
+                                    hashed_path_str = hash_filename_in_path(Path(entry.path))
                                     ctime = datetime.fromtimestamp(getattr(est, "st_birthtime", est.st_mtime))
                                     mtime = datetime.fromtimestamp(est.st_mtime)
-                                    out = format_csv_row(path, size, ctime, mtime)
+                                    atime = datetime.fromtimestamp(est.st_atime)
+                                    out = format_csv_row(snapshot_timestamp, hashed_path_str, size, ctime, mtime, atime)
                                     self.wm.append_fs_snap_log(out)
                             elif entry.is_dir(follow_symlinks=False):
                                 scan_dir(entry.path, depth + 1)
@@ -152,8 +157,32 @@ class FilesystemSnapper:
         except (OSError, FileNotFoundError):
             return -1
 
+    def _snapshot_loop(self):
+        """Loop that runs snapshots every hour."""
+        last_snapshot_time = None
+        
+        while not self.interrupt:
+            current_time = time.time()
+            
+            # Check if we should take a snapshot
+            if last_snapshot_time is None:
+                # First snapshot - run immediately
+                self.filesystem_snapshot()
+                last_snapshot_time = time.time()
+            else:
+                # Check if one hour has passed since last snapshot
+                time_since_last_snapshot = current_time - last_snapshot_time
+                if time_since_last_snapshot >= 3600:  # 3600 seconds = 1 hour
+                    # Reset visited inodes before new snapshot
+                    self._visited_inodes.clear()
+                    self.filesystem_snapshot()
+                    last_snapshot_time = time.time()
+                else:
+                    # Less than one hour ago - sleep 1 minute
+                    time.sleep(60)
+
     def run(self):
         """Start the snapshot in a background daemon thread."""
-        snapper_thread = threading.Thread(target=self.filesystem_snapshot)
+        snapper_thread = threading.Thread(target=self._snapshot_loop)
         snapper_thread.daemon = True
         snapper_thread.start()

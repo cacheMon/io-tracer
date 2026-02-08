@@ -18,6 +18,46 @@ IO Tracer uses eBPF/BPF technology to intercept kernel functions and collect var
 - `do_mmap` / `__vm_munmap` - Memory-mapped file operations
 - `iterate_dir` - Directory listing operations
 - `do_truncate` - File truncation operations
+- `vfs_rename` - File/directory rename operations
+- `vfs_mkdir` - Directory creation operations
+- `vfs_rmdir` - Directory removal operations
+- `vfs_link` - Hard link creation operations
+- `vfs_symlink` - Symbolic link creation operations
+- `vfs_fallocate` - File space pre-allocation operations
+- `do_sendfile` / `__do_sendfile` - Efficient file-to-file transfer operations
+
+**Operation Types:**
+| Operation | Description | Dual-Path |
+|-----------|-------------|-----------|
+| READ | File read operation | No |
+| WRITE | File write operation | No |
+| OPEN | File open operation | No |
+| CLOSE | File close operation | No |
+| FSYNC | File synchronization | No |
+| MMAP | Memory-map a file | No |
+| MUNMAP | Unmap memory-mapped file | No |
+| GETATTR | Query file attributes | No |
+| SETATTR | Set file attributes | No |
+| CHDIR | Change directory | No |
+| READDIR | Read directory entries | No |
+| UNLINK | Delete a file | No |
+| TRUNCATE | Truncate file | No |
+| SYNC | System-wide sync | No |
+| RENAME | Rename/move file or directory | Yes |
+| MKDIR | Create directory | No |
+| RMDIR | Remove directory | No |
+| LINK | Create hard link | Yes |
+| SYMLINK | Create symbolic link | No |
+| FALLOCATE | Pre-allocate file space | No |
+| SENDFILE | Zero-copy file transfer | No |
+
+**Dual-Path Operations:**
+Some operations (RENAME, LINK) involve two paths (source and destination). These are formatted as: `old_path -> new_path` in the filename column.
+
+**Flag Decoding:**
+- **Open Flags:** O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND, O_SYNC, O_DIRECT, etc.
+- **Mmap Flags:** Protection (PROT_READ, PROT_WRITE, PROT_EXEC) and mapping (MAP_SHARED, MAP_PRIVATE, MAP_ANONYMOUS, etc.)
+- **Fallocate Flags:** FALLOC_FL_KEEP_SIZE, FALLOC_FL_PUNCH_HOLE, FALLOC_FL_ZERO_RANGE, etc.
 
 **Data Captured:**
 - Timestamp
@@ -42,11 +82,12 @@ IO Tracer uses eBPF/BPF technology to intercept kernel functions and collect var
 - Process ID and name
 - Sector location (LBA)
 - Operation type (read, write, discard, etc.)
-- I/O size (in sectors/bytes)
+- I/O size (in bytes)
 - Latency (in milliseconds)
 - Thread ID
 - CPU ID
 - Parent Process ID
+- Device number (major:minor) - identifies the partition/device
 
 **Output File:** `block_events.csv`
 
@@ -54,7 +95,7 @@ IO Tracer uses eBPF/BPF technology to intercept kernel functions and collect var
 
 ### 3. Page Cache Events
 
-**Description:** Captures page cache operations including hits, misses, dirty pages, writebacks, evictions, and invalidations.
+**Description:** Captures page cache operations including hits, misses, dirty pages, writebacks, evictions, invalidations, readahead, and memory reclaim. Enhanced with file context and size information for better analysis.
 
 **Kernel Probes Attached (kernel version dependent):**
 - **Cache Miss:** `filemap_add_folio` (5.14+) / `add_to_page_cache_lru` (older)
@@ -64,29 +105,61 @@ IO Tracer uses eBPF/BPF technology to intercept kernel functions and collect var
 - **Writeback End:** `folio_end_writeback` / `__folio_end_writeback` / `test_clear_page_writeback`
 - **Eviction:** `filemap_remove_folio` / `__delete_from_page_cache`
 - **Invalidation:** `invalidate_mapping_pages` / `truncate_inode_pages_range`
+- **Readahead:** `__do_page_cache_readahead` / `page_cache_ra_order` (5.16+)
+- **Reclaim:** `shrink_folio_list` (5.16+) / `shrink_page_list` (older)
 
 **Event Types:**
 | ID | Event Type | Description |
 |----|------------|-------------|
 | 0 | HIT | Page was found in cache |
-| 1 | MISS | Page was not in cache |
-| 2 | DIRTY | Page marked as dirty |
-| 3 | WRITEBACK_START | Page writeback initiated |
-| 4 | WRITEBACK_END | Page writeback completed |
-| 5 | EVICT | Page evicted from cache |
-| 6 | INVALIDATE | Page invalidated |
-| 7 | DROP | Page dropped from cache |
+| 1 | MISS | Page was not in cache, requires I/O |
+| 2 | DIRTY | Page marked as dirty (modified) |
+| 3 | WRITEBACK_START | Page writeback to disk initiated |
+| 4 | WRITEBACK_END | Page writeback to disk completed |
+| 5 | EVICT | Page evicted from cache (LRU) |
+| 6 | INVALIDATE | Page invalidated (truncate/sync) |
+| 7 | DROP | Page dropped from cache explicitly |
+| 8 | READAHEAD | Pages prefetched into cache |
+| 9 | RECLAIM | Pages reclaimed under memory pressure |
 
 **Data Captured:**
-- Timestamp
-- Process ID and name
-- Event type
+- Timestamp (nanoseconds)
+- Process ID and name (PID, comm)
+- Event type (0-9)
 - Inode number
-- Page index
+- Page index (page offset within file)
+- **Filename** (empty for cache events - see limitation below)
+- **Size** (file size in pages, calculated from inode)
+- **Offset** (byte offset in file, calculated as index * PAGE_SIZE)
+- **Count** (number of pages affected by operation)
 
-**Output File:** `cache_events.csv`
+**Output File:** `cache/cache_*.csv`
 
-**Note:** Cache events can be sampled using `--cache-sample-rate N` to reduce overhead (captures 1 in N events).
+**Format Example:**
+```csv
+2024-01-15 10:23:45.123456,1234,python,HIT,5678,42,,128,172032,1
+2024-01-15 10:23:45.234567,1234,python,READAHEAD,5678,50,,128,204800,8
+```
+
+**Field Details:**
+- **filename:** Empty for cache events (see limitation below)
+- **size:** File size in pages (from inode->i_size >> 12)
+- **offset:** Byte offset (index * 4096 on x86_64)
+- **count:** Number of pages in operation (1 for single-page, N for bulk operations)
+
+**Important Limitation - Filename Resolution:**
+The filename field is **always empty** for cache events due to eBPF constraints:
+- Cache events provide only: folio/page → address_space → inode
+- Resolving inode → filename requires accessing inode->i_dentry
+- inode->i_dentry is a list (hlist_head) of all hard links to the inode
+- Iterating complex data structures in eBPF is not practical
+- Use inode numbers to correlate with VFS events which do capture filenames
+- Post-processing can map inode numbers to filenames from filesystem snapshots
+
+**Note:** 
+- Cache events can be sampled using `--cache-sample-rate N` to reduce overhead (captures 1 in N events).
+- Tracepoint `mm_filemap_delete_from_page_cache` provides additional eviction coverage but lacks filename resolution.
+- Readahead and reclaim events help identify prefetch behavior and memory pressure situations.
 
 ---
 
@@ -112,13 +185,15 @@ IO Tracer uses eBPF/BPF technology to intercept kernel functions and collect var
 
 ## Snapshot Types
 
-Snapshots are captured at trace start to provide system context and are not collected continuously.
+Snapshots provide system context during tracing.
 
 ### 1. Filesystem Snapshot
 
-**Description:** Records the state of the filesystem at trace start, capturing file paths, sizes, and timestamps.
+**Description:** Records the state of the filesystem at trace start and periodically during the trace, capturing file paths, sizes, and timestamps.
 
 **Collection Method:**
+- First snapshot runs at trace start
+- Subsequent snapshots are captured every hour (3600 seconds)
 - Walks the filesystem hierarchy starting from `/`
 - Records files up to configurable depth (default: 3)
 - Skips files on different filesystems/devices
@@ -139,7 +214,7 @@ Snapshots are captured at trace start to provide system context and are not coll
 **Description:** Records information about all running processes periodically during the trace.
 
 **Collection Method:**
-- Iterates through all processes at 60-second intervals
+- Iterates through all processes at 5-minute intervals
 - Uses `psutil` for process information
 - Background thread samples CPU utilization over multiple intervals
 

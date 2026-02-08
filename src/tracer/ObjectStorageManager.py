@@ -114,7 +114,7 @@ class ObjectStorageManager:
             RuntimeError: If the request fails
         """
         r = requests.post(
-            f"{self.backend_url}/linux_trace_v2/"
+            f"{self.backend_url}/linux_trace_v3_test/"
             f"{self.machine_id.upper()}/"
             f"{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}/"
             f"{file_type}/"

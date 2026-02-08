@@ -98,7 +98,14 @@ enum op_type {
   OP_READDIR,
   OP_UNLINK,
   OP_TRUNCATE,
-  OP_SYNC
+  OP_SYNC,
+  OP_RENAME,
+  OP_MKDIR,
+  OP_RMDIR,
+  OP_LINK,
+  OP_SYMLINK,
+  OP_FALLOCATE,
+  OP_SENDFILE
 };
 
 struct data_t {
@@ -113,12 +120,24 @@ struct data_t {
   u64 latency_ns;
 };
 
+struct data_dual_t {
+  u32 pid;
+  u64 ts;
+  char comm[TASK_COMM_LEN];
+  char filename_old[FILENAME_MAX_LEN];
+  char filename_new[FILENAME_MAX_LEN];
+  u64 inode_old;
+  u64 inode_new;
+  u32 flags;
+  enum op_type op;
+  u64 latency_ns;
+};
+
 struct block_event {
   u64 ts;
   u32 pid;
   char comm[TASK_COMM_LEN];
   u64 sector;
-  u32 nr_sectors;
   char op[OP_LEN];
 
   u32 tid;
@@ -127,6 +146,7 @@ struct block_event {
   u32 flags;
   u64 bio_size;
   u64 latency_ns;
+  u32 dev;        // device number (major:minor) for partition identification
 };
 
 enum cache_event_type {
@@ -138,6 +158,8 @@ enum cache_event_type {
   CACHE_EVICT = 5,
   CACHE_INVALIDATE = 6,
   CACHE_DROP = 7,
+  CACHE_READAHEAD = 8,
+  CACHE_RECLAIM = 9,
 };
 
 struct cache_data {
@@ -147,6 +169,10 @@ struct cache_data {
   char comm[TASK_COMM_LEN];
   u64 inode;
   u64 index;
+  u32 size;
+  u32 cpu_id;
+  u32 dev_id;
+  u32 count;
 };
 
 enum direction_t { DIR_SEND = 0, DIR_RECV = 1 };
@@ -189,7 +215,11 @@ BPF_HASH(tracer_config, u32, u32, 1);
 BPF_HASH(tcp_recv_ctx, u64, struct sock *);
 BPF_HASH(udp_recv_ctx, u64, struct sock *);
 
+// Per-CPU array for dual-path operations to avoid stack limit (data_dual_t is 572 bytes, stack limit is 512)
+BPF_PERCPU_ARRAY(dual_data_buffer, struct data_dual_t, 1);
+
 BPF_PERF_OUTPUT(events);
+BPF_PERF_OUTPUT(events_dual);
 BPF_PERF_OUTPUT(bl_events);
 BPF_PERF_OUTPUT(cache_events);
 
@@ -198,11 +228,7 @@ BPF_PERF_OUTPUT(net_events);
 static __always_inline int read_addrs_ports(struct sock *sk,
                                             struct network_data *e) {
 
-#ifdef BPF_KERNEL_SUPPORTS_FAMILY_IN_SOCK_COMMON
   u16 family = sk->__sk_common.skc_family;
-#else
-  u16 family = sk->__sk_common.skc_family;
-#endif
   if (family == AF_INET) {
     e->ipver = 4;
     struct inet_sock *inet = (struct inet_sock *)sk;
@@ -330,7 +356,7 @@ static int get_file_path(struct file *file, char *buf, int size) {
   if (name_ptr) {
     ssize_t len = bpf_probe_read_kernel_str(buf, size, name_ptr);
     volatile char first_char = buf[0];
-    if (len <= 0 | first_char == '\0') {
+    if (len <= 0 || first_char == '\0') {
       __builtin_memcpy(buf, "", 1);
     }
   } else {
@@ -366,6 +392,36 @@ static int get_file_path_from_dentry(struct dentry *dentry, char *buf,
 
   return 0;
 }
+
+/* Helper function to populate cache metadata (size, dev_id, count)
+ * Note: Filename cannot be reliably resolved from inode alone in eBPF
+ * because inode->i_dentry is a list requiring complex iteration.
+ * The filename field must be populated before calling this helper if needed.
+ */
+static void populate_cache_metadata(struct cache_data *data, struct inode *inode) {
+  if (!inode || !data) {
+    return;
+  }
+  
+  // Try to get file size in pages
+  loff_t file_size = 0;
+  bpf_probe_read_kernel(&file_size, sizeof(file_size), &inode->i_size);
+  data->size = (u32)(file_size >> PAGE_SHIFT);  // Convert bytes to number of pages
+  
+  // Get device ID from superblock
+  struct super_block *sb = NULL;
+  bpf_probe_read_kernel(&sb, sizeof(sb), &inode->i_sb);
+  if (sb) {
+    bpf_probe_read_kernel(&data->dev_id, sizeof(data->dev_id), &sb->s_dev);
+  }
+  
+  // Set count to 1 for single-page operations if not already set
+  if (data->count == 0) {
+    data->count = 1;
+  }
+}
+
+
 
 int trace_vfs_read(struct pt_regs *ctx, struct file *file, char __user *buf,
                    size_t count, loff_t *pos) {
@@ -605,7 +661,6 @@ int trace_munmap(struct pt_regs *ctx, unsigned long addr, size_t len) {
   data.op = OP_MUNMAP;
   data.inode = 0;
   data.size = len;
-  __builtin_memcpy(data.filename, "", 9);
   data.flags = 0;
 
   events.perf_submit(ctx, &data, sizeof(data));
@@ -747,13 +802,7 @@ int trace_vfs_unlink(struct pt_regs *ctx, struct inode *dir,
                           &dentry->d_inode->i_ino);
   }
 
-  const unsigned char *name_ptr;
-  if (dentry) {
-    bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &dentry->d_name.name);
-    if (name_ptr) {
-      bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
-    }
-  }
+  get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
 
   data.size = 0;
   data.flags = 0;
@@ -783,13 +832,8 @@ int trace_vfs_truncate(struct pt_regs *ctx, const struct path *path) {
                           &path->dentry->d_inode->i_ino);
   }
 
-  const unsigned char *name_ptr;
   if (path && path->dentry) {
-    bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr),
-                          &path->dentry->d_name.name);
-    if (name_ptr) {
-      bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
-    }
+    get_file_path_from_dentry(path->dentry, data.filename, sizeof(data.filename));
   }
 
   data.size = 0;
@@ -816,11 +860,254 @@ int trace_ksys_sync(struct pt_regs *ctx) {
   data.op = OP_SYNC;
   data.inode = 0;
   data.size = 0;
-  __builtin_memcpy(data.filename, "", 11);
   data.flags = 0;
 
   events.perf_submit(ctx, &data, sizeof(data));
 
+  return 0;
+}
+
+/* New filesystem operation probes */
+
+int trace_vfs_rename(struct pt_regs *ctx, struct inode *old_dir,
+                     struct dentry *old_dentry, struct inode *new_dir,
+                     struct dentry *new_dentry) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  if (!old_dentry || !new_dentry) {
+    return 0;
+  }
+
+  // Use per-CPU array to avoid stack limit (data_dual_t is 572 bytes, stack limit is 512)
+  u32 zero = 0;
+  struct data_dual_t *data = dual_data_buffer.lookup(&zero);
+  if (!data) {
+    return 0;
+  }
+  data->pid = pid;
+  data->ts = bpf_ktime_get_ns();
+  bpf_get_current_comm(&data->comm, sizeof(data->comm));
+  data->op = OP_RENAME;
+
+  // Get old path and inode
+  data->inode_old = get_file_inode_from_dentry(old_dentry);
+  get_file_path_from_dentry(old_dentry, data->filename_old, sizeof(data->filename_old));
+
+  // Get new path and inode
+  data->inode_new = get_file_inode_from_dentry(new_dentry);
+  get_file_path_from_dentry(new_dentry, data->filename_new, sizeof(data->filename_new));
+
+  data->flags = 0;
+  data->latency_ns = 0;
+
+  events_dual.perf_submit(ctx, data, sizeof(*data));
+  return 0;
+}
+
+int trace_vfs_mkdir(struct pt_regs *ctx, struct inode *dir,
+                    struct dentry *dentry, umode_t mode) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  if (!dentry) {
+    return 0;
+  }
+
+  struct data_t data = {};
+  data.pid = pid;
+  data.ts = bpf_ktime_get_ns();
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.op = OP_MKDIR;
+  data.inode = get_file_inode_from_dentry(dentry);
+  data.size = 0;
+  get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
+  data.flags = mode;
+  data.latency_ns = 0;
+
+  events.perf_submit(ctx, &data, sizeof(data));
+  return 0;
+}
+
+int trace_vfs_rmdir(struct pt_regs *ctx, struct inode *dir,
+                    struct dentry *dentry) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  if (!dentry) {
+    return 0;
+  }
+
+  struct data_t data = {};
+  data.pid = pid;
+  data.ts = bpf_ktime_get_ns();
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.op = OP_RMDIR;
+  data.inode = get_file_inode_from_dentry(dentry);
+  data.size = 0;
+  get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
+  data.flags = 0;
+  data.latency_ns = 0;
+
+  events.perf_submit(ctx, &data, sizeof(data));
+  return 0;
+}
+
+int trace_vfs_link(struct pt_regs *ctx, struct dentry *old_dentry,
+                   struct inode *dir, struct dentry *new_dentry) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  if (!old_dentry || !new_dentry) {
+    return 0;
+  }
+
+  // Use per-CPU array to avoid stack limit
+  u32 zero = 0;
+  struct data_dual_t *data = dual_data_buffer.lookup(&zero);
+  if (!data) {
+    return 0;
+  }
+  data->pid = pid;
+  data->ts = bpf_ktime_get_ns();
+  bpf_get_current_comm(&data->comm, sizeof(data->comm));
+  data->op = OP_LINK;
+
+  // Get old path and inode
+  data->inode_old = get_file_inode_from_dentry(old_dentry);
+  get_file_path_from_dentry(old_dentry, data->filename_old, sizeof(data->filename_old));
+
+  // Get new path and inode
+  data->inode_new = get_file_inode_from_dentry(new_dentry);
+  get_file_path_from_dentry(new_dentry, data->filename_new, sizeof(data->filename_new));
+
+  data->flags = 0;
+  data->latency_ns = 0;
+
+  events_dual.perf_submit(ctx, data, sizeof(*data));
+  return 0;
+}
+
+int trace_vfs_symlink(struct pt_regs *ctx, struct inode *dir,
+                      struct dentry *dentry, const char *oldname) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  if (!dentry) {
+    return 0;
+  }
+
+  // Use per-CPU array to avoid stack limit
+  u32 zero = 0;
+  struct data_dual_t *data = dual_data_buffer.lookup(&zero);
+  if (!data) {
+    return 0;
+  }
+  data->pid = pid;
+  data->ts = bpf_ktime_get_ns();
+  bpf_get_current_comm(&data->comm, sizeof(data->comm));
+  data->op = OP_SYMLINK;
+  
+  // filename_old is the target of the symlink
+  if (oldname) {
+    bpf_probe_read_kernel_str(data->filename_old, sizeof(data->filename_old), oldname);
+  }
+  
+  // filename_new is the link name
+  get_file_path_from_dentry(dentry, data->filename_new, sizeof(data->filename_new));
+  
+  data->inode_old = 0;
+  data->inode_new = get_file_inode_from_dentry(dentry);
+  data->flags = 0;
+  data->latency_ns = 0;
+
+  events_dual.perf_submit(ctx, data, sizeof(*data));
+  return 0;
+}
+
+int trace_vfs_fallocate(struct pt_regs *ctx, struct file *file, int mode,
+                        loff_t offset, loff_t len) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  if (!is_regular_file(file)) {
+    return 0;
+  }
+
+  struct data_t data = {};
+  data.pid = pid;
+  data.ts = bpf_ktime_get_ns();
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.op = OP_FALLOCATE;
+  data.inode = get_file_inode(file);
+  data.size = len;
+  get_file_path(file, data.filename, sizeof(data.filename));
+  data.flags = mode;
+  data.latency_ns = 0;
+
+  events.perf_submit(ctx, &data, sizeof(data));
+  return 0;
+}
+
+int trace_sendfile(struct pt_regs *ctx, int out_fd, int in_fd, loff_t *offset,
+                   size_t count) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  struct data_t data = {};
+  data.pid = pid;
+  data.ts = bpf_ktime_get_ns();
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.op = OP_SENDFILE;
+  data.inode = 0;
+  data.size = count;
+  __builtin_memcpy(data.filename, "[sendfile]", 11);
+  data.flags = 0;
+  data.latency_ns = 0;
+
+  events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
 
@@ -831,7 +1118,9 @@ TRACEPOINT_PROBE(block, block_rq_issue) {
   if (tracer_pid && pid == *tracer_pid)
     return 0;
 
-  u64 key = ((u64)args->dev << 32) | args->sector;
+  // Use dev and sector as key to correlate issue with completion
+  // Note: CPU ID is NOT included because completion may occur on a different CPU
+  u64 key = ((u64)args->dev << 32) ^ (u64)args->sector;
   u64 ts = bpf_ktime_get_ns();
   block_start_times.update(&key, &ts);
 
@@ -845,7 +1134,8 @@ TRACEPOINT_PROBE(block, block_rq_complete) {
   if (tracer_pid && pid == *tracer_pid)
     return 0;
 
-  u64 key = ((u64)args->dev << 32) | args->sector;
+  // Use dev and sector to match the key from block_rq_issue
+  u64 key = ((u64)args->dev << 32) | (args->sector & 0xFFFFFFFF);
   u64 *start_ts = block_start_times.lookup(&key);
   if (!start_ts)
     return 0;
@@ -860,10 +1150,28 @@ TRACEPOINT_PROBE(block, block_rq_complete) {
   event.cpu_id = bpf_get_smp_processor_id();
   bpf_get_current_comm(&event.comm, sizeof(event.comm));
 
+  // Get parent PID
+  struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+  struct task_struct *parent = NULL;
+  if (task) {
+    bpf_probe_read_kernel(&parent, sizeof(parent), &task->real_parent);
+    if (parent) {
+      bpf_probe_read_kernel(&event.ppid, sizeof(event.ppid), &parent->tgid);
+    }
+  }
+
   event.sector = args->sector;
-  event.nr_sectors = args->nr_sector;
+  
+  // Calculate bio_size (nr_sector is u32, so shifting by 9 never overflows u64)
   event.bio_size = ((u64)args->nr_sector) << 9;
+  
   event.latency_ns = latency;
+  event.flags = 0;  // Reserved for future use
+  
+  // Capture device number for partition identification
+  // dev contains major:minor encoding (major in bits 8-15, minor in bits 0-7 on older kernels,
+  // or major in bits 8-15, minor in bits 0-15 with extensions on newer kernels)
+  event.dev = args->dev;
 
   bpf_probe_read_kernel(&event.op, sizeof(event.op), &args->rwbs);
 
@@ -895,6 +1203,9 @@ int trace_folio_mark_accessed(struct pt_regs *ctx, struct folio *folio) {
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
   if (folio) {
+    // Read index first so populate_cache_metadata can calculate offset
+    bpf_probe_read_kernel(&data.index, sizeof(data.index), &folio->index);
+    
     struct address_space *mapping = NULL;
     bpf_probe_read_kernel(&mapping, sizeof(mapping), &folio->mapping);
     if (mapping) {
@@ -902,11 +1213,12 @@ int trace_folio_mark_accessed(struct pt_regs *ctx, struct folio *folio) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_metadata(&data, host);
       }
     }
-    bpf_probe_read_kernel(&data.index, sizeof(data.index), &folio->index);
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -928,6 +1240,9 @@ int trace_hit(struct pt_regs *ctx, struct page *page) {
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
   if (page) {
+    // Read index first so populate_cache_metadata can calculate offset
+    bpf_probe_read_kernel(&data.index, sizeof(data.index), &page->index);
+    
     struct address_space *mapping = NULL;
     bpf_probe_read_kernel(&mapping, sizeof(mapping), &page->mapping);
     if (mapping) {
@@ -935,11 +1250,12 @@ int trace_hit(struct pt_regs *ctx, struct page *page) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_metadata(&data, host);
       }
     }
-    bpf_probe_read_kernel(&data.index, sizeof(data.index), &page->index);
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -959,7 +1275,7 @@ int trace_filemap_add_folio(struct pt_regs *ctx, struct address_space *mapping,
   data.ts = bpf_ktime_get_ns();
   data.pid = pid;
   data.type = CACHE_MISS;
-  data.index = index;
+  data.index = index;  // Set before calling populate_cache_metadata
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
   if (mapping) {
@@ -967,9 +1283,11 @@ int trace_filemap_add_folio(struct pt_regs *ctx, struct address_space *mapping,
     bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
     if (host) {
       bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      populate_cache_metadata(&data, host);
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -989,7 +1307,7 @@ int trace_miss(struct pt_regs *ctx, struct page *page,
   data.ts = bpf_ktime_get_ns();
   data.pid = pid;
   data.type = CACHE_MISS;
-  data.index = offset;
+  data.index = offset;  // Set before calling populate_cache_metadata
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
   if (mapping) {
@@ -997,9 +1315,11 @@ int trace_miss(struct pt_regs *ctx, struct page *page,
     bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
     if (host) {
       bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      populate_cache_metadata(&data, host);
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1031,9 +1351,11 @@ int trace_account_page_dirtied(struct pt_regs *ctx, struct page *page,
     bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
     if (host) {
       bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      populate_cache_metadata(&data, host);
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1064,10 +1386,12 @@ int trace_folio_mark_dirty(struct pt_regs *ctx, struct folio *folio) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_metadata(&data, host);
       }
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1098,10 +1422,12 @@ int trace_clear_page_dirty_for_io(struct pt_regs *ctx, struct page *page) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_metadata(&data, host);
       }
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1132,10 +1458,12 @@ int trace_folio_clear_dirty_for_io(struct pt_regs *ctx, struct folio *folio) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_metadata(&data, host);
       }
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1166,10 +1494,12 @@ int trace_test_clear_page_writeback(struct pt_regs *ctx, struct page *page) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_metadata(&data, host);
       }
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1200,10 +1530,12 @@ int trace_folio_end_writeback(struct pt_regs *ctx, struct folio *folio) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_metadata(&data, host);
       }
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1222,21 +1554,42 @@ int trace_filemap_remove_folio(struct pt_regs *ctx, struct folio *folio) {
   data.pid = pid;
   data.type = CACHE_EVICT;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  
+  // Detect reclaim context from process name
+  // kswapd process indicates background reclaim
+  if (data.comm[0] == 'k' && data.comm[1] == 's' && data.comm[2] == 'w' && 
+      data.comm[3] == 'a' && data.comm[4] == 'p' && data.comm[5] == 'd') {
+  } else if (pid > 0) {
+    // Non-kswapd process doing eviction likely in direct reclaim
+  } else {
+  }
 
   if (folio) {
     struct address_space *mapping = NULL;
     bpf_probe_read_kernel(&mapping, sizeof(mapping), &folio->mapping);
     bpf_probe_read_kernel(&data.index, sizeof(data.index), &folio->index);
 
+    // Get LRU type from folio/page flags
+    // In folio, flags are in the first page (folio is a page array)
+    // Try reading flags from folio as if it were a page struct
+    unsigned long flags = 0;
+    // Cast folio pointer to page pointer to read flags
+    struct page *p = (struct page *)folio;
+    bpf_probe_read_kernel(&flags, sizeof(flags), &p->flags);
+    if (flags != 0) {
+    }
+
     if (mapping) {
       struct inode *host = NULL;
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_metadata(&data, host);
       }
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1256,21 +1609,36 @@ int trace_delete_from_page_cache(struct pt_regs *ctx, struct page *page) {
   data.pid = pid;
   data.type = CACHE_EVICT;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  
+  // Detect reclaim context from process name
+  if (data.comm[0] == 'k' && data.comm[1] == 's' && data.comm[2] == 'w' && 
+      data.comm[3] == 'a' && data.comm[4] == 'p' && data.comm[5] == 'd') {
+  } else if (pid > 0) {
+  } else {
+  }
 
   if (page) {
     struct address_space *mapping = NULL;
     bpf_probe_read_kernel(&mapping, sizeof(mapping), &page->mapping);
     bpf_probe_read_kernel(&data.index, sizeof(data.index), &page->index);
 
+    // Get LRU type from page flags
+    unsigned long flags = 0;
+    bpf_probe_read_kernel(&flags, sizeof(flags), &page->flags);
+    if (flags != 0) {
+    }
+
     if (mapping) {
       struct inode *host = NULL;
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_metadata(&data, host);
       }
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1292,7 +1660,11 @@ TRACEPOINT_PROBE(filemap, mm_filemap_delete_from_page_cache) {
   data.inode = args->i_ino;
   data.index = args->index;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 1;  // Single page from tracepoint
+  data.size = 0;  // No inode struct access in tracepoint
+  data.dev_id = 0;  // No device ID available in tracepoint
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(args, &data, sizeof(data));
   return 0;
 }
@@ -1311,7 +1683,8 @@ int trace_invalidate_mapping(struct pt_regs *ctx, struct address_space *mapping,
   data.ts = bpf_ktime_get_ns();
   data.pid = pid;
   data.type = CACHE_INVALIDATE;
-  data.index = start;
+  data.index = start;  // Set before calling populate_cache_metadata
+  data.count = (end >= start) ? (u32)(end - start + 1) : 0;  // Inclusive page range
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
   if (mapping) {
@@ -1319,9 +1692,11 @@ int trace_invalidate_mapping(struct pt_regs *ctx, struct address_space *mapping,
     bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
     if (host) {
       bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      populate_cache_metadata(&data, host);
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1342,14 +1717,28 @@ int trace_truncate_pages(struct pt_regs *ctx, struct address_space *mapping,
   data.type = CACHE_INVALIDATE;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
+  /* Compute page range using PAGE_SHIFT to avoid hardcoded page size and
+   * off-by-one issues if lend is inclusive.
+   */
+  pgoff_t start_index = (pgoff_t)(lstart >> PAGE_SHIFT);
+  pgoff_t end_index = (pgoff_t)(lend >> PAGE_SHIFT);
+
+  data.index = start_index;  // starting page index
+  if (end_index >= start_index)
+    data.count = (u32)(end_index - start_index + 1);
+  else
+    data.count = 0;
+
   if (mapping) {
     struct inode *host = NULL;
     bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
     if (host) {
       bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      populate_cache_metadata(&data, host);
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1372,6 +1761,13 @@ int trace_cache_drop_folio(struct pt_regs *ctx, struct address_space *mapping,
 
   if (folio) {
     bpf_probe_read_kernel(&data.index, sizeof(data.index), &folio->index);
+    
+    // Get LRU type from folio/page flags
+    unsigned long flags = 0;
+    struct page *p = (struct page *)folio;
+    bpf_probe_read_kernel(&flags, sizeof(flags), &p->flags);
+    if (flags != 0) {
+    }
   }
 
   if (mapping) {
@@ -1379,9 +1775,11 @@ int trace_cache_drop_folio(struct pt_regs *ctx, struct address_space *mapping,
     bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
     if (host) {
       bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      populate_cache_metadata(&data, host);
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1407,24 +1805,101 @@ int trace_cache_drop_page(struct pt_regs *ctx, struct page *page) {
     bpf_probe_read_kernel(&mapping, sizeof(mapping), &page->mapping);
     bpf_probe_read_kernel(&data.index, sizeof(data.index), &page->index);
 
+    // Get LRU type from page flags
+    unsigned long flags = 0;
+    bpf_probe_read_kernel(&flags, sizeof(flags), &page->flags);
+    if (flags != 0) {
+    }
+
     if (mapping) {
       struct inode *host = NULL;
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_metadata(&data, host);
       }
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
 #endif
 
+/* Cache Readahead - tracks page cache prefetch operations */
+int trace_do_page_cache_readahead(struct pt_regs *ctx, struct address_space *mapping,
+                                   struct file *file, pgoff_t index, unsigned long nr_pages) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
+  struct cache_data data = {};
+  data.ts = bpf_ktime_get_ns();
+  data.pid = pid;
+  data.type = CACHE_READAHEAD;
+  data.index = index;  // Set before calling populate_cache_metadata
+  data.count = (u32)nr_pages;  // Number of pages in readahead window
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+
+  if (mapping) {
+    struct inode *host = NULL;
+    bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
+    if (host) {
+      bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      populate_cache_metadata(&data, host);
+    }
+  }
+
+  data.cpu_id = bpf_get_smp_processor_id();
+  cache_events.perf_submit(ctx, &data, sizeof(data));
+  return 0;
+}
+
+/* Cache Reclaim - tracks page eviction under memory pressure */
+int trace_shrink_folio_list(struct pt_regs *ctx) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
+  // Note: shrink_folio_list operates on a list, so we emit a generic reclaim event
+  // Individual folio details would require iterating the list, which is complex in eBPF
+  struct cache_data data = {};
+  data.ts = bpf_ktime_get_ns();
+  data.pid = pid;
+  data.type = CACHE_RECLAIM;
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.inode = 0;  // No specific inode for list-based reclaim
+  data.index = 0;
+  data.count = 0;  // Would need list iteration to count
+  
+  // Detect reclaim source: kswapd vs direct reclaim
+  // kswapd comm starts with "kswapd"
+  if (data.comm[0] == 'k' && data.comm[1] == 's' && data.comm[2] == 'w' && data.comm[3] == 'a' && data.comm[4] == 'p' && data.comm[5] == 'd') {
+  } else {
+  }
+
+  data.cpu_id = bpf_get_smp_processor_id();
+  cache_events.perf_submit(ctx, &data, sizeof(data));
+  return 0;
+}
+
 /* Network probes */
 
 int kprobe__tcp_sendmsg(struct pt_regs *ctx, struct sock *sk,
                         struct msghdr *msg, size_t size) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
   struct network_data e = {};
   fill_common(&e, 6 /*TCP*/, DIR_SEND, (u32)size);
   if (read_addrs_ports(sk, &e) == 0) {
@@ -1436,6 +1911,12 @@ int kprobe__tcp_sendmsg(struct pt_regs *ctx, struct sock *sk,
 int kprobe__tcp_recvmsg(struct pt_regs *ctx, struct sock *sk,
                         struct msghdr *msg, size_t len, int nonblock, int flags,
                         int *addr_len) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
   u64 tid = bpf_get_current_pid_tgid();
   tcp_recv_ctx.update(&tid, &sk);
   return 0;
@@ -1462,6 +1943,12 @@ int kretprobe__tcp_recvmsg(struct pt_regs *ctx) {
 
 int kprobe__udp_sendmsg(struct pt_regs *ctx, struct sock *sk,
                         struct msghdr *msg, size_t len) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
   struct network_data e = {};
   fill_common(&e, 17 /*UDP*/, DIR_SEND, (u32)len);
   if (read_addrs_ports(sk, &e) == 0) {
@@ -1473,6 +1960,12 @@ int kprobe__udp_sendmsg(struct pt_regs *ctx, struct sock *sk,
 int kprobe__udp_recvmsg(struct pt_regs *ctx, struct sock *sk,
                         struct msghdr *msg, size_t len, int flags,
                         int *addr_len) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
   u64 tid = bpf_get_current_pid_tgid();
   udp_recv_ctx.update(&tid, &sk);
   return 0;

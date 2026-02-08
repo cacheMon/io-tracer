@@ -136,12 +136,8 @@ class KernelProbeTracker:
     def detach_kretprobes(self):
         """
         Detach all kretprobes only.
-        
-        Note: This method currently detaches from kprobes list but uses
-        kretprobe detachment. Use detach_kprobes() for complete cleanup.
         """
-        # Detach kretprobes (note: iterates over kprobes list, should use kretprobes)
-        for event, k in self.kprobes:
+        for event, k in self.kretprobes:
             try:
                 self.b.detach_kretprobe(event=event)
                 # logger("info", f"Detached kretprobe: {event}")
@@ -187,6 +183,22 @@ class KernelProbeTracker:
             self.add_kprobe("iterate_dir", "trace_readdir")
             self.add_kprobe("vfs_unlink", "trace_vfs_unlink")
             self.add_kprobe("do_truncate", "trace_vfs_truncate")
+            
+            # New filesystem operation probes
+            self.add_kprobe("vfs_rename", "trace_vfs_rename")
+            self.add_kprobe("vfs_mkdir", "trace_vfs_mkdir")
+            self.add_kprobe("vfs_rmdir", "trace_vfs_rmdir")
+            self.add_kprobe("vfs_link", "trace_vfs_link")
+            self.add_kprobe("vfs_symlink", "trace_vfs_symlink")
+            self.add_kprobe("vfs_fallocate", "trace_vfs_fallocate")
+            
+            # Try to attach sendfile probe (may not be available on all kernels)
+            if BPF.get_kprobe_functions(b'do_sendfile'):
+                self.add_kprobe("do_sendfile", "trace_sendfile")
+            elif BPF.get_kprobe_functions(b'__do_sendfile'):
+                self.add_kprobe("__do_sendfile", "trace_sendfile")
+            else:
+                logger("warning", "sendfile probe not available on this kernel version")
             
             # Cache Miss probes - kernel version dependent
             if BPF.get_kprobe_functions(b'filemap_add_folio'):
@@ -252,21 +264,41 @@ class KernelProbeTracker:
                 logger("warning", "truncate_inode_pages_range not found")
 
             # Cache drop probes - kernel version dependent
-            if BPF.get_kprobe_functions(b'__filemap_remove_folio'):
+            # Avoid attaching to a function already used by eviction probes
+            attached_events = {event for event, _ in self.kprobes}
+            if BPF.get_kprobe_functions(b'__filemap_remove_folio') and '__filemap_remove_folio' not in attached_events:
                 # Kernel 5.18+ uses this for explicit page removal
                 self.add_kprobe("__filemap_remove_folio", "trace_cache_drop_folio")
-            elif BPF.get_kprobe_functions(b'delete_from_page_cache'):
+            elif BPF.get_kprobe_functions(b'delete_from_page_cache') and 'delete_from_page_cache' not in attached_events:
                 # Older kernels
                 self.add_kprobe("delete_from_page_cache", "trace_cache_drop_page")
-            elif BPF.get_kprobe_functions(b'__delete_from_page_cache'):
+            elif BPF.get_kprobe_functions(b'__delete_from_page_cache') and '__delete_from_page_cache' not in attached_events:
                 # Fallback for some kernel versions
                 self.add_kprobe("__delete_from_page_cache", "trace_cache_drop_page")
             else:
                 logger("warning", "No cache drop function found, drop events will not be traced")
 
-            self.add_kprobe("vfs_fsync_range", "trace_vfs_fsync_range")
-            self.add_kprobe("__fput", "trace_fput") 
-            
+            # Cache readahead probes - track prefetch operations
+            if BPF.get_kprobe_functions(b'__do_page_cache_readahead'):
+                self.add_kprobe("__do_page_cache_readahead", "trace_do_page_cache_readahead")
+            elif BPF.get_kprobe_functions(b'do_page_cache_ra'):
+                self.add_kprobe("do_page_cache_ra", "trace_do_page_cache_readahead")
+            elif BPF.get_kprobe_functions(b'page_cache_ra_order'):
+                # Newer kernels (5.16+)
+                self.add_kprobe("page_cache_ra_order", "trace_do_page_cache_readahead")
+            else:
+                logger("warning", "No readahead probe available, readahead events will not be traced")
+
+            # Cache reclaim probes - track memory pressure evictions
+            if BPF.get_kprobe_functions(b'shrink_folio_list'):
+                # Newer kernels with folio
+                self.add_kprobe("shrink_folio_list", "trace_shrink_folio_list")
+            elif BPF.get_kprobe_functions(b'shrink_page_list'):
+                # Older kernels
+                self.add_kprobe("shrink_page_list", "trace_shrink_folio_list")
+            else:
+                logger("warning", "No reclaim probe available, reclaim events will not be traced")
+
             if not self.kprobes:
                 logger("error", "no kprobes attached successfully!")
                 sys.exit(1)   

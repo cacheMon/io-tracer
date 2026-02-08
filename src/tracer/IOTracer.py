@@ -137,7 +137,7 @@ class IOTracer:
 
         try:
             # Initialize BPF with the provided source file
-            self.b = BPF(src_file=bpf_file.encode(), cflags=["-Wno-duplicate-decl-specifier", "-Wno-macro-redefined"])
+            self.b = BPF(src_file=bpf_file.encode(), cflags=["-Wno-duplicate-decl-specifier", "-Wno-macro-redefined", "-mllvm", "-bpf-stack-size=4096"])
             self.probe_tracker = KernelProbeTracker(self.b)
         except Exception as e:
             logger("error", f"failed to initialize BPF: {e}")
@@ -165,7 +165,6 @@ class IOTracer:
                 filename = hash_filename_in_path(Path(filename))
         except UnicodeDecodeError:
             filename = "[decode_error]"
-            filepath = "[decode_error]"
         
         timestamp = datetime.today()
         
@@ -180,6 +179,50 @@ class IOTracer:
         output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, inode_val)
         self.writer.append_fs_log(output)
         
+    def _print_event_dual(self, cpu, data, size):
+        """
+        Callback for processing dual-path filesystem events from the perf buffer.
+        
+        This method handles operations with two paths (source and destination),
+        such as rename and link operations.
+        
+        Args:
+            cpu: CPU number where the event was captured
+            data: Raw event data pointer
+            size: Size of the event data
+        """
+        event = self.b["events_dual"].event(data)
+        op_name = self.flag_mapper.op_fs_types.get(event.op, "[unknown]")
+        
+        try:
+            filename_old = event.filename_old.decode()
+            filename_new = event.filename_new.decode()
+            if self.anonymous:
+                filename_old = hash_filename_in_path(Path(filename_old))
+                filename_new = hash_filename_in_path(Path(filename_new))
+        except UnicodeDecodeError:
+            filename_old = "[decode_error]"
+            filename_new = "[decode_error]"
+        
+        timestamp = datetime.today()
+        
+        try:
+            comm = event.comm.decode()
+        except UnicodeDecodeError:
+            comm = "[decode_error]"
+            
+        inode_old = event.inode_old if event.inode_old != 0 else ""
+        inode_new = event.inode_new if event.inode_new != 0 else ""
+        
+        # Format as "old -> new" for the filename column
+        dual_filename = f"{filename_old} -> {filename_new}"
+        
+        # Use inode_old for the inode column
+        inode_val = f"{inode_old}" if inode_old else ""
+        
+        output = format_csv_row(timestamp, op_name, event.pid, comm, dual_filename, 0, inode_val)
+        self.writer.append_fs_log(output)
+    
     def _print_event_cache(self, cpu, data, size):       
         """
         Callback for processing page cache events from the perf buffer.
@@ -204,13 +247,21 @@ class IOTracer:
             4: "WRITEBACK_END",
             5: "EVICT",
             6: "INVALIDATE",
-            7: "DROP"
+            7: "DROP",
+            8: "READAHEAD",
+            9: "RECLAIM"
         }
         event_name = event_types.get(event.type, "UNKNOWN")
         inode = event.inode if event.inode != 0 else ""
         index = event.index if event.index != 0 else ""
+        
+        # Cache event metadata
+        size = event.size if hasattr(event, 'size') else ""
+        cpu_id = event.cpu_id if hasattr(event, 'cpu_id') else ""
+        dev_id = event.dev_id if hasattr(event, 'dev_id') else ""
+        count = event.count if hasattr(event, 'count') else ""
 
-        output = format_csv_row(timestamp, pid, comm, event_name, inode, index)
+        output = format_csv_row(timestamp, pid, comm, event_name, inode, index, size, cpu_id, dev_id, count)
         self.writer.append_cache_log(output)
 
     def _print_event_block(self, cpu, data, size):        
@@ -232,7 +283,6 @@ class IOTracer:
         tid = event.tid
         comm = event.comm.decode('utf-8', errors='replace')
         sector = event.sector
-        nr_sectors = event.nr_sectors
         ops_str = event.op.decode('utf-8', errors='replace')
         ops_str = self.flag_mapper.format_block_ops(ops_str)
         latency_ns = event.latency_ns
@@ -240,11 +290,18 @@ class IOTracer:
         cpu_id = event.cpu_id
         ppid = event.ppid
         bio_size = event.bio_size
+        
+        # Decode device number (dev_t) into major:minor for partition identification
+        # dev_t encoding: major in bits 8-19, minor in bits 0-19 (on most modern kernels)
+        dev = event.dev
+        major = (dev >> 20) & 0xfff if dev > 0 else 0
+        minor = dev & 0xfffff if dev > 0 else 0
+        dev_str = f"{major}:{minor}"
+        
+        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, latency_ms, tid, cpu_id, ppid, dev_str)
 
-        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, latency_ms, tid, nr_sectors, cpu_id, ppid)
 
-
-        if (sector == 0 and nr_sectors == 0) or (sector == '0' and nr_sectors == '0'):
+        if sector == 0 and bio_size == 0:
             if self.verbose:
                 print("="*50)
                 print("Warning: LBA 0 detected in block trace")
@@ -371,6 +428,12 @@ class IOTracer:
         self.b["events"].open_perf_buffer(
             self._print_event, 
             page_cnt=self.page_cnt, 
+            lost_cb=self._lost_cb
+        )
+
+        self.b["events_dual"].open_perf_buffer(
+            self._print_event_dual,
+            page_cnt=self.page_cnt,
             lost_cb=self._lost_cb
         )
 
