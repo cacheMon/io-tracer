@@ -127,24 +127,33 @@ Some operations (RENAME, LINK) involve two paths (source and destination). These
 - Event type (0-9)
 - Inode number
 - Page index (page offset within file)
-- **Filename** (resolved from inode when available)
-- **Size** (number of pages affected, typically 1 for single-page operations)
+- **Filename** (empty for cache events - see limitation below)
+- **Size** (file size in pages, calculated from inode)
 - **Offset** (byte offset in file, calculated as index * PAGE_SIZE)
-- **Count** (page count, useful for range operations like readahead/invalidation)
+- **Count** (number of pages affected by operation)
 
 **Output File:** `cache/cache_*.csv`
 
 **Format Example:**
 ```csv
-2024-01-15 10:23:45.123456,1234,python,HIT,5678,42,/tmp/test.dat,1,172032,1
-2024-01-15 10:23:45.234567,1234,python,READAHEAD,5678,50,/tmp/test.dat,8,204800,8
+2024-01-15 10:23:45.123456,1234,python,HIT,5678,42,,128,172032,1
+2024-01-15 10:23:45.234567,1234,python,READAHEAD,5678,50,,128,204800,8
 ```
 
 **Field Details:**
-- **filename:** Full path when resolvable, empty string for anonymous pages
-- **size:** Number of pages (typically 1, may be larger for huge pages or folios)
+- **filename:** Empty for cache events (see limitation below)
+- **size:** File size in pages (from inode->i_size >> 12)
 - **offset:** Byte offset (index * 4096 on x86_64)
-- **count:** Number of pages in operation (useful for bulk operations)
+- **count:** Number of pages in operation (1 for single-page, N for bulk operations)
+
+**Important Limitation - Filename Resolution:**
+The filename field is **always empty** for cache events due to eBPF constraints:
+- Cache events provide only: folio/page → address_space → inode
+- Resolving inode → filename requires accessing inode->i_dentry
+- inode->i_dentry is a list (hlist_head) of all hard links to the inode
+- Iterating complex data structures in eBPF is not practical
+- Use inode numbers to correlate with VFS events which do capture filenames
+- Post-processing can map inode numbers to filenames from filesystem snapshots
 
 **Note:** 
 - Cache events can be sampled using `--cache-sample-rate N` to reduce overhead (captures 1 in N events).
