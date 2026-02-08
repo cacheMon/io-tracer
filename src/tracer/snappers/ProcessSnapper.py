@@ -100,8 +100,12 @@ class ProcessSnapper:
                 out = format_csv_row(ts, pid, name, cmdline, virtual_mem, working_set_size, datetime.fromtimestamp(create_time), cpu_5s, cpu_2m, cpu_1h, status)
                 
                 self.wm.append_process_log(out)
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, Exception):
-                pass
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+                # Expected errors while iterating over system processes; skip this process.
+                logger.debug(f"Skipping process {getattr(proc, 'pid', 'unknown')} due to psutil error: {e}")
+            except Exception as e:
+                # Log unexpected errors to avoid silently hiding issues in the snapshot loop.
+                logger.warning("Unexpected error while collecting process snapshot data", exc_info=True)
 
     def process_snapshot(self):
         """
