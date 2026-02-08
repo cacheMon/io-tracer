@@ -115,12 +115,12 @@ class WriteManager:
         
         # Dynamic thresholds (min, max)
         self.dynamic_limits = {
-            'vfs': (3000, 500000),
-            'block': (1000, 50000),
+            'vfs': (8000, 500000),
+            'block': (8000, 50000),
             'cache': (20000, 1000000),
-            'network': (1000, 200000),
-            'fs_state': (500, 1000),
-            'proc_state': (200, 500)
+            'network': (8000, 200000),
+            'fs_state': (8000, 1000),
+            'proc_state': (8000, 10000)  # Match new process_max_events threshold
         }
         
         # Start adaptive sizing thread
@@ -130,11 +130,11 @@ class WriteManager:
 
         # Buffer flush thresholds
         self.cache_max_events = 20000
-        self.vfs_max_events = 3000
-        self.block_max_events = 1000
-        self.network_max_events = 1000
-        self.process_max_events = 200
-        self.fs_snap_max_events = 500
+        self.vfs_max_events = 8000
+        self.block_max_events = 8000
+        self.network_max_events = 8000
+        self.process_max_events = 8000  # Large enough to fit entire hourly snapshot
+        self.fs_snap_max_events = 8000
 
         # File handles for each output
         self._vfs_handle = None
