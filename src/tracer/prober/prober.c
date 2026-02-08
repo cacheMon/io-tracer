@@ -1634,7 +1634,7 @@ int trace_invalidate_mapping(struct pt_regs *ctx, struct address_space *mapping,
   data.pid = pid;
   data.type = CACHE_INVALIDATE;
   data.index = start;  // Set before calling populate_cache_metadata
-  data.count = (u32)(end - start);  // Page range
+  data.count = (end >= start) ? (u32)(end - start + 1) : 0;  // Inclusive page range
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   __builtin_memcpy(data.filename, "", 1);
 
