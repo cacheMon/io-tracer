@@ -76,6 +76,9 @@ class FilesystemSnapper:
         Args:
             max_depth: Maximum directory depth to traverse (default: 3)
         """
+        # Capture snapshot timestamp once for all files in this snapshot
+        snapshot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         def scan_dir(path: str, depth: int = 0):
             """Inner function for recursive directory scanning."""
             time.sleep(random.uniform(.2, .5))  
@@ -111,7 +114,7 @@ class FilesystemSnapper:
                                     hashed_rel = hash_rel_path(rel, keep_ext=True, length=12)
                                     hashed_path = os.path.join(os.sep, str(hashed_rel))
                                     hashed_path = hash_filename_in_path(Path(hashed_path))
-                                    out = format_csv_row(hashed_path, size, ctime, mtime)
+                                    out = format_csv_row(snapshot_timestamp, hashed_path, size, ctime, mtime)
                                     self.wm.append_fs_snap_log(out)
                                 else:
                                     est = entry.stat(follow_symlinks=False)
@@ -119,7 +122,7 @@ class FilesystemSnapper:
                                     hashed_path_str = hash_filename_in_path(Path(entry.path))
                                     ctime = datetime.fromtimestamp(getattr(est, "st_birthtime", est.st_mtime))
                                     mtime = datetime.fromtimestamp(est.st_mtime)
-                                    out = format_csv_row(hashed_path_str, size, ctime, mtime)
+                                    out = format_csv_row(snapshot_timestamp, hashed_path_str, size, ctime, mtime)
                                     self.wm.append_fs_snap_log(out)
                             elif entry.is_dir(follow_symlinks=False):
                                 scan_dir(entry.path, depth + 1)

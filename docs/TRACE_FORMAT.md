@@ -299,25 +299,22 @@ timestamp,pid,ppid,name,state,uid,gid,num_threads,cpu_percent,memory_percent,cmd
 ### CSV Format
 
 ```csv
-timestamp,path,size,mtime,permissions,owner,group,inode
+snapshot_timestamp,path,size,ctime,mtime
 ```
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `timestamp` | datetime | Snapshot timestamp |
-| `path` | string | Full file/directory path |
-| `size` | integer | File size in bytes (0 for directories) |
-| `mtime` | float | Modification time (Unix timestamp) |
-| `permissions` | string | Octal permissions (e.g., "0644") |
-| `owner` | string | Owner username or UID |
-| `group` | string | Group name or GID |
-| `inode` | integer | Inode number |
+| `snapshot_timestamp` | datetime | When the snapshot was taken (YYYY-MM-DD HH:MM:SS) |
+| `path` | string | Full file/directory path (hashed if in anonymous mode) |
+| `size` | integer | File size in bytes |
+| `ctime` | datetime | File creation/metadata change time |
+| `mtime` | datetime | File modification time |
 
 ### Example Rows
 
 ```csv
-2024-01-15 10:00:00.000000,/home/user/data.txt,1048576,1705316400.0,0644,user,user,789012
-2024-01-15 10:00:00.000000,/home/user/scripts,4096,1705316400.0,0755,user,user,789013
+2024-01-15 10:00:00,/home/user/data.txt,1048576,2024-01-15 09:30:00,2024-01-15 09:45:00
+2024-01-15 10:00:00,/home/user/scripts/backup.sh,2048,2024-01-14 15:20:00,2024-01-15 08:10:00
 ```
 
 ---

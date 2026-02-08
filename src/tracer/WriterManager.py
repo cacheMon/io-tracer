@@ -119,13 +119,18 @@ class WriteManager:
             'block': (8000, 50000),
             'cache': (20000, 1000000),
             'network': (8000, 200000),
-            'fs_state': (8000, 1000),
+            'fs_state': (8000, 20000),
             'proc_state': (8000, 10000)  # Match new process_max_events threshold
         }
         
         # Start adaptive sizing thread
         self.adaptive_thread = threading.Thread(target=self._adaptive_sizing, daemon=True)
         self.adaptive_thread.start()
+        
+        # Start periodic flush thread (every 20 minutes)
+        self._periodic_flush_active = True
+        self.periodic_flush_thread = threading.Thread(target=self._periodic_flush, daemon=True)
+        self.periodic_flush_thread.start()
         
 
         # Buffer flush thresholds
@@ -203,6 +208,22 @@ class WriteManager:
                     self.fs_snap_max_events = new_limit
                 elif event_type == 'proc_state':
                     self.process_max_events = new_limit
+
+    def _periodic_flush(self):
+        """
+        Background thread that flushes all buffers every 5 minutes.
+        
+        This ensures data is written to disk periodically even if buffers
+        haven't reached their thresholds, preventing data loss and reducing
+        memory usage during long traces.
+        """
+        while self._periodic_flush_active:
+            time.sleep(1200)  # 1200 seconds = 20 minutes
+            if self._periodic_flush_active:  # Check again in case stopped during sleep
+                try:
+                    self.write_to_disk()
+                except Exception as e:
+                    logger("error", f"Error in periodic flush: {e}")
 
     def set_cache_sampling(self, sample_rate: int):
         """
@@ -621,7 +642,10 @@ class WriteManager:
         
 
     def close_handles(self):
-        """Close all open file handles."""
+        """Close all open file handles and stop background threads."""
+        # Stop periodic flush thread
+        self._periodic_flush_active = False
+        
         handles = [
             (self._vfs_handle, "VFS"),
             (self._block_handle, "Block"), 
