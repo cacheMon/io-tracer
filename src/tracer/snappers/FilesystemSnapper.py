@@ -81,7 +81,7 @@ class FilesystemSnapper:
         
         def scan_dir(path: str, depth: int = 0):
             """Inner function for recursive directory scanning."""
-            time.sleep(random.uniform(.2, .5))  
+            time.sleep(0.02) 
             if self.interrupt or (max_depth is not None and depth > max_depth):
                 return
             try:
