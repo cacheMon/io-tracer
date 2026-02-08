@@ -82,12 +82,12 @@ Some operations (RENAME, LINK) involve two paths (source and destination). These
 - Process ID and name
 - Sector location (LBA)
 - Operation type (read, write, discard, etc.)
-- I/O size (in sectors/bytes)
+- I/O size (in bytes)
 - Latency (in milliseconds)
 - Thread ID
 - CPU ID
 - Parent Process ID
-- **Device number (major:minor)** - identifies the partition/device
+- Device number (major:minor) - identifies the partition/device
 
 **Output File:** `block_events.csv`
 

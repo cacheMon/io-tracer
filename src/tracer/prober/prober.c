@@ -138,7 +138,6 @@ struct block_event {
   u32 pid;
   char comm[TASK_COMM_LEN];
   u64 sector;
-  u32 nr_sectors;
   char op[OP_LEN];
 
   u32 tid;
@@ -1140,7 +1139,6 @@ TRACEPOINT_PROBE(block, block_rq_complete) {
   }
 
   event.sector = args->sector;
-  event.nr_sectors = args->nr_sector;
   
   // Protect against overflow in bio_size calculation
   if (args->nr_sector > (1ULL << 52)) {

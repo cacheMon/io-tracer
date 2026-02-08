@@ -283,7 +283,6 @@ class IOTracer:
         tid = event.tid
         comm = event.comm.decode('utf-8', errors='replace')
         sector = event.sector
-        nr_sectors = event.nr_sectors
         ops_str = event.op.decode('utf-8', errors='replace')
         ops_str = self.flag_mapper.format_block_ops(ops_str)
         latency_ns = event.latency_ns
@@ -299,10 +298,10 @@ class IOTracer:
         minor = dev & 0xfffff if dev > 0 else 0
         dev_str = f"{major}:{minor}"
         
-        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, latency_ms, tid, nr_sectors, cpu_id, ppid, dev_str)
+        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, latency_ms, tid, cpu_id, ppid, dev_str)
 
 
-        if (sector == 0 and nr_sectors == 0) or (sector == '0' and nr_sectors == '0'):
+        if sector == 0 and bio_size == 0:
             if self.verbose:
                 print("="*50)
                 print("Warning: LBA 0 detected in block trace")
