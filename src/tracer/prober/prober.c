@@ -1666,8 +1666,18 @@ int trace_truncate_pages(struct pt_regs *ctx, struct address_space *mapping,
   data.pid = pid;
   data.type = CACHE_INVALIDATE;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
-  data.index = (pgoff_t)(lstart >> 12);  // Convert byte offset to page index
-  data.count = (u32)((lend - lstart) >> 12);  // Pages in range
+
+  /* Compute page range using PAGE_SHIFT to avoid hardcoded page size and
+   * off-by-one issues if lend is inclusive.
+   */
+  pgoff_t start_index = (pgoff_t)(lstart >> PAGE_SHIFT);
+  pgoff_t end_index = (pgoff_t)(lend >> PAGE_SHIFT);
+
+  data.index = start_index;  // starting page index
+  if (end_index >= start_index)
+    data.count = (u32)(end_index - start_index + 1);
+  else
+    data.count = 0;
   __builtin_memcpy(data.filename, "", 1);
 
   if (mapping) {
