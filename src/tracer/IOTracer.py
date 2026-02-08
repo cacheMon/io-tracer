@@ -251,21 +251,6 @@ class IOTracer:
             8: "READAHEAD",
             9: "RECLAIM"
         }
-        reclaim_sources = {
-            0: "NONE",
-            1: "DIRECT",
-            2: "KSWAPD",
-            3: "DROP",
-            4: "INVALIDATE"
-        }
-        lru_types = {
-            0: "UNKNOWN",
-            1: "INACTIVE_ANON",
-            2: "ACTIVE_ANON",
-            3: "INACTIVE_FILE",
-            4: "ACTIVE_FILE",
-            5: "UNEVICTABLE"
-        }
         event_name = event_types.get(event.type, "UNKNOWN")
         inode = event.inode if event.inode != 0 else ""
         index = event.index if event.index != 0 else ""
@@ -275,10 +260,8 @@ class IOTracer:
         cpu_id = event.cpu_id if hasattr(event, 'cpu_id') else ""
         dev_id = event.dev_id if hasattr(event, 'dev_id') else ""
         count = event.count if hasattr(event, 'count') else ""
-        reclaim_source = reclaim_sources.get(event.reclaim_source, "UNKNOWN") if hasattr(event, 'reclaim_source') else ""
-        lru_type = lru_types.get(event.lru_type, "UNKNOWN") if hasattr(event, 'lru_type') else ""
 
-        output = format_csv_row(timestamp, pid, comm, event_name, inode, index, size, cpu_id, dev_id, count, reclaim_source, lru_type)
+        output = format_csv_row(timestamp, pid, comm, event_name, inode, index, size, cpu_id, dev_id, count)
         self.writer.append_cache_log(output)
 
     def _print_event_block(self, cpu, data, size):        
