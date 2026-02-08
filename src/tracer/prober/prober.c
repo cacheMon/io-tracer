@@ -442,12 +442,28 @@ static void populate_cache_metadata(struct cache_data *data, struct inode *inode
 
 /* Helper function to determine LRU type from page/folio flags */
 static u8 get_lru_type_from_flags(unsigned long flags) {
-  // PG_active bit
-  bool active = flags & (1UL << 6);  // PG_active is bit 6
-  // PG_swapbacked bit (indicates anon vs file)
-  bool swapbacked = flags & (1UL << 18);  // PG_swapbacked is bit 18
-  // PG_unevictable bit
-  bool unevictable = flags & (1UL << 19);  // PG_unevictable is bit 19
+  // Check if page has any flags set at all
+  if (flags == 0) {
+    return CACHE_LRU_UNKNOWN;
+  }
+  
+  // PG_active bit (bit 5 in many kernel versions, bit 6 in others)
+  // Try both common positions
+  bool active = (flags & (1UL << 5)) || (flags & (1UL << 6));
+  
+  // PG_swapbacked indicates anon vs file-backed
+  // Commonly at bit 18
+  bool swapbacked = flags & (1UL << 18);
+  
+  // PG_unevictable bit (commonly bit 19)
+  bool unevictable = flags & (1UL << 19);
+  
+  // PG_lru bit (commonly bit 4 or 5) - check if page is on any LRU
+  bool on_lru = (flags & (1UL << 4)) || (flags & (1UL << 5));
+  
+  if (!on_lru) {
+    return CACHE_LRU_UNKNOWN;
+  }
   
   if (unevictable) {
     return CACHE_LRU_UNEVICTABLE;
@@ -1613,7 +1629,18 @@ int trace_filemap_remove_folio(struct pt_regs *ctx, struct folio *folio) {
   data.pid = pid;
   data.type = CACHE_EVICT;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
-  data.reclaim_source = RECLAIM_NONE;  // General eviction
+  
+  // Detect reclaim context from process name
+  // kswapd process indicates background reclaim
+  if (data.comm[0] == 'k' && data.comm[1] == 's' && data.comm[2] == 'w' && 
+      data.comm[3] == 'a' && data.comm[4] == 'p' && data.comm[5] == 'd') {
+    data.reclaim_source = RECLAIM_KSWAPD;
+  } else if (pid > 0) {
+    // Non-kswapd process doing eviction likely in direct reclaim
+    data.reclaim_source = RECLAIM_DIRECT;
+  } else {
+    data.reclaim_source = RECLAIM_NONE;
+  }
   data.lru_type = CACHE_LRU_UNKNOWN;
 
   if (folio) {
@@ -1621,10 +1648,16 @@ int trace_filemap_remove_folio(struct pt_regs *ctx, struct folio *folio) {
     bpf_probe_read_kernel(&mapping, sizeof(mapping), &folio->mapping);
     bpf_probe_read_kernel(&data.index, sizeof(data.index), &folio->index);
 
-    // Get LRU type from folio flags
+    // Get LRU type from folio/page flags
+    // In folio, flags are in the first page (folio is a page array)
+    // Try reading flags from folio as if it were a page struct
     unsigned long flags = 0;
-    bpf_probe_read_kernel(&flags, sizeof(flags), &folio->flags);
-    data.lru_type = get_lru_type_from_flags(flags);
+    // Cast folio pointer to page pointer to read flags
+    struct page *p = (struct page *)folio;
+    bpf_probe_read_kernel(&flags, sizeof(flags), &p->flags);
+    if (flags != 0) {
+      data.lru_type = get_lru_type_from_flags(flags);
+    }
 
     if (mapping) {
       struct inode *host = NULL;
@@ -1656,7 +1689,16 @@ int trace_delete_from_page_cache(struct pt_regs *ctx, struct page *page) {
   data.pid = pid;
   data.type = CACHE_EVICT;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
-  data.reclaim_source = RECLAIM_NONE;  // General eviction
+  
+  // Detect reclaim context from process name
+  if (data.comm[0] == 'k' && data.comm[1] == 's' && data.comm[2] == 'w' && 
+      data.comm[3] == 'a' && data.comm[4] == 'p' && data.comm[5] == 'd') {
+    data.reclaim_source = RECLAIM_KSWAPD;
+  } else if (pid > 0) {
+    data.reclaim_source = RECLAIM_DIRECT;
+  } else {
+    data.reclaim_source = RECLAIM_NONE;
+  }
   data.lru_type = CACHE_LRU_UNKNOWN;
 
   if (page) {
@@ -1667,7 +1709,9 @@ int trace_delete_from_page_cache(struct pt_regs *ctx, struct page *page) {
     // Get LRU type from page flags
     unsigned long flags = 0;
     bpf_probe_read_kernel(&flags, sizeof(flags), &page->flags);
-    data.lru_type = get_lru_type_from_flags(flags);
+    if (flags != 0) {
+      data.lru_type = get_lru_type_from_flags(flags);
+    }
 
     if (mapping) {
       struct inode *host = NULL;
@@ -1811,10 +1855,13 @@ int trace_cache_drop_folio(struct pt_regs *ctx, struct address_space *mapping,
   if (folio) {
     bpf_probe_read_kernel(&data.index, sizeof(data.index), &folio->index);
     
-    // Get LRU type from folio flags
+    // Get LRU type from folio/page flags
     unsigned long flags = 0;
-    bpf_probe_read_kernel(&flags, sizeof(flags), &folio->flags);
-    data.lru_type = get_lru_type_from_flags(flags);
+    struct page *p = (struct page *)folio;
+    bpf_probe_read_kernel(&flags, sizeof(flags), &p->flags);
+    if (flags != 0) {
+      data.lru_type = get_lru_type_from_flags(flags);
+    }
   }
 
   if (mapping) {
@@ -1857,7 +1904,9 @@ int trace_cache_drop_page(struct pt_regs *ctx, struct page *page) {
     // Get LRU type from page flags
     unsigned long flags = 0;
     bpf_probe_read_kernel(&flags, sizeof(flags), &page->flags);
-    data.lru_type = get_lru_type_from_flags(flags);
+    if (flags != 0) {
+      data.lru_type = get_lru_type_from_flags(flags);
+    }
 
     if (mapping) {
       struct inode *host = NULL;
