@@ -215,6 +215,9 @@ BPF_HASH(tracer_config, u32, u32, 1);
 BPF_HASH(tcp_recv_ctx, u64, struct sock *);
 BPF_HASH(udp_recv_ctx, u64, struct sock *);
 
+// Per-CPU array for dual-path operations to avoid stack limit (data_dual_t is 572 bytes, stack limit is 512)
+BPF_PERCPU_ARRAY(dual_data_buffer, struct data_dual_t, 1);
+
 BPF_PERF_OUTPUT(events);
 BPF_PERF_OUTPUT(events_dual);
 BPF_PERF_OUTPUT(bl_events);
@@ -878,24 +881,29 @@ int trace_vfs_rename(struct pt_regs *ctx, struct inode *old_dir,
     return 0;
   }
 
-  struct data_dual_t data = {};
-  data.pid = pid;
-  data.ts = bpf_ktime_get_ns();
-  bpf_get_current_comm(&data.comm, sizeof(data.comm));
-  data.op = OP_RENAME;
+  // Use per-CPU array to avoid stack limit (data_dual_t is 572 bytes, stack limit is 512)
+  u32 zero = 0;
+  struct data_dual_t *data = dual_data_buffer.lookup(&zero);
+  if (!data) {
+    return 0;
+  }
+  data->pid = pid;
+  data->ts = bpf_ktime_get_ns();
+  bpf_get_current_comm(&data->comm, sizeof(data->comm));
+  data->op = OP_RENAME;
 
   // Get old path and inode
-  data.inode_old = get_file_inode_from_dentry(old_dentry);
-  get_file_path_from_dentry(old_dentry, data.filename_old, sizeof(data.filename_old));
+  data->inode_old = get_file_inode_from_dentry(old_dentry);
+  get_file_path_from_dentry(old_dentry, data->filename_old, sizeof(data->filename_old));
 
   // Get new path and inode
-  data.inode_new = get_file_inode_from_dentry(new_dentry);
-  get_file_path_from_dentry(new_dentry, data.filename_new, sizeof(data.filename_new));
+  data->inode_new = get_file_inode_from_dentry(new_dentry);
+  get_file_path_from_dentry(new_dentry, data->filename_new, sizeof(data->filename_new));
 
-  data.flags = 0;
-  data.latency_ns = 0;
+  data->flags = 0;
+  data->latency_ns = 0;
 
-  events_dual.perf_submit(ctx, &data, sizeof(data));
+  events_dual.perf_submit(ctx, data, sizeof(*data));
   return 0;
 }
 
@@ -974,24 +982,29 @@ int trace_vfs_link(struct pt_regs *ctx, struct dentry *old_dentry,
     return 0;
   }
 
-  struct data_dual_t data = {};
-  data.pid = pid;
-  data.ts = bpf_ktime_get_ns();
-  bpf_get_current_comm(&data.comm, sizeof(data.comm));
-  data.op = OP_LINK;
+  // Use per-CPU array to avoid stack limit
+  u32 zero = 0;
+  struct data_dual_t *data = dual_data_buffer.lookup(&zero);
+  if (!data) {
+    return 0;
+  }
+  data->pid = pid;
+  data->ts = bpf_ktime_get_ns();
+  bpf_get_current_comm(&data->comm, sizeof(data->comm));
+  data->op = OP_LINK;
 
   // Get old path and inode
-  data.inode_old = get_file_inode_from_dentry(old_dentry);
-  get_file_path_from_dentry(old_dentry, data.filename_old, sizeof(data.filename_old));
+  data->inode_old = get_file_inode_from_dentry(old_dentry);
+  get_file_path_from_dentry(old_dentry, data->filename_old, sizeof(data->filename_old));
 
   // Get new path and inode
-  data.inode_new = get_file_inode_from_dentry(new_dentry);
-  get_file_path_from_dentry(new_dentry, data.filename_new, sizeof(data.filename_new));
+  data->inode_new = get_file_inode_from_dentry(new_dentry);
+  get_file_path_from_dentry(new_dentry, data->filename_new, sizeof(data->filename_new));
 
-  data.flags = 0;
-  data.latency_ns = 0;
+  data->flags = 0;
+  data->latency_ns = 0;
 
-  events_dual.perf_submit(ctx, &data, sizeof(data));
+  events_dual.perf_submit(ctx, data, sizeof(*data));
   return 0;
 }
 
@@ -1010,26 +1023,31 @@ int trace_vfs_symlink(struct pt_regs *ctx, struct inode *dir,
     return 0;
   }
 
-  struct data_dual_t data = {};
-  data.pid = pid;
-  data.ts = bpf_ktime_get_ns();
-  bpf_get_current_comm(&data.comm, sizeof(data.comm));
-  data.op = OP_SYMLINK;
+  // Use per-CPU array to avoid stack limit
+  u32 zero = 0;
+  struct data_dual_t *data = dual_data_buffer.lookup(&zero);
+  if (!data) {
+    return 0;
+  }
+  data->pid = pid;
+  data->ts = bpf_ktime_get_ns();
+  bpf_get_current_comm(&data->comm, sizeof(data->comm));
+  data->op = OP_SYMLINK;
   
   // filename_old is the target of the symlink
   if (oldname) {
-    bpf_probe_read_kernel_str(data.filename_old, sizeof(data.filename_old), oldname);
+    bpf_probe_read_kernel_str(data->filename_old, sizeof(data->filename_old), oldname);
   }
   
   // filename_new is the link name
-  get_file_path_from_dentry(dentry, data.filename_new, sizeof(data.filename_new));
+  get_file_path_from_dentry(dentry, data->filename_new, sizeof(data->filename_new));
   
-  data.inode_old = 0;
-  data.inode_new = get_file_inode_from_dentry(dentry);
-  data.flags = 0;
-  data.latency_ns = 0;
+  data->inode_old = 0;
+  data->inode_new = get_file_inode_from_dentry(dentry);
+  data->flags = 0;
+  data->latency_ns = 0;
 
-  events_dual.perf_submit(ctx, &data, sizeof(data));
+  events_dual.perf_submit(ctx, data, sizeof(*data));
   return 0;
 }
 
@@ -1140,12 +1158,8 @@ TRACEPOINT_PROBE(block, block_rq_complete) {
 
   event.sector = args->sector;
   
-  // Protect against overflow in bio_size calculation
-  if (args->nr_sector > (1ULL << 52)) {
-    event.bio_size = 0;
-  } else {
-    event.bio_size = ((u64)args->nr_sector) << 9;
-  }
+  // Calculate bio_size (nr_sector is u32, so shifting by 9 never overflows u64)
+  event.bio_size = ((u64)args->nr_sector) << 9;
   
   event.latency_ns = latency;
   event.flags = 0;  // Reserved for future use
