@@ -70,40 +70,65 @@ class ProcessSnapper:
         self.running = False
         self.sampler.stop()
 
+    def _take_snapshot(self):
+        """
+        Capture a single process snapshot.
+        
+        Iterates through all running processes, collecting process
+        information and CPU utilization data.
+        """
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for proc in psutil.process_iter(['pid', 'name', 'memory_info','cmdline','create_time','status']):
+            time.sleep(random.uniform(.2, .5))
+            try:
+                ts = timestamp
+                pid = proc.info['pid']
+                name = proc.info['name'] or ''
+                working_set_size = proc.info['memory_info'].rss / 1024 
+                virtual_mem = proc.info['memory_info'].vms / 1024
+                cmdline = ' '.join(proc.info['cmdline'])
+                if self.anonymous:
+                    cmdline = simple_hash(cmdline, length=12)
+                create_time = float(proc.info['create_time'])
+                status = proc.info.get('status','')
+
+
+                cpu_5s = self.sampler.cpu_percent_for_interval(pid, create_time, 5.0) or 0.0
+                cpu_2m = self.sampler.cpu_percent_for_interval(pid, create_time, 120.0) or 0.0
+                cpu_1h = self.sampler.cpu_percent_for_interval(pid, create_time, 3600.0) or 0.0
+
+                out = format_csv_row(ts, pid, name, cmdline, virtual_mem, working_set_size, datetime.fromtimestamp(create_time), cpu_5s, cpu_2m, cpu_1h, status)
+                
+                self.wm.append_process_log(out)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, Exception):
+                pass
+
     def process_snapshot(self):
         """
-        Main loop for capturing process snapshots.
+        Main loop for capturing process snapshots every hour.
         
-        Iterates through all running processes at 60-second intervals,
+        Iterates through all running processes hourly,
         collecting process information and CPU utilization data.
         """
+        last_snapshot_time = None
+        
         while self.running:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            for proc in psutil.process_iter(['pid', 'name', 'memory_info','cmdline','create_time','status']):
-                time.sleep(random.uniform(.2, .5))
-                try:
-                    ts = timestamp
-                    pid = proc.info['pid']
-                    name = proc.info['name'] or ''
-                    working_set_size = proc.info['memory_info'].rss / 1024 
-                    virtual_mem = proc.info['memory_info'].vms / 1024
-                    cmdline = ' '.join(proc.info['cmdline'])
-                    if self.anonymous:
-                        cmdline = simple_hash(cmdline, length=12)
-                    create_time = float(proc.info['create_time'])
-                    status = proc.info.get('status','')
-
-
-                    cpu_5s = self.sampler.cpu_percent_for_interval(pid, create_time, 5.0) or 0.0
-                    cpu_2m = self.sampler.cpu_percent_for_interval(pid, create_time, 120.0) or 0.0
-                    cpu_1h = self.sampler.cpu_percent_for_interval(pid, create_time, 3600.0) or 0.0
-
-                    out = format_csv_row(ts, pid, name, cmdline, virtual_mem, working_set_size, datetime.fromtimestamp(create_time), cpu_5s, cpu_2m, cpu_1h, status)
-                    
-                    self.wm.append_process_log(out)
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, Exception):
-                    pass
-            time.sleep(60)
+            current_time = time.time()
+            
+            # Check if we should take a snapshot
+            if last_snapshot_time is None:
+                # First snapshot - run immediately
+                self._take_snapshot()
+                last_snapshot_time = time.time()
+            else:
+                # Check if one hour has passed since last snapshot
+                time_since_last_snapshot = current_time - last_snapshot_time
+                if time_since_last_snapshot >= 3600:  # 3600 seconds = 1 hour
+                    self._take_snapshot()
+                    last_snapshot_time = time.time()
+                else:
+                    # Less than one hour ago - sleep 1 minute
+                    time.sleep(60)
 
     def run(self):
         """Start the process snapshot in a background daemon thread."""
