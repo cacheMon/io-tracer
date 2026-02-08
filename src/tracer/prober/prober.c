@@ -357,7 +357,7 @@ static int get_file_path(struct file *file, char *buf, int size) {
   if (name_ptr) {
     ssize_t len = bpf_probe_read_kernel_str(buf, size, name_ptr);
     volatile char first_char = buf[0];
-    if (len <= 0 | first_char == '\0') {
+    if (len <= 0 || first_char == '\0') {
       __builtin_memcpy(buf, "", 1);
     }
   } else {
@@ -656,7 +656,7 @@ int trace_munmap(struct pt_regs *ctx, unsigned long addr, size_t len) {
   data.op = OP_MUNMAP;
   data.inode = 0;
   data.size = len;
-  __builtin_memcpy(data.filename, "", 9);
+  __builtin_memcpy(data.filename, "", 1);
   data.flags = 0;
 
   events.perf_submit(ctx, &data, sizeof(data));
@@ -867,7 +867,7 @@ int trace_ksys_sync(struct pt_regs *ctx) {
   data.op = OP_SYNC;
   data.inode = 0;
   data.size = 0;
-  __builtin_memcpy(data.filename, "", 11);
+  __builtin_memcpy(data.filename, "", 1);
   data.flags = 0;
 
   events.perf_submit(ctx, &data, sizeof(data));

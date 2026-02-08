@@ -116,10 +116,10 @@ class FilesystemSnapper:
                                 else:
                                     est = entry.stat(follow_symlinks=False)
                                     size = est.st_size
-                                    path = hash_filename_in_path(Path(entry.path))
+                                    hashed_path_str = hash_filename_in_path(Path(entry.path))
                                     ctime = datetime.fromtimestamp(getattr(est, "st_birthtime", est.st_mtime))
                                     mtime = datetime.fromtimestamp(est.st_mtime)
-                                    out = format_csv_row(path, size, ctime, mtime)
+                                    out = format_csv_row(hashed_path_str, size, ctime, mtime)
                                     self.wm.append_fs_snap_log(out)
                             elif entry.is_dir(follow_symlinks=False):
                                 scan_dir(entry.path, depth + 1)
