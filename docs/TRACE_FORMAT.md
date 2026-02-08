@@ -169,7 +169,7 @@ timestamp,pid,command,sector,operation,size,latency_ms,tid,nr_sectors,cpu_id,ppi
 ### CSV Format
 
 ```csv
-timestamp,pid,command,event_type,inode,index,filename,size,offset,count
+timestamp,pid,command,event_type,inode,index,size,offset,count
 ```
 
 | Column | Type | Description |
@@ -180,7 +180,6 @@ timestamp,pid,command,event_type,inode,index,filename,size,offset,count
 | `event_type` | string | Cache event type (see below) |
 | `inode` | integer | Inode number (0 if unavailable) |
 | `index` | integer | Page cache index (page number) |
-| `filename` | string | File path (empty if unavailable) |
 | `size` | integer | File size in bytes (0 if unavailable) |
 | `offset` | integer | Byte offset in file (index × 4096) |
 | `count` | integer | Number of pages affected |
@@ -203,12 +202,12 @@ timestamp,pid,command,event_type,inode,index,filename,size,offset,count
 ### Example Rows
 
 ```csv
-2024-01-15 10:30:45.123456,1234,python3,HIT,789012,100,/home/user/data.txt,1048576,409600,1
-2024-01-15 10:30:45.234567,1234,python3,MISS,789012,101,/home/user/data.txt,1048576,413696,1
-2024-01-15 10:30:45.345678,1234,python3,DIRTY,789012,100,/home/user/data.txt,1048576,409600,1
-2024-01-15 10:30:45.456789,0,kworker,WRITEBACK_START,789012,100,/home/user/data.txt,1048576,409600,1
-2024-01-15 10:30:45.567890,0,kworker,WRITEBACK_END,789012,100,/home/user/data.txt,1048576,409600,1
-2024-01-15 10:30:45.678901,1234,python3,READAHEAD,789012,102,/home/user/data.txt,1048576,417792,8
+2024-01-15 10:30:45.123456,1234,python3,HIT,789012,100,1048576,409600,1
+2024-01-15 10:30:45.234567,1234,python3,MISS,789012,101,1048576,413696,1
+2024-01-15 10:30:45.345678,1234,python3,DIRTY,789012,100,1048576,409600,1
+2024-01-15 10:30:45.456789,0,kworker,WRITEBACK_START,789012,100,1048576,409600,1
+2024-01-15 10:30:45.567890,0,kworker,WRITEBACK_END,789012,100,1048576,409600,1
+2024-01-15 10:30:45.678901,1234,python3,READAHEAD,789012,102,1048576,417792,8
 ```
 
 **Note:** Cache events may be sampled. Check the tracer log for the current sampling rate (e.g., "Cache sampling enabled: 1:10" means 1 in 10 events are recorded).

@@ -255,13 +255,12 @@ class IOTracer:
         inode = event.inode if event.inode != 0 else ""
         index = event.index if event.index != 0 else ""
         
-        # New fields added to cache events
-        filename = event.filename.decode('utf-8', errors='replace') if hasattr(event, 'filename') else ""
+        # Cache event metadata
         size = event.size if hasattr(event, 'size') else ""
         offset = event.offset if hasattr(event, 'offset') else ""
         count = event.count if hasattr(event, 'count') else ""
 
-        output = format_csv_row(timestamp, pid, comm, event_name, inode, index, filename, size, offset, count)
+        output = format_csv_row(timestamp, pid, comm, event_name, inode, index, size, offset, count)
         self.writer.append_cache_log(output)
 
     def _print_event_block(self, cpu, data, size):        
