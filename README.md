@@ -46,6 +46,9 @@ For more distros, visit the official [BCC's installation guide](https://github.c
 sudo apt install python3-psutil
 sudo apt install python3-requests
 
+python3 -m pip install bcc pytest
+
+
 # ... (adjust the package manager for other distros)
 ```
 
