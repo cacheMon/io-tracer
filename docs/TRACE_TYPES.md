@@ -185,13 +185,15 @@ The filename field is **always empty** for cache events due to eBPF constraints:
 
 ## Snapshot Types
 
-Snapshots are captured at trace start to provide system context and are not collected continuously.
+Snapshots provide system context during tracing.
 
 ### 1. Filesystem Snapshot
 
-**Description:** Records the state of the filesystem at trace start, capturing file paths, sizes, and timestamps.
+**Description:** Records the state of the filesystem at trace start and periodically during the trace, capturing file paths, sizes, and timestamps.
 
 **Collection Method:**
+- First snapshot runs at trace start
+- Subsequent snapshots are captured every hour (3600 seconds)
 - Walks the filesystem hierarchy starting from `/`
 - Records files up to configurable depth (default: 3)
 - Skips files on different filesystems/devices
