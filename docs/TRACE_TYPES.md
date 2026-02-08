@@ -87,6 +87,7 @@ Some operations (RENAME, LINK) involve two paths (source and destination). These
 - Thread ID
 - CPU ID
 - Parent Process ID
+- **Device number (major:minor)** - identifies the partition/device
 
 **Output File:** `block_events.csv`
 

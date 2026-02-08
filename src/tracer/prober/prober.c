@@ -147,6 +147,7 @@ struct block_event {
   u32 flags;
   u64 bio_size;
   u64 latency_ns;
+  u32 dev;        // device number (major:minor) for partition identification
 };
 
 enum cache_event_type {
@@ -1150,6 +1151,11 @@ TRACEPOINT_PROBE(block, block_rq_complete) {
   
   event.latency_ns = latency;
   event.flags = 0;  // Reserved for future use
+  
+  // Capture device number for partition identification
+  // dev contains major:minor encoding (major in bits 8-15, minor in bits 0-7 on older kernels,
+  // or major in bits 8-15, minor in bits 0-15 with extensions on newer kernels)
+  event.dev = args->dev;
 
   bpf_probe_read_kernel(&event.op, sizeof(event.op), &args->rwbs);
 

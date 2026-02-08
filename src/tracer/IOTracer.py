@@ -291,8 +291,15 @@ class IOTracer:
         cpu_id = event.cpu_id
         ppid = event.ppid
         bio_size = event.bio_size
-
-        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, latency_ms, tid, nr_sectors, cpu_id, ppid)
+        
+        # Decode device number (dev_t) into major:minor for partition identification
+        # dev_t encoding: major in bits 8-19, minor in bits 0-19 (on most modern kernels)
+        dev = event.dev
+        major = (dev >> 20) & 0xfff if dev > 0 else 0
+        minor = dev & 0xfffff if dev > 0 else 0
+        dev_str = f"{major}:{minor}"
+        
+        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, latency_ms, tid, nr_sectors, cpu_id, ppid, dev_str)
 
 
         if (sector == 0 and nr_sectors == 0) or (sector == '0' and nr_sectors == '0'):
