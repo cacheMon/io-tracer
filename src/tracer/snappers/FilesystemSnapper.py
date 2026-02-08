@@ -109,12 +109,13 @@ class FilesystemSnapper:
                                     size = est.st_size
                                     ctime = datetime.fromtimestamp(getattr(est, "st_birthtime", est.st_mtime))
                                     mtime = datetime.fromtimestamp(est.st_mtime)
+                                    atime = datetime.fromtimestamp(est.st_atime)
 
                                     rel = Path(os.path.relpath(entry.path, start=self.root_path))
                                     hashed_rel = hash_rel_path(rel, keep_ext=True, length=12)
                                     hashed_path = os.path.join(os.sep, str(hashed_rel))
                                     hashed_path = hash_filename_in_path(Path(hashed_path))
-                                    out = format_csv_row(snapshot_timestamp, hashed_path, size, ctime, mtime)
+                                    out = format_csv_row(snapshot_timestamp, hashed_path, size, ctime, mtime, atime)
                                     self.wm.append_fs_snap_log(out)
                                 else:
                                     est = entry.stat(follow_symlinks=False)
@@ -122,7 +123,8 @@ class FilesystemSnapper:
                                     hashed_path_str = hash_filename_in_path(Path(entry.path))
                                     ctime = datetime.fromtimestamp(getattr(est, "st_birthtime", est.st_mtime))
                                     mtime = datetime.fromtimestamp(est.st_mtime)
-                                    out = format_csv_row(snapshot_timestamp, hashed_path_str, size, ctime, mtime)
+                                    atime = datetime.fromtimestamp(est.st_atime)
+                                    out = format_csv_row(snapshot_timestamp, hashed_path_str, size, ctime, mtime, atime)
                                     self.wm.append_fs_snap_log(out)
                             elif entry.is_dir(follow_symlinks=False):
                                 scan_dir(entry.path, depth + 1)

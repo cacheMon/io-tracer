@@ -302,7 +302,7 @@ timestamp,pid,ppid,name,state,uid,gid,num_threads,cpu_percent,memory_percent,cmd
 ### CSV Format
 
 ```csv
-snapshot_timestamp,path,size,ctime,mtime
+snapshot_timestamp,path,size,ctime,mtime,atime
 ```
 
 | Column | Type | Description |
@@ -312,12 +312,13 @@ snapshot_timestamp,path,size,ctime,mtime
 | `size` | integer | File size in bytes |
 | `ctime` | datetime | File creation/metadata change time |
 | `mtime` | datetime | File modification time |
+| `atime` | datetime | File last access time |
 
 ### Example Rows
 
 ```csv
-2024-01-15 10:00:00,/home/user/data.txt,1048576,2024-01-15 09:30:00,2024-01-15 09:45:00
-2024-01-15 10:00:00,/home/user/scripts/backup.sh,2048,2024-01-14 15:20:00,2024-01-15 08:10:00
+2024-01-15 10:00:00,/home/user/data.txt,1048576,2024-01-15 09:30:00,2024-01-15 09:45:00,2024-01-15 09:50:00
+2024-01-15 10:00:00,/home/user/scripts/backup.sh,2048,2024-01-14 15:20:00,2024-01-15 08:10:00,2024-01-15 09:30:00
 ```
 
 ---
