@@ -403,10 +403,10 @@ static void populate_cache_metadata(struct cache_data *data, struct inode *inode
   // Try to get file size in pages
   loff_t file_size = 0;
   bpf_probe_read_kernel(&file_size, sizeof(file_size), &inode->i_size);
-  data->size = (u32)(file_size >> 12);  // Convert bytes to number of 4KB pages
+  data->size = (u32)(file_size >> PAGE_SHIFT);  // Convert bytes to number of pages
   
   // Calculate file offset from page index (must be set before calling this)
-  data->offset = data->index << 12;  // page_index * 4096
+  data->offset = data->index << PAGE_SHIFT;  // page_index * PAGE_SIZE
   
   // Set count to 1 for single-page operations if not already set
   if (data->count == 0) {
