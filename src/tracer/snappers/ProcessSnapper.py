@@ -16,7 +16,6 @@ Example:
 """
 
 from datetime import datetime
-import random
 
 from .sampler.ProcessSampler import ProcessSampler
 from ...utility.utils import format_csv_row, logger, compress_log, simple_hash
@@ -79,7 +78,6 @@ class ProcessSnapper:
         """
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for proc in psutil.process_iter(['pid', 'name', 'memory_info','cmdline','create_time','status']):
-            time.sleep(random.uniform(.2, .5))
             try:
                 ts = timestamp
                 pid = proc.info['pid']
@@ -109,9 +107,9 @@ class ProcessSnapper:
 
     def process_snapshot(self):
         """
-        Main loop for capturing process snapshots every hour.
+        Main loop for capturing process snapshots every 5 minutes.
         
-        Iterates through all running processes hourly,
+        Iterates through all running processes every 5 minutes,
         collecting process information and CPU utilization data.
         """
         last_snapshot_time = None
@@ -125,13 +123,13 @@ class ProcessSnapper:
                 self._take_snapshot()
                 last_snapshot_time = time.time()
             else:
-                # Check if one hour has passed since last snapshot
+                # Check if 5 minutes have passed since last snapshot
                 time_since_last_snapshot = current_time - last_snapshot_time
-                if time_since_last_snapshot >= 3600:  # 3600 seconds = 1 hour
+                if time_since_last_snapshot >= 300:  # 300 seconds = 5 minutes
                     self._take_snapshot()
                     last_snapshot_time = time.time()
                 else:
-                    # Less than one hour ago - sleep 1 minute
+                    # Less than 5 minutes ago - sleep 1 minute
                     time.sleep(60)
 
     def run(self):

@@ -214,7 +214,7 @@ Snapshots provide system context during tracing.
 **Description:** Records information about all running processes periodically during the trace.
 
 **Collection Method:**
-- Iterates through all processes at 60-second intervals
+- Iterates through all processes at 5-minute intervals
 - Uses `psutil` for process information
 - Background thread samples CPU utilization over multiple intervals
 
