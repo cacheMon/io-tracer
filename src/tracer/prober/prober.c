@@ -1098,7 +1098,7 @@ TRACEPOINT_PROBE(block, block_rq_issue) {
 
   // Use dev and sector as key to correlate issue with completion
   // Note: CPU ID is NOT included because completion may occur on a different CPU
-  u64 key = ((u64)args->dev << 32) | (args->sector & 0xFFFFFFFF);
+  u64 key = ((u64)args->dev << 32) ^ (u64)args->sector;
   u64 ts = bpf_ktime_get_ns();
   block_start_times.update(&key, &ts);
 
