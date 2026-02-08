@@ -257,10 +257,11 @@ class IOTracer:
         
         # Cache event metadata
         size = event.size if hasattr(event, 'size') else ""
-        offset = event.offset if hasattr(event, 'offset') else ""
+        cpu_id = event.cpu_id if hasattr(event, 'cpu_id') else ""
+        dev_id = event.dev_id if hasattr(event, 'dev_id') else ""
         count = event.count if hasattr(event, 'count') else ""
 
-        output = format_csv_row(timestamp, pid, comm, event_name, inode, index, size, offset, count)
+        output = format_csv_row(timestamp, pid, comm, event_name, inode, index, size, cpu_id, dev_id, count)
         self.writer.append_cache_log(output)
 
     def _print_event_block(self, cpu, data, size):        

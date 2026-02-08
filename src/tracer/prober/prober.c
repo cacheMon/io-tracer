@@ -170,7 +170,8 @@ struct cache_data {
   u64 inode;
   u64 index;
   u32 size;
-  u64 offset;
+  u32 cpu_id;
+  u32 dev_id;
   u32 count;
 };
 
@@ -392,7 +393,7 @@ static int get_file_path_from_dentry(struct dentry *dentry, char *buf,
   return 0;
 }
 
-/* Helper function to populate cache metadata (size, offset, count)
+/* Helper function to populate cache metadata (size, dev_id, count)
  * Note: Filename cannot be reliably resolved from inode alone in eBPF
  * because inode->i_dentry is a list requiring complex iteration.
  * The filename field must be populated before calling this helper if needed.
@@ -407,8 +408,12 @@ static void populate_cache_metadata(struct cache_data *data, struct inode *inode
   bpf_probe_read_kernel(&file_size, sizeof(file_size), &inode->i_size);
   data->size = (u32)(file_size >> PAGE_SHIFT);  // Convert bytes to number of pages
   
-  // Calculate file offset from page index (must be set before calling this)
-  data->offset = data->index << PAGE_SHIFT;  // page_index * PAGE_SIZE
+  // Get device ID from superblock
+  struct super_block *sb = NULL;
+  bpf_probe_read_kernel(&sb, sizeof(sb), &inode->i_sb);
+  if (sb) {
+    bpf_probe_read_kernel(&data->dev_id, sizeof(data->dev_id), &sb->s_dev);
+  }
   
   // Set count to 1 for single-page operations if not already set
   if (data->count == 0) {
@@ -1211,6 +1216,7 @@ int trace_folio_mark_accessed(struct pt_regs *ctx, struct folio *folio) {
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1247,6 +1253,7 @@ int trace_hit(struct pt_regs *ctx, struct page *page) {
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1278,6 +1285,7 @@ int trace_filemap_add_folio(struct pt_regs *ctx, struct address_space *mapping,
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1309,6 +1317,7 @@ int trace_miss(struct pt_regs *ctx, struct page *page,
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1344,6 +1353,7 @@ int trace_account_page_dirtied(struct pt_regs *ctx, struct page *page,
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1379,6 +1389,7 @@ int trace_folio_mark_dirty(struct pt_regs *ctx, struct folio *folio) {
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1414,6 +1425,7 @@ int trace_clear_page_dirty_for_io(struct pt_regs *ctx, struct page *page) {
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1449,6 +1461,7 @@ int trace_folio_clear_dirty_for_io(struct pt_regs *ctx, struct folio *folio) {
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1484,6 +1497,7 @@ int trace_test_clear_page_writeback(struct pt_regs *ctx, struct page *page) {
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1519,6 +1533,7 @@ int trace_folio_end_writeback(struct pt_regs *ctx, struct folio *folio) {
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1553,6 +1568,7 @@ int trace_filemap_remove_folio(struct pt_regs *ctx, struct folio *folio) {
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1588,6 +1604,7 @@ int trace_delete_from_page_cache(struct pt_regs *ctx, struct page *page) {
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1610,9 +1627,10 @@ TRACEPOINT_PROBE(filemap, mm_filemap_delete_from_page_cache) {
   data.index = args->index;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.count = 1;  // Single page from tracepoint
-  data.offset = data.index << 12;  // Calculate offset manually for tracepoint
   data.size = 0;  // No inode struct access in tracepoint
+  data.dev_id = 0;  // No device ID available in tracepoint
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(args, &data, sizeof(data));
   return 0;
 }
@@ -1644,6 +1662,7 @@ int trace_invalidate_mapping(struct pt_regs *ctx, struct address_space *mapping,
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1685,6 +1704,7 @@ int trace_truncate_pages(struct pt_regs *ctx, struct address_space *mapping,
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1718,6 +1738,7 @@ int trace_cache_drop_folio(struct pt_regs *ctx, struct address_space *mapping,
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1753,6 +1774,7 @@ int trace_cache_drop_page(struct pt_regs *ctx, struct page *page) {
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1785,6 +1807,7 @@ int trace_do_page_cache_readahead(struct pt_regs *ctx, struct address_space *map
     }
   }
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
@@ -1809,6 +1832,7 @@ int trace_shrink_folio_list(struct pt_regs *ctx) {
   data.index = 0;
   data.count = 0;  // Would need list iteration to count
 
+  data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
