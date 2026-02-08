@@ -170,13 +170,13 @@ enum reclaim_source_type {
   RECLAIM_INVALIDATE = 4,  // Invalidation
 };
 
-enum lru_type {
-  LRU_UNKNOWN = 0,
-  LRU_INACTIVE_ANON = 1,
-  LRU_ACTIVE_ANON = 2,
-  LRU_INACTIVE_FILE = 3,
-  LRU_ACTIVE_FILE = 4,
-  LRU_UNEVICTABLE = 5,
+enum cache_lru_type {
+  CACHE_LRU_UNKNOWN = 0,
+  CACHE_LRU_INACTIVE_ANON = 1,
+  CACHE_LRU_ACTIVE_ANON = 2,
+  CACHE_LRU_INACTIVE_FILE = 3,
+  CACHE_LRU_ACTIVE_FILE = 4,
+  CACHE_LRU_UNEVICTABLE = 5,
 };
 
 struct cache_data {
@@ -450,15 +450,15 @@ static u8 get_lru_type_from_flags(unsigned long flags) {
   bool unevictable = flags & (1UL << 19);  // PG_unevictable is bit 19
   
   if (unevictable) {
-    return LRU_UNEVICTABLE;
+    return CACHE_LRU_UNEVICTABLE;
   }
   
   if (swapbacked) {
     // Anonymous page
-    return active ? LRU_ACTIVE_ANON : LRU_INACTIVE_ANON;
+    return active ? CACHE_LRU_ACTIVE_ANON : CACHE_LRU_INACTIVE_ANON;
   } else {
     // File-backed page
-    return active ? LRU_ACTIVE_FILE : LRU_INACTIVE_FILE;
+    return active ? CACHE_LRU_ACTIVE_FILE : CACHE_LRU_INACTIVE_FILE;
   }
 }
 
@@ -1240,7 +1240,7 @@ int trace_folio_mark_accessed(struct pt_regs *ctx, struct folio *folio) {
   data.pid = pid;
   data.type = CACHE_HIT;
   data.reclaim_source = RECLAIM_NONE;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
   if (folio) {
@@ -1279,7 +1279,7 @@ int trace_hit(struct pt_regs *ctx, struct page *page) {
   data.pid = pid;
   data.type = CACHE_HIT;
   data.reclaim_source = RECLAIM_NONE;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
   if (page) {
@@ -1319,7 +1319,7 @@ int trace_filemap_add_folio(struct pt_regs *ctx, struct address_space *mapping,
   data.pid = pid;
   data.type = CACHE_MISS;
   data.reclaim_source = RECLAIM_NONE;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
   data.index = index;  // Set before calling populate_cache_metadata
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
@@ -1353,7 +1353,7 @@ int trace_miss(struct pt_regs *ctx, struct page *page,
   data.pid = pid;
   data.type = CACHE_MISS;
   data.reclaim_source = RECLAIM_NONE;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
   data.index = offset;  // Set before calling populate_cache_metadata
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
@@ -1388,7 +1388,7 @@ int trace_account_page_dirtied(struct pt_regs *ctx, struct page *page,
   data.pid = pid;
   data.type = CACHE_DIRTY;
   data.reclaim_source = RECLAIM_NONE;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
   if (page) {
@@ -1424,7 +1424,7 @@ int trace_folio_mark_dirty(struct pt_regs *ctx, struct folio *folio) {
   data.pid = pid;
   data.type = CACHE_DIRTY;
   data.reclaim_source = RECLAIM_NONE;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
   if (folio) {
@@ -1462,7 +1462,7 @@ int trace_clear_page_dirty_for_io(struct pt_regs *ctx, struct page *page) {
   data.pid = pid;
   data.type = CACHE_WRITEBACK_START;
   data.reclaim_source = RECLAIM_NONE;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
   if (page) {
@@ -1500,7 +1500,7 @@ int trace_folio_clear_dirty_for_io(struct pt_regs *ctx, struct folio *folio) {
   data.pid = pid;
   data.type = CACHE_WRITEBACK_START;
   data.reclaim_source = RECLAIM_NONE;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
   if (folio) {
@@ -1538,7 +1538,7 @@ int trace_test_clear_page_writeback(struct pt_regs *ctx, struct page *page) {
   data.pid = pid;
   data.type = CACHE_WRITEBACK_END;
   data.reclaim_source = RECLAIM_NONE;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
   if (page) {
@@ -1576,7 +1576,7 @@ int trace_folio_end_writeback(struct pt_regs *ctx, struct folio *folio) {
   data.pid = pid;
   data.type = CACHE_WRITEBACK_END;
   data.reclaim_source = RECLAIM_NONE;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
 
   if (folio) {
@@ -1614,7 +1614,7 @@ int trace_filemap_remove_folio(struct pt_regs *ctx, struct folio *folio) {
   data.type = CACHE_EVICT;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.reclaim_source = RECLAIM_NONE;  // General eviction
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
 
   if (folio) {
     struct address_space *mapping = NULL;
@@ -1657,7 +1657,7 @@ int trace_delete_from_page_cache(struct pt_regs *ctx, struct page *page) {
   data.type = CACHE_EVICT;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.reclaim_source = RECLAIM_NONE;  // General eviction
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
 
   if (page) {
     struct address_space *mapping = NULL;
@@ -1705,7 +1705,7 @@ TRACEPOINT_PROBE(filemap, mm_filemap_delete_from_page_cache) {
   data.size = 0;  // No inode struct access in tracepoint
   data.dev_id = 0;  // No device ID available in tracepoint
   data.reclaim_source = RECLAIM_DROP;  // Tracepoint typically from drop_caches
-  data.lru_type = LRU_UNKNOWN;  // No folio access in tracepoint
+  data.lru_type = CACHE_LRU_UNKNOWN;  // No folio access in tracepoint
 
   data.cpu_id = bpf_get_smp_processor_id();
   cache_events.perf_submit(args, &data, sizeof(data));
@@ -1730,7 +1730,7 @@ int trace_invalidate_mapping(struct pt_regs *ctx, struct address_space *mapping,
   data.count = (end >= start) ? (u32)(end - start + 1) : 0;  // Inclusive page range
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.reclaim_source = RECLAIM_INVALIDATE;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
 
   if (mapping) {
     struct inode *host = NULL;
@@ -1762,7 +1762,7 @@ int trace_truncate_pages(struct pt_regs *ctx, struct address_space *mapping,
   data.type = CACHE_INVALIDATE;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.reclaim_source = RECLAIM_INVALIDATE;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
 
   /* Compute page range using PAGE_SHIFT to avoid hardcoded page size and
    * off-by-one issues if lend is inclusive.
@@ -1806,7 +1806,7 @@ int trace_cache_drop_folio(struct pt_regs *ctx, struct address_space *mapping,
   data.type = CACHE_DROP;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.reclaim_source = RECLAIM_DROP;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
 
   if (folio) {
     bpf_probe_read_kernel(&data.index, sizeof(data.index), &folio->index);
@@ -1847,7 +1847,7 @@ int trace_cache_drop_page(struct pt_regs *ctx, struct page *page) {
   data.type = CACHE_DROP;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.reclaim_source = RECLAIM_DROP;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
 
   if (page) {
     struct address_space *mapping = NULL;
@@ -1890,7 +1890,7 @@ int trace_do_page_cache_readahead(struct pt_regs *ctx, struct address_space *map
   data.pid = pid;
   data.type = CACHE_READAHEAD;
   data.reclaim_source = RECLAIM_NONE;
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
   data.index = index;  // Set before calling populate_cache_metadata
   data.count = (u32)nr_pages;  // Number of pages in readahead window
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
@@ -1928,7 +1928,7 @@ int trace_shrink_folio_list(struct pt_regs *ctx) {
   data.inode = 0;  // No specific inode for list-based reclaim
   data.index = 0;
   data.count = 0;  // Would need list iteration to count
-  data.lru_type = LRU_UNKNOWN;
+  data.lru_type = CACHE_LRU_UNKNOWN;
   
   // Detect reclaim source: kswapd vs direct reclaim
   // kswapd comm starts with "kswapd"
