@@ -1103,7 +1103,8 @@ TRACEPOINT_PROBE(block, block_rq_issue) {
   if (tracer_pid && pid == *tracer_pid)
     return 0;
 
-  u64 key = ((u64)args->dev << 32) | args->sector;
+  // Use dev, sector, and cpu_id to reduce key collisions for concurrent I/Os
+  u64 key = ((u64)args->dev << 32) | (args->sector & 0xFFFFFFFF) | ((u64)bpf_get_smp_processor_id() << 52);
   u64 ts = bpf_ktime_get_ns();
   block_start_times.update(&key, &ts);
 
@@ -1117,7 +1118,8 @@ TRACEPOINT_PROBE(block, block_rq_complete) {
   if (tracer_pid && pid == *tracer_pid)
     return 0;
 
-  u64 key = ((u64)args->dev << 32) | args->sector;
+  // Use dev, sector, and cpu_id to match the key from block_rq_issue
+  u64 key = ((u64)args->dev << 32) | (args->sector & 0xFFFFFFFF) | ((u64)bpf_get_smp_processor_id() << 52);
   u64 *start_ts = block_start_times.lookup(&key);
   if (!start_ts)
     return 0;
@@ -1132,10 +1134,28 @@ TRACEPOINT_PROBE(block, block_rq_complete) {
   event.cpu_id = bpf_get_smp_processor_id();
   bpf_get_current_comm(&event.comm, sizeof(event.comm));
 
+  // Get parent PID
+  struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+  struct task_struct *parent = NULL;
+  if (task) {
+    bpf_probe_read_kernel(&parent, sizeof(parent), &task->real_parent);
+    if (parent) {
+      bpf_probe_read_kernel(&event.ppid, sizeof(event.ppid), &parent->tgid);
+    }
+  }
+
   event.sector = args->sector;
   event.nr_sectors = args->nr_sector;
-  event.bio_size = ((u64)args->nr_sector) << 9;
+  
+  // Protect against overflow in bio_size calculation
+  if (args->nr_sector > (1ULL << 52)) {
+    event.bio_size = 0;
+  } else {
+    event.bio_size = ((u64)args->nr_sector) << 9;
+  }
+  
   event.latency_ns = latency;
+  event.flags = 0;  // Reserved for future use
 
   bpf_probe_read_kernel(&event.op, sizeof(event.op), &args->rwbs);
 
