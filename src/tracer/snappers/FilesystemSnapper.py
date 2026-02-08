@@ -152,8 +152,32 @@ class FilesystemSnapper:
         except (OSError, FileNotFoundError):
             return -1
 
+    def _snapshot_loop(self):
+        """Loop that runs snapshots every hour."""
+        last_snapshot_time = None
+        
+        while not self.interrupt:
+            current_time = time.time()
+            
+            # Check if we should take a snapshot
+            if last_snapshot_time is None:
+                # First snapshot - run immediately
+                self.filesystem_snapshot()
+                last_snapshot_time = time.time()
+            else:
+                # Check if one hour has passed since last snapshot
+                time_since_last_snapshot = current_time - last_snapshot_time
+                if time_since_last_snapshot >= 3600:  # 3600 seconds = 1 hour
+                    # Reset visited inodes before new snapshot
+                    self._visited_inodes.clear()
+                    self.filesystem_snapshot()
+                    last_snapshot_time = time.time()
+                else:
+                    # Less than one hour ago - sleep 1 minute
+                    time.sleep(60)
+
     def run(self):
         """Start the snapshot in a background daemon thread."""
-        snapper_thread = threading.Thread(target=self.filesystem_snapshot)
+        snapper_thread = threading.Thread(target=self._snapshot_loop)
         snapper_thread.daemon = True
         snapper_thread.start()
