@@ -128,7 +128,9 @@ class WriteManager:
         self.adaptive_thread.start()
         
         # Start periodic flush thread (every 20 minutes)
-        self._periodic_flush_active = True        self._last_flush_time = time.time()        self.periodic_flush_thread = threading.Thread(target=self._periodic_flush, daemon=True)
+        self._periodic_flush_active = True
+        self._last_flush_time = time.time()
+        self.periodic_flush_thread = threading.Thread(target=self._periodic_flush, daemon=True)
         self.periodic_flush_thread.start()
         
 

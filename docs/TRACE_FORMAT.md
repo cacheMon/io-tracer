@@ -169,7 +169,7 @@ timestamp,pid,command,sector,operation,size,latency_ms,tid,nr_sectors,cpu_id,ppi
 ### CSV Format
 
 ```csv
-timestamp,pid,command,event_type,inode,index,size,cpu_id,dev_id,count
+timestamp,pid,command,event_type,inode,index,size,cpu_id,dev_id,count,reclaim_source,lru_type
 ```
 
 | Column | Type | Description |
@@ -184,6 +184,8 @@ timestamp,pid,command,event_type,inode,index,size,cpu_id,dev_id,count
 | `cpu_id` | integer | CPU core where event occurred |
 | `dev_id` | integer | Device ID from superblock (0 if unavailable) |
 | `count` | integer | Number of pages affected |
+| `reclaim_source` | string | Source of reclaim/eviction (see below) |
+| `lru_type` | string | LRU list type (see below) |
 
 ### Event Types
 
@@ -200,15 +202,39 @@ timestamp,pid,command,event_type,inode,index,size,cpu_id,dev_id,count
 | `READAHEAD` | Read-ahead (prefetch) operation |
 | `RECLAIM` | Memory pressure reclaim |
 
+### Reclaim Sources
+
+| Reclaim Source | Description |
+|----------------|-------------|
+| `NONE` | No reclaim context (normal operation) |
+| `DIRECT` | Direct reclaim by process under memory pressure |
+| `KSWAPD` | Background reclaim by kswapd daemon |
+| `DROP` | Explicit drop via drop_caches or similar |
+| `INVALIDATE` | Invalidation operation |
+
+### LRU Types
+
+| LRU Type | Description |
+|----------|-------------|
+| `UNKNOWN` | LRU type not determined |
+| `INACTIVE_ANON` | Inactive anonymous (process) pages |
+| `ACTIVE_ANON` | Active anonymous (process) pages |
+| `INACTIVE_FILE` | Inactive file-backed pages |
+| `ACTIVE_FILE` | Active file-backed pages |
+| `UNEVICTABLE` | Pages that cannot be evicted |
+
 ### Example Rows
 
 ```csv
-2024-01-15 10:30:45.123456,1234,python3,HIT,789012,100,256,0,2049,1
-2024-01-15 10:30:45.234567,1234,python3,MISS,789012,101,256,1,2049,1
-2024-01-15 10:30:45.345678,1234,python3,DIRTY,789012,100,256,0,2049,1
-2024-01-15 10:30:45.456789,0,kworker,WRITEBACK_START,789012,100,256,2,2049,1
-2024-01-15 10:30:45.567890,0,kworker,WRITEBACK_END,789012,100,256,2,2049,1
-2024-01-15 10:30:45.678901,1234,python3,READAHEAD,789012,102,256,1,2049,8
+2024-01-15 10:30:45.123456,1234,python3,HIT,789012,100,256,0,2049,1,NONE,ACTIVE_FILE
+2024-01-15 10:30:45.234567,1234,python3,MISS,789012,101,256,1,2049,1,NONE,UNKNOWN
+2024-01-15 10:30:45.345678,1234,python3,DIRTY,789012,100,256,0,2049,1,NONE,ACTIVE_FILE
+2024-01-15 10:30:45.456789,0,kworker,WRITEBACK_START,789012,100,256,2,2049,1,NONE,ACTIVE_FILE
+2024-01-15 10:30:45.567890,0,kworker,WRITEBACK_END,789012,100,256,2,2049,1,NONE,ACTIVE_FILE
+2024-01-15 10:30:45.678901,1234,python3,READAHEAD,789012,102,256,1,2049,8,NONE,UNKNOWN
+2024-01-15 10:30:46.123456,0,kswapd0,RECLAIM,0,0,0,3,0,0,KSWAPD,UNKNOWN
+2024-01-15 10:30:46.234567,1234,python3,EVICT,789012,105,256,1,2049,1,DIRECT,INACTIVE_FILE
+2024-01-15 10:30:46.345678,5678,sh,DROP,789013,0,512,0,2049,1,DROP,ACTIVE_FILE
 ```
 
 **Note:** Cache events may be sampled. Check the tracer log for the current sampling rate (e.g., "Cache sampling enabled: 1:10" means 1 in 10 events are recorded).
