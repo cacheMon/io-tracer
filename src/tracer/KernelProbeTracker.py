@@ -280,6 +280,27 @@ class KernelProbeTracker:
             else:
                 logger("warning", "No cache drop function found, drop events will not be traced")
 
+            # Cache readahead probes - track prefetch operations
+            if BPF.get_kprobe_functions(b'__do_page_cache_readahead'):
+                self.add_kprobe("__do_page_cache_readahead", "trace_do_page_cache_readahead")
+            elif BPF.get_kprobe_functions(b'do_page_cache_ra'):
+                self.add_kprobe("do_page_cache_ra", "trace_do_page_cache_readahead")
+            elif BPF.get_kprobe_functions(b'page_cache_ra_order'):
+                # Newer kernels (5.16+)
+                self.add_kprobe("page_cache_ra_order", "trace_do_page_cache_readahead")
+            else:
+                logger("warning", "No readahead probe available, readahead events will not be traced")
+
+            # Cache reclaim probes - track memory pressure evictions
+            if BPF.get_kprobe_functions(b'shrink_folio_list'):
+                # Newer kernels with folio
+                self.add_kprobe("shrink_folio_list", "trace_shrink_folio_list")
+            elif BPF.get_kprobe_functions(b'shrink_page_list'):
+                # Older kernels
+                self.add_kprobe("shrink_page_list", "trace_shrink_folio_list")
+            else:
+                logger("warning", "No reclaim probe available, reclaim events will not be traced")
+
             self.add_kprobe("vfs_fsync_range", "trace_vfs_fsync_range")
             self.add_kprobe("__fput", "trace_fput") 
             

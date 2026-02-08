@@ -248,13 +248,21 @@ class IOTracer:
             4: "WRITEBACK_END",
             5: "EVICT",
             6: "INVALIDATE",
-            7: "DROP"
+            7: "DROP",
+            8: "READAHEAD",
+            9: "RECLAIM"
         }
         event_name = event_types.get(event.type, "UNKNOWN")
         inode = event.inode if event.inode != 0 else ""
         index = event.index if event.index != 0 else ""
+        
+        # New fields added to cache events
+        filename = event.filename.decode('utf-8', errors='replace') if hasattr(event, 'filename') else ""
+        size = event.size if hasattr(event, 'size') else ""
+        offset = event.offset if hasattr(event, 'offset') else ""
+        count = event.count if hasattr(event, 'count') else ""
 
-        output = format_csv_row(timestamp, pid, comm, event_name, inode, index)
+        output = format_csv_row(timestamp, pid, comm, event_name, inode, index, filename, size, offset, count)
         self.writer.append_cache_log(output)
 
     def _print_event_block(self, cpu, data, size):        

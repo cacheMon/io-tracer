@@ -158,6 +158,8 @@ enum cache_event_type {
   CACHE_EVICT = 5,
   CACHE_INVALIDATE = 6,
   CACHE_DROP = 7,
+  CACHE_READAHEAD = 8,
+  CACHE_RECLAIM = 9,
 };
 
 struct cache_data {
@@ -167,6 +169,10 @@ struct cache_data {
   char comm[TASK_COMM_LEN];
   u64 inode;
   u64 index;
+  char filename[FILENAME_MAX_LEN];
+  u32 size;
+  u64 offset;
+  u32 count;
 };
 
 enum direction_t { DIR_SEND = 0, DIR_RECV = 1 };
@@ -386,6 +392,26 @@ static int get_file_path_from_dentry(struct dentry *dentry, char *buf,
   }
 
   return 0;
+}
+
+/* Helper function to populate cache data with filename and size */
+static void populate_cache_filename(struct cache_data *data, struct inode *inode) {
+  if (!inode || !data) {
+    return;
+  }
+  
+  // Try to get file size
+  loff_t file_size = 0;
+  bpf_probe_read_kernel(&file_size, sizeof(file_size), &inode->i_size);
+  data->size = (u32)(file_size >> 12);  // Convert to number of 4KB pages
+  
+  // Calculate file offset from page index
+  data->offset = data->index << 12;  // page_index * 4096
+  
+  // Initialize count to 1 for single-page operations
+  if (data->count == 0) {
+    data->count = 1;
+  }
 }
 
 int trace_vfs_read(struct pt_regs *ctx, struct file *file, char __user *buf,
@@ -1135,6 +1161,8 @@ int trace_folio_mark_accessed(struct pt_regs *ctx, struct folio *folio) {
   data.pid = pid;
   data.type = CACHE_HIT;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 0;  // Will be set to 1 by helper
+  __builtin_memcpy(data.filename, "", 1);
 
   if (folio) {
     struct address_space *mapping = NULL;
@@ -1144,9 +1172,18 @@ int trace_folio_mark_accessed(struct pt_regs *ctx, struct folio *folio) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_filename(&data, host);
       }
     }
     bpf_probe_read_kernel(&data.index, sizeof(data.index), &folio->index);
+    
+    // Get folio size (number of pages in folio)
+    unsigned long nr_pages = 1;
+    #ifdef CONFIG_TRANSPARENT_HUGEPAGE
+    // For large folios, get the actual size
+    // This is a simplified version - actual implementation may vary by kernel version
+    #endif
+    data.count = (u32)nr_pages;
   }
 
   cache_events.perf_submit(ctx, &data, sizeof(data));
@@ -1168,6 +1205,8 @@ int trace_hit(struct pt_regs *ctx, struct page *page) {
   data.pid = pid;
   data.type = CACHE_HIT;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 1;  // Single page
+  __builtin_memcpy(data.filename, "", 1);
 
   if (page) {
     struct address_space *mapping = NULL;
@@ -1177,6 +1216,7 @@ int trace_hit(struct pt_regs *ctx, struct page *page) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_filename(&data, host);
       }
     }
     bpf_probe_read_kernel(&data.index, sizeof(data.index), &page->index);
@@ -1203,13 +1243,27 @@ int trace_filemap_add_folio(struct pt_regs *ctx, struct address_space *mapping,
   data.type = CACHE_MISS;
   data.index = index;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 0;  // Will be set by helper
+  __builtin_memcpy(data.filename, "", 1);
 
   if (mapping) {
     struct inode *host = NULL;
     bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
     if (host) {
       bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      populate_cache_filename(&data, host);
     }
+  }
+
+  // Get folio size
+  if (folio) {
+    unsigned long nr_pages = 1;
+    #ifdef CONFIG_TRANSPARENT_HUGEPAGE
+    // For large folios, get the actual size
+    #endif
+    data.count = (u32)nr_pages;
+  } else {
+    data.count = 1;
   }
 
   cache_events.perf_submit(ctx, &data, sizeof(data));
@@ -1233,12 +1287,15 @@ int trace_miss(struct pt_regs *ctx, struct page *page,
   data.type = CACHE_MISS;
   data.index = offset;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 1;  // Single page
+  __builtin_memcpy(data.filename, "", 1);
 
   if (mapping) {
     struct inode *host = NULL;
     bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
     if (host) {
       bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      populate_cache_filename(&data, host);
     }
   }
 
@@ -1263,6 +1320,8 @@ int trace_account_page_dirtied(struct pt_regs *ctx, struct page *page,
   data.pid = pid;
   data.type = CACHE_DIRTY;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 1;  // Single page
+  __builtin_memcpy(data.filename, "", 1);
 
   if (page) {
     bpf_probe_read_kernel(&data.index, sizeof(data.index), &page->index);
@@ -1273,6 +1332,7 @@ int trace_account_page_dirtied(struct pt_regs *ctx, struct page *page,
     bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
     if (host) {
       bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      populate_cache_filename(&data, host);
     }
   }
 
@@ -1295,6 +1355,8 @@ int trace_folio_mark_dirty(struct pt_regs *ctx, struct folio *folio) {
   data.pid = pid;
   data.type = CACHE_DIRTY;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 0;  // Will be set by helper
+  __builtin_memcpy(data.filename, "", 1);
 
   if (folio) {
     struct address_space *mapping = NULL;
@@ -1306,8 +1368,16 @@ int trace_folio_mark_dirty(struct pt_regs *ctx, struct folio *folio) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_filename(&data, host);
       }
     }
+    
+    // Get folio size
+    unsigned long nr_pages = 1;
+    #ifdef CONFIG_TRANSPARENT_HUGEPAGE
+    // For large folios
+    #endif
+    data.count = (u32)nr_pages;
   }
 
   cache_events.perf_submit(ctx, &data, sizeof(data));
@@ -1329,6 +1399,8 @@ int trace_clear_page_dirty_for_io(struct pt_regs *ctx, struct page *page) {
   data.pid = pid;
   data.type = CACHE_WRITEBACK_START;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 1;  // Single page
+  __builtin_memcpy(data.filename, "", 1);
 
   if (page) {
     struct address_space *mapping = NULL;
@@ -1340,6 +1412,7 @@ int trace_clear_page_dirty_for_io(struct pt_regs *ctx, struct page *page) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_filename(&data, host);
       }
     }
   }
@@ -1363,6 +1436,8 @@ int trace_folio_clear_dirty_for_io(struct pt_regs *ctx, struct folio *folio) {
   data.pid = pid;
   data.type = CACHE_WRITEBACK_START;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 0;  // Will be set by helper
+  __builtin_memcpy(data.filename, "", 1);
 
   if (folio) {
     struct address_space *mapping = NULL;
@@ -1374,8 +1449,16 @@ int trace_folio_clear_dirty_for_io(struct pt_regs *ctx, struct folio *folio) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_filename(&data, host);
       }
     }
+    
+    // Get folio size
+    unsigned long nr_pages = 1;
+    #ifdef CONFIG_TRANSPARENT_HUGEPAGE
+    // For large folios
+    #endif
+    data.count = (u32)nr_pages;
   }
 
   cache_events.perf_submit(ctx, &data, sizeof(data));
@@ -1397,6 +1480,8 @@ int trace_test_clear_page_writeback(struct pt_regs *ctx, struct page *page) {
   data.pid = pid;
   data.type = CACHE_WRITEBACK_END;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 1;  // Single page
+  __builtin_memcpy(data.filename, "", 1);
 
   if (page) {
     struct address_space *mapping = NULL;
@@ -1408,6 +1493,7 @@ int trace_test_clear_page_writeback(struct pt_regs *ctx, struct page *page) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_filename(&data, host);
       }
     }
   }
@@ -1431,6 +1517,8 @@ int trace_folio_end_writeback(struct pt_regs *ctx, struct folio *folio) {
   data.pid = pid;
   data.type = CACHE_WRITEBACK_END;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 0;  // Will be set by helper
+  __builtin_memcpy(data.filename, "", 1);
 
   if (folio) {
     struct address_space *mapping = NULL;
@@ -1442,8 +1530,16 @@ int trace_folio_end_writeback(struct pt_regs *ctx, struct folio *folio) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_filename(&data, host);
       }
     }
+    
+    // Get folio size
+    unsigned long nr_pages = 1;
+    #ifdef CONFIG_TRANSPARENT_HUGEPAGE
+    // For large folios
+    #endif
+    data.count = (u32)nr_pages;
   }
 
   cache_events.perf_submit(ctx, &data, sizeof(data));
@@ -1464,6 +1560,8 @@ int trace_filemap_remove_folio(struct pt_regs *ctx, struct folio *folio) {
   data.pid = pid;
   data.type = CACHE_EVICT;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 0;  // Will be set by helper
+  __builtin_memcpy(data.filename, "", 1);
 
   if (folio) {
     struct address_space *mapping = NULL;
@@ -1475,8 +1573,16 @@ int trace_filemap_remove_folio(struct pt_regs *ctx, struct folio *folio) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_filename(&data, host);
       }
     }
+    
+    // Get folio size
+    unsigned long nr_pages = 1;
+    #ifdef CONFIG_TRANSPARENT_HUGEPAGE
+    // For large folios
+    #endif
+    data.count = (u32)nr_pages;
   }
 
   cache_events.perf_submit(ctx, &data, sizeof(data));
@@ -1498,6 +1604,8 @@ int trace_delete_from_page_cache(struct pt_regs *ctx, struct page *page) {
   data.pid = pid;
   data.type = CACHE_EVICT;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 1;  // Single page
+  __builtin_memcpy(data.filename, "", 1);
 
   if (page) {
     struct address_space *mapping = NULL;
@@ -1509,6 +1617,7 @@ int trace_delete_from_page_cache(struct pt_regs *ctx, struct page *page) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_filename(&data, host);
       }
     }
   }
@@ -1534,6 +1643,10 @@ TRACEPOINT_PROBE(filemap, mm_filemap_delete_from_page_cache) {
   data.inode = args->i_ino;
   data.index = args->index;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 1;  // Single page from tracepoint
+  __builtin_memcpy(data.filename, "", 1);  // Tracepoint doesn't provide inode struct access
+  // Note: offset and size will be calculated by populate_cache_filename but
+  // filename will remain empty since we don't have inode struct access here
 
   cache_events.perf_submit(args, &data, sizeof(data));
   return 0;
@@ -1555,12 +1668,15 @@ int trace_invalidate_mapping(struct pt_regs *ctx, struct address_space *mapping,
   data.type = CACHE_INVALIDATE;
   data.index = start;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = (u32)(end - start);  // Page range
+  __builtin_memcpy(data.filename, "", 1);
 
   if (mapping) {
     struct inode *host = NULL;
     bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
     if (host) {
       bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      populate_cache_filename(&data, host);
     }
   }
 
@@ -1583,12 +1699,16 @@ int trace_truncate_pages(struct pt_regs *ctx, struct address_space *mapping,
   data.pid = pid;
   data.type = CACHE_INVALIDATE;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.index = (pgoff_t)(lstart >> 12);  // Convert byte offset to page index
+  data.count = (u32)((lend - lstart) >> 12);  // Pages in range
+  __builtin_memcpy(data.filename, "", 1);
 
   if (mapping) {
     struct inode *host = NULL;
     bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
     if (host) {
       bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      populate_cache_filename(&data, host);
     }
   }
 
@@ -1611,9 +1731,18 @@ int trace_cache_drop_folio(struct pt_regs *ctx, struct address_space *mapping,
   data.pid = pid;
   data.type = CACHE_DROP;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 0;  // Will be set by helper
+  __builtin_memcpy(data.filename, "", 1);
 
   if (folio) {
     bpf_probe_read_kernel(&data.index, sizeof(data.index), &folio->index);
+    
+    // Get folio size
+    unsigned long nr_pages = 1;
+    #ifdef CONFIG_TRANSPARENT_HUGEPAGE
+    // For large folios
+    #endif
+    data.count = (u32)nr_pages;
   }
 
   if (mapping) {
@@ -1621,6 +1750,7 @@ int trace_cache_drop_folio(struct pt_regs *ctx, struct address_space *mapping,
     bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
     if (host) {
       bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      populate_cache_filename(&data, host);
     }
   }
 
@@ -1643,6 +1773,8 @@ int trace_cache_drop_page(struct pt_regs *ctx, struct page *page) {
   data.pid = pid;
   data.type = CACHE_DROP;
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = 1;  // Single page
+  __builtin_memcpy(data.filename, "", 1);
 
   if (page) {
     struct address_space *mapping = NULL;
@@ -1654,6 +1786,7 @@ int trace_cache_drop_page(struct pt_regs *ctx, struct page *page) {
       bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
       if (host) {
         bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+        populate_cache_filename(&data, host);
       }
     }
   }
@@ -1662,6 +1795,63 @@ int trace_cache_drop_page(struct pt_regs *ctx, struct page *page) {
   return 0;
 }
 #endif
+
+/* Cache Readahead - tracks page cache prefetch operations */
+int trace_do_page_cache_readahead(struct pt_regs *ctx, struct address_space *mapping,
+                                   struct file *file, pgoff_t index, unsigned long nr_pages) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
+  struct cache_data data = {};
+  data.ts = bpf_ktime_get_ns();
+  data.pid = pid;
+  data.type = CACHE_READAHEAD;
+  data.index = index;
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.count = (u32)nr_pages;  // Number of pages in readahead window
+  __builtin_memcpy(data.filename, "", 1);
+
+  if (mapping) {
+    struct inode *host = NULL;
+    bpf_probe_read_kernel(&host, sizeof(host), &mapping->host);
+    if (host) {
+      bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &host->i_ino);
+      populate_cache_filename(&data, host);
+    }
+  }
+
+  cache_events.perf_submit(ctx, &data, sizeof(data));
+  return 0;
+}
+
+/* Cache Reclaim - tracks page eviction under memory pressure */
+int trace_shrink_folio_list(struct pt_regs *ctx) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
+  // Note: shrink_folio_list operates on a list, so we emit a generic reclaim event
+  // Individual folio details would require iterating the list, which is complex in eBPF
+  struct cache_data data = {};
+  data.ts = bpf_ktime_get_ns();
+  data.pid = pid;
+  data.type = CACHE_RECLAIM;
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.inode = 0;  // No specific inode for list-based reclaim
+  data.index = 0;
+  data.count = 0;  // Would need list iteration to count
+  __builtin_memcpy(data.filename, "", 1);
+
+  cache_events.perf_submit(ctx, &data, sizeof(data));
+  return 0;
+}
 
 /* Network probes */
 
