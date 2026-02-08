@@ -44,7 +44,7 @@ if __name__ == "__main__":
     app_version = "vRelease"
     parser = argparse.ArgumentParser(description='Trace IO syscalls')
     parser.add_argument('-o', '--output', type=str, default="./result", help='Output Directory for logging')
-    parser.add_argument('-v', '--verbose', type=bool, default=False, help='Print verbose output')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Print verbose output')
     parser.add_argument('-a', '--anonimize', action='store_true', help='Enable anonymization of process and file names')
     parser.add_argument('--dev', action='store_true', help='Developer mode with extra logs and checks')
     parser.add_argument('--computer-id', action='store_true', help='Print this machine ID and exit')

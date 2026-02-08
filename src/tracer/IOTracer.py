@@ -165,7 +165,6 @@ class IOTracer:
                 filename = hash_filename_in_path(Path(filename))
         except UnicodeDecodeError:
             filename = "[decode_error]"
-            filepath = "[decode_error]"
         
         timestamp = datetime.today()
         

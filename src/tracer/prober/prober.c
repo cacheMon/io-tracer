@@ -225,11 +225,7 @@ BPF_PERF_OUTPUT(net_events);
 static __always_inline int read_addrs_ports(struct sock *sk,
                                             struct network_data *e) {
 
-#ifdef BPF_KERNEL_SUPPORTS_FAMILY_IN_SOCK_COMMON
   u16 family = sk->__sk_common.skc_family;
-#else
-  u16 family = sk->__sk_common.skc_family;
-#endif
   if (family == AF_INET) {
     e->ipver = 4;
     struct inet_sock *inet = (struct inet_sock *)sk;
@@ -798,13 +794,7 @@ int trace_vfs_unlink(struct pt_regs *ctx, struct inode *dir,
                           &dentry->d_inode->i_ino);
   }
 
-  const unsigned char *name_ptr;
-  if (dentry) {
-    bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &dentry->d_name.name);
-    if (name_ptr) {
-      bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
-    }
-  }
+  get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
 
   data.size = 0;
   data.flags = 0;
@@ -834,13 +824,8 @@ int trace_vfs_truncate(struct pt_regs *ctx, const struct path *path) {
                           &path->dentry->d_inode->i_ino);
   }
 
-  const unsigned char *name_ptr;
   if (path && path->dentry) {
-    bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr),
-                          &path->dentry->d_name.name);
-    if (name_ptr) {
-      bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
-    }
+    get_file_path_from_dentry(path->dentry, data.filename, sizeof(data.filename));
   }
 
   data.size = 0;
@@ -1025,18 +1010,26 @@ int trace_vfs_symlink(struct pt_regs *ctx, struct inode *dir,
     return 0;
   }
 
-  struct data_t data = {};
+  struct data_dual_t data = {};
   data.pid = pid;
   data.ts = bpf_ktime_get_ns();
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = OP_SYMLINK;
-  data.inode = get_file_inode_from_dentry(dentry);
-  data.size = 0;
-  get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
+  
+  // filename_old is the target of the symlink
+  if (oldname) {
+    bpf_probe_read_kernel_str(data.filename_old, sizeof(data.filename_old), oldname);
+  }
+  
+  // filename_new is the link name
+  get_file_path_from_dentry(dentry, data.filename_new, sizeof(data.filename_new));
+  
+  data.inode_old = 0;
+  data.inode_new = get_file_inode_from_dentry(dentry);
   data.flags = 0;
   data.latency_ns = 0;
 
-  events.perf_submit(ctx, &data, sizeof(data));
+  events_dual.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
 
@@ -1103,8 +1096,9 @@ TRACEPOINT_PROBE(block, block_rq_issue) {
   if (tracer_pid && pid == *tracer_pid)
     return 0;
 
-  // Use dev, sector, and cpu_id to reduce key collisions for concurrent I/Os
-  u64 key = ((u64)args->dev << 32) | (args->sector & 0xFFFFFFFF) | ((u64)bpf_get_smp_processor_id() << 52);
+  // Use dev and sector as key to correlate issue with completion
+  // Note: CPU ID is NOT included because completion may occur on a different CPU
+  u64 key = ((u64)args->dev << 32) | (args->sector & 0xFFFFFFFF);
   u64 ts = bpf_ktime_get_ns();
   block_start_times.update(&key, &ts);
 
@@ -1118,8 +1112,8 @@ TRACEPOINT_PROBE(block, block_rq_complete) {
   if (tracer_pid && pid == *tracer_pid)
     return 0;
 
-  // Use dev, sector, and cpu_id to match the key from block_rq_issue
-  u64 key = ((u64)args->dev << 32) | (args->sector & 0xFFFFFFFF) | ((u64)bpf_get_smp_processor_id() << 52);
+  // Use dev and sector to match the key from block_rq_issue
+  u64 key = ((u64)args->dev << 32) | (args->sector & 0xFFFFFFFF);
   u64 *start_ts = block_start_times.lookup(&key);
   if (!start_ts)
     return 0;
@@ -1817,6 +1811,12 @@ int trace_shrink_folio_list(struct pt_regs *ctx) {
 
 int kprobe__tcp_sendmsg(struct pt_regs *ctx, struct sock *sk,
                         struct msghdr *msg, size_t size) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
   struct network_data e = {};
   fill_common(&e, 6 /*TCP*/, DIR_SEND, (u32)size);
   if (read_addrs_ports(sk, &e) == 0) {
@@ -1828,6 +1828,12 @@ int kprobe__tcp_sendmsg(struct pt_regs *ctx, struct sock *sk,
 int kprobe__tcp_recvmsg(struct pt_regs *ctx, struct sock *sk,
                         struct msghdr *msg, size_t len, int nonblock, int flags,
                         int *addr_len) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
   u64 tid = bpf_get_current_pid_tgid();
   tcp_recv_ctx.update(&tid, &sk);
   return 0;
@@ -1854,6 +1860,12 @@ int kretprobe__tcp_recvmsg(struct pt_regs *ctx) {
 
 int kprobe__udp_sendmsg(struct pt_regs *ctx, struct sock *sk,
                         struct msghdr *msg, size_t len) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
   struct network_data e = {};
   fill_common(&e, 17 /*UDP*/, DIR_SEND, (u32)len);
   if (read_addrs_ports(sk, &e) == 0) {
@@ -1865,6 +1877,12 @@ int kprobe__udp_sendmsg(struct pt_regs *ctx, struct sock *sk,
 int kprobe__udp_recvmsg(struct pt_regs *ctx, struct sock *sk,
                         struct msghdr *msg, size_t len, int flags,
                         int *addr_len) {
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid)
+    return 0;
+
   u64 tid = bpf_get_current_pid_tgid();
   udp_recv_ctx.update(&tid, &sk);
   return 0;

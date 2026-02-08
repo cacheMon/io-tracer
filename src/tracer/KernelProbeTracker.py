@@ -136,12 +136,8 @@ class KernelProbeTracker:
     def detach_kretprobes(self):
         """
         Detach all kretprobes only.
-        
-        Note: This method currently detaches from kprobes list but uses
-        kretprobe detachment. Use detach_kprobes() for complete cleanup.
         """
-        # Detach kretprobes (note: iterates over kprobes list, should use kretprobes)
-        for event, k in self.kprobes:
+        for event, k in self.kretprobes:
             try:
                 self.b.detach_kretprobe(event=event)
                 # logger("info", f"Detached kretprobe: {event}")
@@ -268,13 +264,15 @@ class KernelProbeTracker:
                 logger("warning", "truncate_inode_pages_range not found")
 
             # Cache drop probes - kernel version dependent
-            if BPF.get_kprobe_functions(b'__filemap_remove_folio'):
+            # Avoid attaching to a function already used by eviction probes
+            attached_events = {event for event, _ in self.kprobes}
+            if BPF.get_kprobe_functions(b'__filemap_remove_folio') and '__filemap_remove_folio' not in attached_events:
                 # Kernel 5.18+ uses this for explicit page removal
                 self.add_kprobe("__filemap_remove_folio", "trace_cache_drop_folio")
-            elif BPF.get_kprobe_functions(b'delete_from_page_cache'):
+            elif BPF.get_kprobe_functions(b'delete_from_page_cache') and 'delete_from_page_cache' not in attached_events:
                 # Older kernels
                 self.add_kprobe("delete_from_page_cache", "trace_cache_drop_page")
-            elif BPF.get_kprobe_functions(b'__delete_from_page_cache'):
+            elif BPF.get_kprobe_functions(b'__delete_from_page_cache') and '__delete_from_page_cache' not in attached_events:
                 # Fallback for some kernel versions
                 self.add_kprobe("__delete_from_page_cache", "trace_cache_drop_page")
             else:
@@ -301,9 +299,6 @@ class KernelProbeTracker:
             else:
                 logger("warning", "No reclaim probe available, reclaim events will not be traced")
 
-            self.add_kprobe("vfs_fsync_range", "trace_vfs_fsync_range")
-            self.add_kprobe("__fput", "trace_fput") 
-            
             if not self.kprobes:
                 logger("error", "no kprobes attached successfully!")
                 sys.exit(1)   

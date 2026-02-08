@@ -225,8 +225,10 @@ class FlagMapper:
                 continue
                 
             # Special handling for O_SYNC because it includes O_DSYNC
-            if name == "O_SYNC" and flags & 0o04010000:
+            if name == "O_SYNC" and (flags & 0o04010000) == 0o04010000:
                 result.append(name)
+                if "O_DSYNC" in result:
+                    result.remove("O_DSYNC")
                 continue
                 
             # Special handling for O_TMPFILE because it includes O_DIRECTORY
