@@ -1,0 +1,40 @@
+# Process Snapshot
+
+**Description:** Records information about all running processes periodically during the trace.
+
+**Collection Method:**
+- First snapshot runs immediately at trace start
+- Subsequent snapshots are captured every 5 minutes (300 seconds)
+- Uses `psutil` for process information
+- Background thread samples CPU utilization over multiple intervals
+
+## Data Captured
+
+| # | Field | Type | Description |
+|---|-------|------|-------------|
+| 1 | Timestamp | `datetime` | Snapshot timestamp (`YYYY-MM-DD HH:MM:SS`) |
+| 2 | PID | `integer` | Process ID |
+| 3 | Name | `string` | Process name |
+| 4 | Command Line | `string` | Full command line (hashed to 12 characters in anonymous mode) |
+| 5 | Virtual Memory | `float` | Virtual memory size in KB (VMS) |
+| 6 | Resident Set Size | `float` | Resident set size in KB (RSS — physical memory used) |
+| 7 | Creation Time | `datetime` | Process creation/start time |
+| 8 | CPU 5s | `float` | CPU utilization % averaged over last 5 seconds |
+| 9 | CPU 2m | `float` | CPU utilization % averaged over last 2 minutes |
+| 10 | CPU 1h | `float` | CPU utilization % averaged over last 1 hour |
+| 11 | Status | `string` | Process status (see table below) |
+
+## Process Status Values
+
+| Value | Description |
+|-------|-------------|
+| `running` | Process is currently executing on a CPU |
+| `sleeping` | Process is in interruptible sleep (waiting for an event) |
+| `disk-sleep` | Process is in uninterruptible sleep (waiting for I/O) |
+| `stopped` | Process has been stopped (e.g., by a signal) |
+| `tracing-stop` | Process is stopped by a debugger/tracer |
+| `zombie` | Process has terminated but not yet been waited on by parent |
+| `dead` | Process is dead (should not normally be seen) |
+| `idle` | Process is idle (kernel threads) |
+
+**Output File:** `process/process_*.csv`

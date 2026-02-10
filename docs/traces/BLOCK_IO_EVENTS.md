@@ -1,0 +1,100 @@
+# Block I/O Events
+
+**Description:** Captures block-level device I/O operations, providing insights into physical disk activity.
+
+**Kernel Probes:** Attached via block layer instrumentation in the eBPF program.
+
+## Data Captured
+
+| # | Field | Type | Description |
+|---|-------|------|-------------|
+| 1 | Timestamp | `datetime` | Event timestamp (`YYYY-MM-DD HH:MM:SS.ffffff`) |
+| 2 | PID | `u32` | Process ID that submitted the request |
+| 3 | Command | `string` | Process name (max 16 characters) |
+| 4 | Sector | `u64` | Starting sector number on disk (LBA) |
+| 5 | Operation | `string` | Block operation type (see table below) |
+| 6 | Size | `u64` | I/O size in bytes |
+| 7 | Latency | `float` | Device latency in milliseconds (issue → completion) |
+| 8 | TID | `u32` | Thread ID |
+| 9 | CPU ID | `u32` | CPU where completion was processed |
+| 10 | PPID | `u32` | Parent process ID |
+| 11 | Device | `string` | Device number as `major:minor` identifying the partition/device |
+| 12 | Queue Latency | `float` | Queue/scheduler latency in milliseconds (insert → issue); empty if unavailable |
+
+## Operation Types
+
+Derived from the block layer `rwbs` string and normalized:
+
+| Value | Description |
+|-------|-------------|
+| `read` | Read operation |
+| `write` | Write operation |
+| `discard` | Discard/TRIM operation |
+| `flush` | Cache flush operation |
+| `secure_erase` | Secure erase operation |
+| `none` | No operation |
+
+## Block Operation Codes (`REQ_OP_*`)
+
+Raw operation codes from the kernel block layer:
+
+| Code | Name | Description |
+|------|------|-------------|
+| 0 | `REQ_OP_READ` | Read sectors from device |
+| 1 | `REQ_OP_WRITE` | Write sectors to device |
+| 2 | `REQ_OP_FLUSH` | Flush volatile write cache |
+| 3 | `REQ_OP_DISCARD` | Discard/TRIM sectors |
+| 5 | `REQ_OP_SECURE_ERASE` | Securely erase sectors |
+| 6 | `REQ_OP_WRITE_SAME` | Write same data to multiple sectors |
+| 7 | `REQ_OP_ZONE_APPEND` | Append to zone (zoned devices) |
+| 9 | `REQ_OP_WRITE_ZEROES` | Write zeroes to sectors |
+| 10 | `REQ_OP_ZONE_OPEN` | Open a zone |
+| 11 | `REQ_OP_ZONE_CLOSE` | Close a zone |
+| 12 | `REQ_OP_ZONE_FINISH` | Finish a zone |
+| 13 | `REQ_OP_ZONE_RESET` | Reset a zone |
+| 15 | `REQ_OP_ZONE_RESET_ALL` | Reset all zones |
+| 34 | `REQ_OP_DRV_IN` | Driver-specific input |
+| 35 | `REQ_OP_DRV_OUT` | Driver-specific output |
+| 36 | `REQ_OP_LAST` | Sentinel value |
+
+## Block Request Flags (`REQ_*`)
+
+Additional flags that may accompany a block request:
+
+| Bit | Name | Description |
+|-----|------|-------------|
+| `0x01` | `REQ_FAILFAST_DEV` | Fail fast on device error |
+| `0x02` | `REQ_FAILFAST_TRANSPORT` | Fail fast on transport error |
+| `0x04` | `REQ_FAILFAST_DRIVER` | Fail fast on driver error |
+| `0x08` | `REQ_SYNC` | Synchronous request |
+| `0x10` | `REQ_META` | Metadata I/O |
+| `0x20` | `REQ_PRIO` | High priority request |
+| `0x40` | `REQ_NOMERGE` | Do not merge with other requests |
+| `0x80` | `REQ_IDLE` | Idle priority request |
+| `0x100` | `REQ_INTEGRITY` | Data integrity protected |
+| `0x200` | `REQ_FUA` | Force Unit Access (bypass write cache) |
+| `0x400` | `REQ_PREFLUSH` | Flush cache before request |
+| `0x800` | `REQ_RAHEAD` | Read-ahead request |
+| `0x1000` | `REQ_BACKGROUND` | Background I/O |
+| `0x2000` | `REQ_NOWAIT` | Don't wait if request cannot be issued |
+| `0x4000` | `REQ_CGROUP_PUNT` | Cgroup accounting |
+
+## RWBS Flags
+
+Character flags from the block layer tracepoint `rwbs` string:
+
+| Char | Name | Description |
+|------|------|-------------|
+| `R` | READ | Read operation |
+| `W` | WRITE | Write operation |
+| `D` | DISCARD | Discard/TRIM |
+| `E` | SECURE_ERASE | Secure erase |
+| `F` | FLUSH | Cache flush |
+| `N` | NONE | No operation |
+| `S` | SYNC | Synchronous |
+| `M` | META | Metadata |
+| `A` | AHEAD | Read-ahead |
+| `P` | PRIO | High priority |
+| `B` | BARRIER | Barrier (legacy) |
+
+**Output File:** `ds/ds_*.csv`
