@@ -266,6 +266,7 @@ struct block_event {
   u64 latency_ns;           /**< Time from issue to completion (device latency) */
   u32 dev;                  /**< Device number (major:minor encoded) for partition ID */
   u64 queue_time_ns;        /**< Time from insert to issue (scheduler latency) */
+  u32 op_code;              /**< Raw block operation code (REQ_OP_*) */
 };
 
 /* ============================================================================
@@ -2000,8 +2001,11 @@ TRACEPOINT_PROBE(block, block_rq_complete) {
   // cmd_flags field was removed from block_rq_complete tracepoint in kernel 5.17+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
   event.cmd_flags = args->cmd_flags; // Capture REQ_* command flags
+  // Extract raw operation code from cmd_flags (lower 8 bits contain REQ_OP_*)
+  event.op_code = args->cmd_flags & 0xFF;
 #else
   event.cmd_flags = 0; // Field not available in newer kernels
+  event.op_code = 0;   // Cannot extract op_code without cmd_flags
 #endif
   
   // Capture device number for partition identification

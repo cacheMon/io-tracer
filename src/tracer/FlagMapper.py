@@ -420,6 +420,24 @@ class FlagMapper:
         
         return "|".join(result) if result else "NO_FLAGS"
     
+    def decode_block_op_code(self, op_code):
+        """
+        Decode raw block operation code to operation name.
+        
+        Args:
+            op_code: Integer representing the raw block operation code (REQ_OP_*).
+            
+        Returns:
+            str: Operation name (e.g., "REQ_OP_READ") or empty string if invalid.
+            
+        Example:
+            >>> mapper.decode_block_op_code(0)
+            'REQ_OP_READ'
+            >>> mapper.decode_block_op_code(1)
+            'REQ_OP_WRITE'
+        """
+        return self.op_block_types.get(op_code, "")
+    
     def format_block_ops(self, flag: str):
         """
         Normalize block operation strings to simple read/write format.

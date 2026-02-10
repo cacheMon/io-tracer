@@ -20,7 +20,10 @@
 | 10 | PPID | `u32` | Parent process ID |
 | 11 | Device | `string` | Device number as `major:minor` identifying the partition/device |
 | 12 | Queue Latency | `float` | Queue/scheduler latency in milliseconds (insert → issue); empty if unavailable |
-| 13 | Command Flags | `string` | Pipe-separated REQ_* flags (e.g., `REQ_SYNC\|REQ_META`); empty if no flags set |
+| 13 | Command Flags | `string` | Pipe-separated REQ_* flags (e.g., `REQ_SYNC\|REQ_META`); empty if no flags set or on kernel ≥ 5.17 |
+| 14 | Operation Code | `string` | Raw block operation code name (e.g., `REQ_OP_READ`, `REQ_OP_WRITE`); empty on kernel ≥ 5.17 |
+
+> **Note:** Command Flags (field 13) and Operation Code (field 14) are only available on Linux kernel versions < 5.17. The `cmd_flags` field was removed from the `block_rq_complete` tracepoint in kernel 5.17+. On newer kernels (including 5.17, 6.x), these fields will always be empty. Use the Operation field (field 5) and RWBS flags to distinguish I/O types on newer kernels.
 
 ## Operation Types
 
@@ -58,7 +61,7 @@ Raw operation codes from the kernel block layer:
 | 35 | `REQ_OP_DRV_OUT` | Driver-specific output |
 | 36 | `REQ_OP_LAST` | Sentinel value |
 
-Note: The op_block_types mapping is less critical since we already capture operation types via the rwbs string (converted to "read", "write", "discard", etc.)
+These raw operation codes are captured in field 14 (Operation Code) on Linux kernels < 5.17 and provide the most accurate indication of the block layer operation type. On newer kernels, use field 5 (Operation) which derives the operation type from the rwbs string.
 
 ## Block Request Flags (`REQ_*`)
 

@@ -315,7 +315,12 @@ class IOTracer:
         cmd_flags = event.cmd_flags if hasattr(event, 'cmd_flags') else 0
         cmd_flags_str = self.flag_mapper.decode_block_req_flags(cmd_flags) if cmd_flags else ""
         
-        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, latency_ms, tid, cpu_id, ppid, dev_str, queue_time_ms, cmd_flags_str)
+        # Decode raw operation code (REQ_OP_READ, REQ_OP_WRITE, etc.)
+        # Note: op_code is 0 on kernel 5.17+ where cmd_flags is unavailable - don't decode it
+        op_code = event.op_code if hasattr(event, 'op_code') else 0
+        op_code_str = self.flag_mapper.decode_block_op_code(op_code) if (op_code is not None and op_code != 0) else ""
+        
+        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, latency_ms, tid, cpu_id, ppid, dev_str, queue_time_ms, cmd_flags_str, op_code_str)
 
 
         if sector == 0 and bio_size == 0:
@@ -324,7 +329,7 @@ class IOTracer:
                 print("Warning: LBA 0 detected in block trace")
                 print(output)
                 print("="*50)
-
+        print(output)
         self.writer.append_block_log(output)
 
     def _print_event_net(self, cpu, data, size):
