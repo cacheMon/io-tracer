@@ -20,6 +20,7 @@
 | 10 | PPID | `u32` | Parent process ID |
 | 11 | Device | `string` | Device number as `major:minor` identifying the partition/device |
 | 12 | Queue Latency | `float` | Queue/scheduler latency in milliseconds (insert → issue); empty if unavailable |
+| 13 | Command Flags | `string` | Pipe-separated REQ_* flags (e.g., `REQ_SYNC\|REQ_META`); empty if no flags set |
 
 ## Operation Types
 
@@ -57,9 +58,11 @@ Raw operation codes from the kernel block layer:
 | 35 | `REQ_OP_DRV_OUT` | Driver-specific output |
 | 36 | `REQ_OP_LAST` | Sentinel value |
 
+Note: The op_block_types mapping is less critical since we already capture operation types via the rwbs string (converted to "read", "write", "discard", etc.)
+
 ## Block Request Flags (`REQ_*`)
 
-Additional flags that may accompany a block request:
+Command flags captured in the `Command Flags` field (field 13). Multiple flags are pipe-separated:
 
 | Bit | Name | Description |
 |-----|------|-------------|

@@ -311,7 +311,11 @@ class IOTracer:
         minor = dev & 0xfffff if dev > 0 else 0
         dev_str = f"{major}:{minor}"
         
-        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, latency_ms, tid, cpu_id, ppid, dev_str, queue_time_ms)
+        # Decode REQ_* command flags (REQ_SYNC, REQ_META, REQ_FUA, etc.)
+        cmd_flags = event.cmd_flags if hasattr(event, 'cmd_flags') else 0
+        cmd_flags_str = self.flag_mapper.decode_block_req_flags(cmd_flags) if cmd_flags else ""
+        
+        output = format_csv_row(timestamp, pid, comm, sector, ops_str, bio_size, latency_ms, tid, cpu_id, ppid, dev_str, queue_time_ms, cmd_flags_str)
 
 
         if sector == 0 and bio_size == 0:

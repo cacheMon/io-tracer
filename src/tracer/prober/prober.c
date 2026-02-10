@@ -261,7 +261,7 @@ struct block_event {
   u32 tid;                  /**< Thread ID */
   u32 cpu_id;               /**< CPU where completion was processed */
   u32 ppid;                 /**< Parent process ID */
-  u32 flags;                /**< Request flags (reserved) */
+  u32 cmd_flags;            /**< Request command flags (REQ_SYNC, REQ_META, etc.) */
   u64 bio_size;             /**< I/O size in bytes (sectors * 512) */
   u64 latency_ns;           /**< Time from issue to completion (device latency) */
   u32 dev;                  /**< Device number (major:minor encoded) for partition ID */
@@ -1996,7 +1996,7 @@ TRACEPOINT_PROBE(block, block_rq_complete) {
   
   event.latency_ns = latency;
   event.queue_time_ns = queue_time;  // New: queue time
-  event.flags = 0;  // Reserved for future use
+  event.cmd_flags = args->cmd_flags; // Capture REQ_* command flags
   
   // Capture device number for partition identification
   // dev contains major:minor encoding (major in bits 8-15, minor in bits 0-7 on older kernels,
