@@ -1996,7 +1996,13 @@ TRACEPOINT_PROBE(block, block_rq_complete) {
   
   event.latency_ns = latency;
   event.queue_time_ns = queue_time;  // New: queue time
+  
+  // cmd_flags field was removed from block_rq_complete tracepoint in kernel 5.17+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
   event.cmd_flags = args->cmd_flags; // Capture REQ_* command flags
+#else
+  event.cmd_flags = 0; // Field not available in newer kernels
+#endif
   
   // Capture device number for partition identification
   // dev contains major:minor encoding (major in bits 8-15, minor in bits 0-7 on older kernels,
