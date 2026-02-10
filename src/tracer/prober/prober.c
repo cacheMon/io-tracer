@@ -3748,6 +3748,33 @@ TRACEPOINT_PROBE(syscalls, sys_exit_select) {
   return 0;
 }
 
+/* pselect6() syscall - modern libc select() uses this */
+TRACEPOINT_PROBE(syscalls, sys_enter_pselect6) {
+  u64 tid = bpf_get_current_pid_tgid();
+  u32 pid = tid >> 32;
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) return 0;
+
+  u64 ts = bpf_ktime_get_ns();
+  select_ctx.update(&tid, &ts);
+  return 0;
+}
+
+TRACEPOINT_PROBE(syscalls, sys_exit_pselect6) {
+  u64 tid = bpf_get_current_pid_tgid();
+  u64 *start_ts = select_ctx.lookup(&tid);
+  if (!start_ts) return 0;
+
+  struct epoll_event_data e = {};
+  fill_epoll_common(&e, EPOLL_EV_SELECT);
+  e.latency_ns = bpf_ktime_get_ns() - *start_ts;
+  e.ready_count = (s32)args->ret;
+  net_epoll_events.perf_submit(args, &e, sizeof(e));
+  select_ctx.delete(&tid);
+  return 0;
+}
+
 /* ============================================================================
  * SOCKET CONFIGURATION PROBES
  * ============================================================================

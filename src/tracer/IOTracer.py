@@ -473,6 +473,9 @@ class IOTracer:
             timeout_ms,
             latency_ns,
         )
+        
+        if event_type in ["EPOLL_CREATE", "SELECT"]:
+            print(output)
         self.writer.append_epoll_log(output)
 
     def _print_event_sockopt(self, cpu, data, size):
