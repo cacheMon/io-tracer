@@ -82,6 +82,8 @@ class WriteManager:
         self.output_process_file = f"{self.output_dir}/process/process_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_network_file = f"{self.output_dir}/nw/nw_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_snapshot/filesystem_snapshot_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_pagefault_file = f"{self.output_dir}/pagefault/pagefault_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_iouring_file = f"{self.output_dir}/iouring/iouring_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
         # Create output directories
         os.makedirs(f"{self.output_dir}/system_spec", exist_ok=True)
@@ -91,6 +93,8 @@ class WriteManager:
         os.makedirs(f"{self.output_dir}/process", exist_ok=True)
         os.makedirs(f"{self.output_dir}/filesystem_snapshot", exist_ok=True)
         os.makedirs(f"{self.output_dir}/nw", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/pagefault", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/iouring", exist_ok=True)
 
         self.upload_manager = upload_manager
         self.automatic_upload = automatic_upload
@@ -102,6 +106,8 @@ class WriteManager:
         self.network_buffer = deque()
         self.process_buffer = deque()
         self.fs_snap_buffer = deque()
+        self.pagefault_buffer = deque()
+        self.iouring_buffer = deque()
         
         # Event rate tracking
         self.event_timestamps = {
@@ -111,6 +117,8 @@ class WriteManager:
             'network': deque(maxlen=1000),
             'fs_state': deque(maxlen=1000),
             'proc_state': deque(maxlen=1000),
+            'pagefault': deque(maxlen=1000),
+            'iouring': deque(maxlen=1000),
         }
         
         # Dynamic thresholds (min, max)
@@ -120,7 +128,9 @@ class WriteManager:
             'cache': (20000, 1000000),
             'network': (8000, 200000),
             'fs_state': (8000, 20000),
-            'proc_state': (8000, 10000)  # Match new process_max_events threshold
+            'proc_state': (8000, 10000),  # Match new process_max_events threshold
+            'pagefault': (8000, 100000),
+            'iouring': (8000, 50000),
         }
         
         # Start adaptive sizing thread
@@ -141,6 +151,8 @@ class WriteManager:
         self.network_max_events = 8000
         self.process_max_events = 8000  # Large enough to fit entire hourly snapshot
         self.fs_snap_max_events = 8000
+        self.pagefault_max_events = 8000
+        self.iouring_max_events = 8000
 
         # File handles for each output
         self._vfs_handle = None
@@ -148,6 +160,8 @@ class WriteManager:
         self._cache_handle = None
         self._network_handle = None
         self._process_handle = None
+        self._pagefault_handle = None
+        self._iouring_handle = None
         self._fs_snap_handle = None
 
         # Cache sampling configuration
@@ -184,7 +198,7 @@ class WriteManager:
         while True:
             time.sleep(10)  
             
-            for event_type in ['vfs', 'block', 'cache', 'network','fs_state','proc_state']:
+            for event_type in ['vfs', 'block', 'cache', 'network','fs_state','proc_state', 'pagefault', 'iouring']:
                 rate = self._calculate_event_rate(event_type)
                 min_limit, max_limit = self.dynamic_limits[event_type]
                 
@@ -209,6 +223,10 @@ class WriteManager:
                     self.fs_snap_max_events = new_limit
                 elif event_type == 'proc_state':
                     self.process_max_events = new_limit
+                elif event_type == 'pagefault':
+                    self.pagefault_max_events = new_limit
+                elif event_type == 'iouring':
+                    self.iouring_max_events = new_limit
 
     def _periodic_flush(self):
         """
@@ -272,6 +290,14 @@ class WriteManager:
     def should_flush_network(self) -> bool:
         """Check if network buffer should be flushed."""
         return (len(self.network_buffer) >= self.network_max_events)
+
+    def should_flush_pagefault(self) -> bool:
+        """Check if pagefault buffer should be flushed."""
+        return (len(self.pagefault_buffer) >= self.pagefault_max_events)
+
+    def should_flush_iouring(self) -> bool:
+        """Check if iouring buffer should be flushed."""
+        return (len(self.iouring_buffer) >= self.iouring_max_events)
 
 
     def append_fs_snap_log(self, log_output: str):
@@ -375,6 +401,38 @@ class WriteManager:
                 self.flush_network_only()
         else:
             logger("error", "Invalid network log output format. Expected a string.")
+
+    def append_pagefault_log(self, log_output: str):
+        """
+        Add a page fault event log entry.
+        
+        Args:
+            log_output: CSV-formatted log string
+        """
+        if isinstance(log_output, str):
+            self.pagefault_buffer.append(log_output)
+            self.event_timestamps['pagefault'].append(time.time())
+
+            if self.should_flush_pagefault():
+                self.flush_pagefault_only()
+        else:
+            logger("error", "Invalid pagefault log output format. Expected a string.")
+
+    def append_iouring_log(self, log_output: str):
+        """
+        Add an io_uring event log entry.
+        
+        Args:
+            log_output: CSV-formatted log string
+        """
+        if isinstance(log_output, str):
+            self.iouring_buffer.append(log_output)
+            self.event_timestamps['iouring'].append(time.time())
+
+            if self.should_flush_iouring():
+                self.flush_iouring_only()
+        else:
+            logger("error", "Invalid iouring log output format. Expected a string.")
 
 
     def direct_write(self, output_path: str, spec_str: str):
@@ -485,6 +543,36 @@ class WriteManager:
             self._network_handle = open(self.output_network_file, 'a', buffering=8192)
             self._reset_flush_timer()
 
+    def flush_pagefault_only(self):
+        """Flush pagefault buffer to file."""
+        if self.pagefault_buffer:
+            if self._pagefault_handle is None:
+                self._pagefault_handle = open(self.output_pagefault_file, 'a', buffering=8192)
+            self.current_datetime = datetime.now()
+            
+            self._write_buffer_to_file(self.pagefault_buffer, self._pagefault_handle, "PageFault")
+            self.compress_log(self.output_pagefault_file)
+            self.output_pagefault_file = f"{self.output_dir}/pagefault/pagefault_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+
+            self._pagefault_handle.close()
+            self._pagefault_handle = open(self.output_pagefault_file, 'a', buffering=8192)
+            self._reset_flush_timer()
+
+    def flush_iouring_only(self):
+        """Flush io_uring buffer to file."""
+        if self.iouring_buffer:
+            if self._iouring_handle is None:
+                self._iouring_handle = open(self.output_iouring_file, 'a', buffering=8192)
+            self.current_datetime = datetime.now()
+            
+            self._write_buffer_to_file(self.iouring_buffer, self._iouring_handle, "IOUring")
+            self.compress_log(self.output_iouring_file)
+            self.output_iouring_file = f"{self.output_dir}/iouring/iouring_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+
+            self._iouring_handle.close()
+            self._iouring_handle = open(self.output_iouring_file, 'a', buffering=8192)
+            self._reset_flush_timer()
+
     def force_flush(self):
         """Flush all buffers and compress all output files."""
         self.compress_log(self.output_block_file)
@@ -493,6 +581,8 @@ class WriteManager:
         self.compress_log(self.output_process_file)
         self.compress_log(self.output_fs_snapshot_file)
         self.compress_log(self.output_network_file)
+        self.compress_log(self.output_pagefault_file)
+        self.compress_log(self.output_iouring_file)
         self.compress_dir(self.output_dir)
 
 
@@ -505,6 +595,8 @@ class WriteManager:
         self.process_buffer.clear()
         self.fs_snap_buffer.clear()
         self.network_buffer.clear()
+        self.pagefault_buffer.clear()
+        self.iouring_buffer.clear()
 
     def _write_buffer_to_file(self, buffer, file_handle, buffer_name: str):
         """
@@ -573,6 +665,18 @@ class WriteManager:
                     self._network_handle = open(self.output_network_file, 'a', buffering=8192)
                 self._write_buffer_to_file(self.network_buffer, self._network_handle, "Network")
 
+        def write_pagefault():
+            if self.pagefault_buffer:
+                if self._pagefault_handle is None:
+                    self._pagefault_handle = open(self.output_pagefault_file, 'a', buffering=8192)
+                self._write_buffer_to_file(self.pagefault_buffer, self._pagefault_handle, "PageFault")
+
+        def write_iouring():
+            if self.iouring_buffer:
+                if self._iouring_handle is None:
+                    self._iouring_handle = open(self.output_iouring_file, 'a', buffering=8192)
+                self._write_buffer_to_file(self.iouring_buffer, self._iouring_handle, "IOUring")
+
         threads = []
         
         # Start parallel write threads for each buffer
@@ -605,6 +709,16 @@ class WriteManager:
             t6 = threading.Thread(target=write_network)
             threads.append(t6)
             t6.start()
+
+        if self.pagefault_buffer:
+            t7 = threading.Thread(target=write_pagefault)
+            threads.append(t7)
+            t7.start()
+
+        if self.iouring_buffer:
+            t8 = threading.Thread(target=write_iouring)
+            threads.append(t8)
+            t8.start()
 
         # Wait for all threads to complete
         for thread in threads:
@@ -672,6 +786,8 @@ class WriteManager:
             (self._process_handle, "Process State"),
             (self._fs_snap_handle, "Filesystem Snapshot"),
             (self._network_handle, "Network"),
+            (self._pagefault_handle, "PageFault"),
+            (self._iouring_handle, "IOUring"),
         ]
         
         for handle, name in handles:
@@ -689,3 +805,5 @@ class WriteManager:
         self._process_handle = None
         self._fs_snap_handle = None
         self._network_handle = None
+        self._pagefault_handle = None
+        self._iouring_handle = None

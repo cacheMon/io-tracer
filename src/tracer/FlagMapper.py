@@ -136,7 +136,84 @@ class FlagMapper:
             18: "LINK",
             19: "SYMLINK",
             20: "FALLOCATE",
-            21: "SENDFILE"
+            21: "SENDFILE",
+            # New operations for enhanced tracing
+            22: "SPLICE",
+            23: "VMSPLICE",
+            24: "MSYNC",
+            25: "MADVISE",
+            26: "DIO_READ",
+            27: "DIO_WRITE"
+        }
+
+        # io_uring operation codes
+        self.iouring_opcodes = {
+            0: "NOP",
+            1: "READV",
+            2: "WRITEV",
+            3: "FSYNC",
+            4: "READ_FIXED",
+            5: "WRITE_FIXED",
+            6: "POLL_ADD",
+            7: "POLL_REMOVE",
+            8: "SYNC_FILE_RANGE",
+            9: "SENDMSG",
+            10: "RECVMSG",
+            11: "TIMEOUT",
+            12: "TIMEOUT_REMOVE",
+            13: "ACCEPT",
+            14: "ASYNC_CANCEL",
+            15: "LINK_TIMEOUT",
+            16: "CONNECT",
+            17: "FALLOCATE",
+            18: "OPENAT",
+            19: "CLOSE",
+            20: "FILES_UPDATE",
+            21: "STATX",
+            22: "READ",
+            23: "WRITE",
+            24: "FADVISE",
+            25: "MADVISE",
+            26: "SEND",
+            27: "RECV",
+            28: "OPENAT2",
+            29: "EPOLL_CTL",
+            30: "SPLICE",
+            31: "PROVIDE_BUFFERS",
+            32: "REMOVE_BUFFERS",
+            255: "IO_URING_ENTER"  # Special value for the syscall itself
+        }
+
+        # msync flags
+        self.msync_flags = {
+            1: "MS_ASYNC",
+            2: "MS_INVALIDATE",
+            4: "MS_SYNC"
+        }
+
+        # madvise behavior flags
+        self.madvise_flags = {
+            0: "MADV_NORMAL",
+            1: "MADV_RANDOM",
+            2: "MADV_SEQUENTIAL",
+            3: "MADV_WILLNEED",
+            4: "MADV_DONTNEED",
+            8: "MADV_FREE",
+            9: "MADV_REMOVE",
+            10: "MADV_DONTFORK",
+            11: "MADV_DOFORK",
+            12: "MADV_MERGEABLE",
+            13: "MADV_UNMERGEABLE",
+            14: "MADV_HUGEPAGE",
+            15: "MADV_NOHUGEPAGE",
+            16: "MADV_DONTDUMP",
+            17: "MADV_DODUMP",
+            18: "MADV_WIPEONFORK",
+            19: "MADV_KEEPONFORK",
+            20: "MADV_COLD",
+            21: "MADV_PAGEOUT",
+            22: "MADV_POPULATE_READ",
+            23: "MADV_POPULATE_WRITE"
         }
 
         # mmap protection flags
@@ -383,3 +460,43 @@ class FlagMapper:
             return "none"
         else:
             return flag.lower()
+
+    def format_iouring_opcode(self, opcode):
+        """
+        Format an io_uring operation code to its name.
+        
+        Args:
+            opcode: Integer representing the io_uring opcode.
+            
+        Returns:
+            str: The opcode name (e.g., "READ", "WRITE") or "UNKNOWN_OP(X)" if unknown.
+        """
+        return self.iouring_opcodes.get(opcode, f"UNKNOWN_OP({opcode})")
+
+    def format_msync_flags(self, flags):
+        """
+        Format msync flags to a human-readable string.
+        
+        Args:
+            flags: Integer representing msync flags.
+            
+        Returns:
+            str: Pipe-separated list of flag names or "NO_FLAGS" if none set.
+        """
+        result = []
+        for flag, name in self.msync_flags.items():
+            if flags & flag:
+                result.append(name)
+        return "|".join(result) if result else "NO_FLAGS"
+
+    def format_madvise_flags(self, flags):
+        """
+        Format madvise behavior flags to a human-readable string.
+        
+        Args:
+            flags: Integer representing madvise behavior.
+            
+        Returns:
+            str: The behavior name (e.g., "MADV_DONTNEED") or "UNKNOWN_BEHAVIOR(X)" if unknown.
+        """
+        return self.madvise_flags.get(flags, f"UNKNOWN_BEHAVIOR({flags})")

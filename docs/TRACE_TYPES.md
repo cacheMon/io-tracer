@@ -50,6 +50,12 @@ IO Tracer uses eBPF/BPF technology to intercept kernel functions and collect var
 | SYMLINK | Create symbolic link | No |
 | FALLOCATE | Pre-allocate file space | No |
 | SENDFILE | Zero-copy file transfer | No |
+| SPLICE | Zero-copy pipe transfer | No |
+| VMSPLICE | Splice user pages to pipe | No |
+| MSYNC | Sync memory-mapped region | No |
+| MADVISE | Memory usage advice to kernel | No |
+| DIO_READ | Direct I/O read (bypasses page cache) | No |
+| DIO_WRITE | Direct I/O write (bypasses page cache) | No |
 
 **Dual-Path Operations:**
 Some operations (RENAME, LINK) involve two paths (source and destination). These are formatted as: `old_path -> new_path` in the filename column.
@@ -63,9 +69,13 @@ Some operations (RENAME, LINK) involve two paths (source and destination). These
 - Timestamp
 - Operation type (read, write, open, close, etc.)
 - Process ID (PID) and name
+- Thread ID (TID) for multi-threaded correlation
 - File path
 - I/O size
 - Inode number
+- File offset (for read/write operations)
+- Operation flags (O_RDONLY, O_SYNC, etc.)
+- Operation latency in nanoseconds
 
 **Output File:** `fs_events.csv`
 
@@ -83,7 +93,8 @@ Some operations (RENAME, LINK) involve two paths (source and destination). These
 - Sector location (LBA)
 - Operation type (read, write, discard, etc.)
 - I/O size (in bytes)
-- Latency (in milliseconds)
+- Latency (in milliseconds) - time from issue to completion
+- Queue latency (in milliseconds) - time from insert to issue
 - Thread ID
 - CPU ID
 - Parent Process ID
@@ -183,6 +194,74 @@ The filename field is **always empty** for cache events due to eBPF constraints:
 
 ---
 
+### 5. Page Fault Events
+
+**Description:** Captures file-backed page faults that occur when accessing memory-mapped files, providing insights into mmap I/O patterns.
+
+**Kernel Probes Attached:**
+- `filemap_fault` - File-backed page fault handler (via tracepoint)
+
+**Data Captured:**
+- Timestamp
+- Process ID (PID) and name
+- Thread ID (TID)
+- Faulting virtual address
+- Backing file inode number
+- File offset (in pages)
+- Fault type (READ or WRITE access)
+- Fault severity (MAJOR = disk I/O required, MINOR = page already in cache)
+- Device ID from file's superblock
+
+**Output File:** `pagefault/pagefault_*.csv`
+
+**Use Cases:**
+- Analyze memory-mapped I/O patterns
+- Identify major faults causing disk reads
+- Correlate with VFS and cache events using inode numbers
+- Track mmap-based file access by applications
+
+---
+
+### 6. io_uring Events
+
+**Description:** Captures modern asynchronous I/O operations using io_uring (Linux 5.1+), which provides high-performance async I/O with minimal syscall overhead.
+
+**Kernel Probes Attached:**
+- `sys_enter_io_uring_enter` - io_uring submission/completion syscall (tracepoint)
+- `__io_queue_sqe` - Individual I/O operation queueing (kprobe, if available)
+
+**Operation Types Captured:**
+Supports a wide range of io_uring operations including:
+- **File I/O:** READ, WRITE, READV, WRITEV, READ_FIXED, WRITE_FIXED
+- **File Ops:** FSYNC, SYNC_FILE_RANGE, FALLOCATE, FADVISE
+- **File Management:** OPENAT, CLOSE, STATX
+- **Network:** SENDMSG, RECVMSG, SEND, RECV, ACCEPT, CONNECT
+- **Polling:** POLL_ADD, POLL_REMOVE
+- **Advanced:** SPLICE, MADVISE, TIMEOUT, ASYNC_CANCEL
+
+**Data Captured:**
+- Timestamp
+- Process ID (PID) and name
+- Operation type/opcode (e.g., READ, WRITE, FSYNC)
+- File descriptor
+- File offset (for positioned I/O)
+- Operation length/count
+- Operation result (return value)
+- Operation latency in milliseconds
+- File inode (when available)
+
+**Output File:** `iouring/iouring_*.csv`
+
+**Use Cases:**
+- Monitor modern async I/O workloads (databases, high-performance applications)
+- Compare io_uring vs traditional I/O performance
+- Analyze batched I/O submission patterns
+- Track async network and file operations together
+
+**Note:** io_uring support requires kernel 5.1+ and is automatically detected. The tracer captures the `io_uring_enter` syscall which batches multiple operations.
+
+---
+
 ## Snapshot Types
 
 Snapshots provide system context during tracing.
@@ -269,11 +348,13 @@ Snapshots provide system context during tracing.
 │  ┌────────▼────────┐    ┌─────────────────────────────────┐  │
 │  │  IOTracer.py     │───►│  Event Callbacks                 │  │
 │  │                  │    │ - _print_event (VFS)              │  │
-│  │  Trace Types:    │    │ - _print_event_block (Block)      │  │
-│  │  • VFS Events    │    │ - _print_event_cache (Cache)      │  │
-│  │  • Block Events  │    │ - _print_event_net (Network)     │  │
-│  │  • Cache Events  │    └─────────────────────────────────┘  │
-│  │  • Net Events    │                                          │
+│  │  Trace Types:    │    │ - _print_event_dual (VFS dual)    │  │
+│  │  • VFS Events    │    │ - _print_event_block (Block)      │  │
+│  │  • Block Events  │    │ - _print_event_cache (Cache)      │  │
+│  │  • Cache Events  │    │ - _print_event_net (Network)      │  │
+│  │  • Net Events    │    │ - _print_event_pagefault (Fault)  │  │
+│  │  • Page Faults   │    │ - _print_event_iouring (io_uring) │  │
+│  │  • io_uring      │    └─────────────────────────────────┘  │
 │  └────────┬────────┘                                           │
 │           │                                                    │
 │  ┌────────▼────────┐    ┌─────────────────────────────────┐  │
@@ -291,6 +372,8 @@ Snapshots provide system context during tracing.
 │  │                  │    • block_events.csv                   │  │
 │  │                  │    • cache_events.csv                   │  │
 │  │                  │    • network_events.csv                 │  │
+│  │                  │    • pagefault_events.csv               │  │
+│  │                  │    • iouring_events.csv                 │  │
 │  │                  │    • filesystem_snap.csv.gz             │  │
 │  │                  │    • process_snap.csv                   │  │
 │  │                  │    • device_spec.txt                    │  │

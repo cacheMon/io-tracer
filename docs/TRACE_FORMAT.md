@@ -12,6 +12,8 @@ output_YYYYMMDD_HHMMSS/
 ├── ds/                    # Block device traces
 ├── cache/                 # Page cache events
 ├── nw/                    # Network I/O traces
+├── pagefault/             # Memory-mapped page fault events
+├── iouring/               # io_uring async I/O events
 ├── process/               # Process state snapshots
 ├── filesystem_snapshot/   # Filesystem metadata snapshots
 └── system_spec/           # System specification files
@@ -31,7 +33,7 @@ Each subdirectory contains CSV files that are automatically compressed to `.csv.
 
 #### Standard Operations (Single Path)
 ```csv
-timestamp,operation,pid,command,filename,size,inode,flags,latency_ns
+timestamp,operation,pid,command,filename,size,inode,flags,latency_ns,offset,tid
 ```
 
 | Column | Type | Description |
@@ -45,6 +47,8 @@ timestamp,operation,pid,command,filename,size,inode,flags,latency_ns
 | `inode` | integer | Inode number of the file |
 | `flags` | string | Operation-specific flags (pipe-separated) |
 | `latency_ns` | integer | Operation latency in nanoseconds (0 if not measured) |
+| `offset` | integer | File offset for read/write operations (empty for others) |
+| `tid` | integer | Thread ID for multi-threaded correlation (empty if not applicable) |
 
 #### Dual-Path Operations (Rename, Link, Symlink)
 ```csv
@@ -81,6 +85,12 @@ timestamp,operation,pid,command,old_path->new_path,size,inode_old:inode_new,flag
 | `SYMLINK` | Create symbolic link | 0 | NO_FLAGS |
 | `FALLOCATE` | Pre-allocate space | Allocated bytes | Fallocate mode flags |
 | `SENDFILE` | Zero-copy file transfer | Transfer size | NO_FLAGS |
+| `SPLICE` | Zero-copy pipe transfer | Transfer size | NO_FLAGS |
+| `VMSPLICE` | Splice user pages to pipe | Transfer size | NO_FLAGS |
+| `MSYNC` | Sync memory-mapped region | Region size | Sync flags (MS_ASYNC, MS_SYNC, MS_INVALIDATE) |
+| `MADVISE` | Memory usage advice | Region size | Advice flags (MADV_DONTNEED, MADV_WILLNEED, etc.) |
+| `DIO_READ` | Direct I/O read (bypasses page cache) | Bytes read | File flags |
+| `DIO_WRITE` | Direct I/O write (bypasses page cache) | Bytes written | File flags |
 
 ### Flag Formats
 
@@ -104,11 +114,14 @@ FALLOC_FL_KEEP_SIZE|FALLOC_FL_PUNCH_HOLE|FALLOC_FL_ZERO_RANGE|...
 ### Example Rows
 
 ```csv
-2024-01-15 10:30:45.123456,WRITE,1234,python3,/home/user/data.txt,4096,789012,O_RDWR|O_CREAT,0
-2024-01-15 10:30:45.234567,OPEN,1234,python3,/home/user/log.txt,0,789013,O_WRONLY|O_CREAT|O_APPEND,0
-2024-01-15 10:30:45.345678,FSYNC,1234,python3,/home/user/data.txt,0,789012,O_RDWR|O_CREAT,0
-2024-01-15 10:30:45.456789,RENAME,1234,mv,/tmp/old.txt->/tmp/new.txt,0,123456:123456,NO_FLAGS,0
-2024-01-15 10:30:45.567890,SYMLINK,1234,ln,/usr/bin/python->/usr/bin/python3.10,0,0:654321,NO_FLAGS,0
+2024-01-15 10:30:45.123456,WRITE,1234,python3,/home/user/data.txt,4096,789012,O_RDWR|O_CREAT,0,8192,1235
+2024-01-15 10:30:45.234567,OPEN,1234,python3,/home/user/log.txt,0,789013,O_WRONLY|O_CREAT|O_APPEND,0,,1234
+2024-01-15 10:30:45.345678,FSYNC,1234,python3,/home/user/data.txt,0,789012,O_RDWR|O_CREAT,0,,1234
+2024-01-15 10:30:45.456789,RENAME,1234,mv,/tmp/old.txt->/tmp/new.txt,0,123456:123456,NO_FLAGS,0,,1234
+2024-01-15 10:30:45.567890,SYMLINK,1234,ln,/usr/bin/python->/usr/bin/python3.10,0,0:654321,NO_FLAGS,0,,1234
+2024-01-15 10:30:45.678901,READ,5678,cat,/etc/hosts,512,456789,O_RDONLY,50000,0,5678
+2024-01-15 10:30:45.789012,MSYNC,1234,python3,/home/user/mmap.dat,4096,789014,MS_SYNC,120000,0,1235
+2024-01-15 10:30:45.890123,DIO_WRITE,9999,postgres,/var/lib/postgres/data,8192,111222,O_DIRECT|O_SYNC,250000,16384,9999
 ```
 
 ---
@@ -122,7 +135,7 @@ FALLOC_FL_KEEP_SIZE|FALLOC_FL_PUNCH_HOLE|FALLOC_FL_ZERO_RANGE|...
 ### CSV Format
 
 ```csv
-timestamp,pid,command,sector,operation,size,latency_ms,tid,nr_sectors,cpu_id,ppid
+timestamp,pid,command,sector,operation,size,latency_ms,tid,cpu_id,ppid,dev,queue_time_ms
 ```
 
 | Column | Type | Description |
@@ -133,11 +146,12 @@ timestamp,pid,command,sector,operation,size,latency_ms,tid,nr_sectors,cpu_id,ppi
 | `sector` | integer | Starting LBA (Logical Block Address) |
 | `operation` | string | I/O operation type (read, write, flush, discard, etc.) |
 | `size` | integer | I/O size in bytes (nr_sectors × 512) |
-| `latency_ms` | float | I/O latency in milliseconds |
+| `latency_ms` | float | I/O latency in milliseconds (issue to completion) |
 | `tid` | integer | Thread ID |
-| `nr_sectors` | integer | Number of 512-byte sectors |
 | `cpu_id` | integer | CPU core where completion occurred |
 | `ppid` | integer | Parent process ID |
+| `dev` | string | Device major:minor number (identifies partition) |
+| `queue_time_ms` | float | Queue latency in milliseconds (insert to issue) |
 
 ### Operations
 
@@ -153,9 +167,9 @@ timestamp,pid,command,sector,operation,size,latency_ms,tid,nr_sectors,cpu_id,ppi
 ### Example Rows
 
 ```csv
-2024-01-15 10:30:45.123456,1234,python3,2048000,write,8192,1.234,1235,16,0,1233
-2024-01-15 10:30:45.234567,1234,python3,2048016,read,4096,0.567,1235,8,1,1233
-2024-01-15 10:30:45.345678,1234,python3,0,flush,0,2.345,1235,0,2,1233
+2024-01-15 10:30:45.123456,1234,python3,2048000,write,8192,1.234,1235,0,1233,8:0,0.123
+2024-01-15 10:30:45.234567,1234,python3,2048016,read,4096,0.567,1235,1,1233,8:0,0.045
+2024-01-15 10:30:45.345678,1234,python3,0,flush,0,2.345,1235,2,1233,8:0,
 ```
 
 ---
@@ -258,7 +272,126 @@ timestamp,pid,command,source_addr,dest_addr,source_port,dest_port,size,direction
 
 ---
 
-## 5. Process Snapshots
+## 5. Page Fault Events
+
+**Location:** `output_*/pagefault/pagefault_*.csv.gz`
+
+**Description:** Captures file-backed page faults from memory-mapped I/O operations. Tracks which memory accesses trigger disk reads (major faults) vs cache hits (minor faults).
+
+### CSV Format
+
+```csv
+timestamp,pid,tid,command,fault_type,severity,inode,offset,address,dev_id
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `timestamp` | datetime | Event timestamp (YYYY-MM-DD HH:MM:SS.ffffff) |
+| `pid` | integer | Process ID |
+| `tid` | integer | Thread ID |
+| `command` | string | Process command name |
+| `fault_type` | string | Access type: "READ" or "WRITE" |
+| `severity` | string | "MAJOR" (disk I/O) or "MINOR" (cache hit) |
+| `inode` | integer | Backing file inode (0 for anonymous mappings) |
+| `offset` | integer | File offset in pages (multiply by 4096 for bytes) |
+| `address` | string | Faulting virtual address (hex) |
+| `dev_id` | integer | Device ID from file's superblock (0 if unavailable) |
+
+### Example Rows
+
+```csv
+2024-01-15 10:30:45.123456,1234,1235,python3,READ,MAJOR,789012,100,0x7f8a4c000000,2049
+2024-01-15 10:30:45.234567,1234,1235,python3,READ,MINOR,789012,101,0x7f8a4c001000,2049
+2024-01-15 10:30:45.345678,1234,1236,python3,WRITE,MAJOR,789012,102,0x7f8a4c002000,2049
+2024-01-15 10:30:45.456789,5678,5678,app,READ,MINOR,456789,0,0x7f1234500000,2050
+```
+
+**Use Cases:**
+- Analyze mmap I/O patterns and performance
+- Identify major faults causing unexpected disk reads
+- Correlate with cache events using inode numbers
+- Detect memory pressure affecting file-backed pages
+
+---
+
+## 6. io_uring Events
+
+**Location:** `output_*/iouring/iouring_*.csv.gz`
+
+**Description:** Captures modern asynchronous I/O operations using the io_uring interface (Linux 5.1+). Tracks both file and network async operations.
+
+### CSV Format
+
+```csv
+timestamp,pid,command,opcode,fd,offset,length,result,latency_ms
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `timestamp` | datetime | Event timestamp (YYYY-MM-DD HH:MM:SS.ffffff) |
+| `pid` | integer | Process ID |
+| `command` | string | Process command name |
+| `opcode` | string | io_uring operation type (see below) |
+| `fd` | integer | File descriptor (0 if not applicable) |
+| `offset` | integer | File offset for positioned I/O (empty if not applicable) |
+| `length` | integer | Operation length/count (empty if not applicable) |
+| `result` | integer | Operation result/return value (empty if not available) |
+| `latency_ms` | float | Operation latency in milliseconds (empty if not measured) |
+
+### Operation Types (Opcode)
+
+| Opcode | Description |
+|--------|-------------|
+| `READ` | Asynchronous read |
+| `WRITE` | Asynchronous write |
+| `READV` | Vectored read |
+| `WRITEV` | Vectored write |
+| `READ_FIXED` | Read with pre-registered buffers |
+| `WRITE_FIXED` | Write with pre-registered buffers |
+| `FSYNC` | Asynchronous fsync |
+| `SYNC_FILE_RANGE` | Sync specific file range |
+| `FALLOCATE` | Asynchronous fallocate |
+| `OPENAT` | Asynchronous file open |
+| `CLOSE` | Asynchronous file close |
+| `STATX` | Get extended file attributes |
+| `SENDMSG` | Send message on socket |
+| `RECVMSG` | Receive message from socket |
+| `SEND` | Send data on socket |
+| `RECV` | Receive data from socket |
+| `ACCEPT` | Accept connection |
+| `CONNECT` | Connect socket |
+| `POLL_ADD` | Add poll request |
+| `POLL_REMOVE` | Remove poll request |
+| `TIMEOUT` | Set timeout |
+| `MADVISE` | Memory advice |
+| `FADVISE` | File access advice |
+| `SPLICE` | Zero-copy data transfer |
+| `IO_URING_ENTER` | The io_uring_enter syscall itself (batch submission) |
+| `NOP` | No operation |
+
+### Example Rows
+
+```csv
+2024-01-15 10:30:45.123456,1234,postgres,READ,5,0,8192,8192,0.234
+2024-01-15 10:30:45.234567,1234,postgres,WRITE,5,8192,4096,4096,0.567
+2024-01-15 10:30:45.345678,1234,postgres,FSYNC,5,,,0,1.234
+2024-01-15 10:30:45.456789,5678,nginx,ACCEPT,10,,,15,0.012
+2024-01-15 10:30:45.567890,5678,nginx,RECVMSG,15,,,1024,0.045
+2024-01-15 10:30:45.678901,1234,app,IO_URING_ENTER,0,,32,,
+```
+
+**Use Cases:**
+- Monitor high-performance async I/O applications
+- Compare io_uring vs traditional I/O performance
+- Analyze batched I/O submission patterns
+- Track both file and network async operations
+- Identify bottlenecks in async I/O pipelines
+
+**Note:** The `IO_URING_ENTER` opcode represents the `io_uring_enter` syscall which can batch multiple operations. The `length` field for this operation indicates the number of operations submitted in that batch.
+
+---
+
+## 7. Process Snapshots
 
 **Location:** `output_*/process/process_*.csv.gz`
 
@@ -293,7 +426,7 @@ timestamp,pid,ppid,name,state,uid,gid,num_threads,cpu_percent,memory_percent,cmd
 
 ---
 
-## 6. Filesystem Snapshots
+## 8. Filesystem Snapshots
 
 **Location:** `output_*/filesystem_snapshot/filesystem_snapshot_*.csv.gz`
 
@@ -323,7 +456,7 @@ snapshot_timestamp,path,size,ctime,mtime,atime
 
 ---
 
-## 7. System Specification Files
+## 9. System Specification Files
 
 **Location:** `output_*/system_spec/`
 

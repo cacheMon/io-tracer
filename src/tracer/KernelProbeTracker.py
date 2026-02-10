@@ -200,6 +200,31 @@ class KernelProbeTracker:
             else:
                 logger("warning", "sendfile probe not available on this kernel version")
             
+            # Splice probe for zero-copy transfers
+            if BPF.get_kprobe_functions(b'do_splice'):
+                self.add_kprobe("do_splice", "trace_splice")
+            else:
+                logger("warning", "splice probe not available on this kernel version")
+            
+            # Page fault probe for mmap I/O tracking
+            if BPF.get_kprobe_functions(b'filemap_fault'):
+                self.add_kprobe("filemap_fault", "trace_filemap_fault_entry")
+                logger("info", "Page fault tracing enabled via filemap_fault")
+            else:
+                logger("warning", "filemap_fault not available - mmap I/O tracking disabled")
+            
+            # Direct I/O probe for bypass detection
+            if BPF.get_kprobe_functions(b'iomap_dio_rw'):
+                self.add_kprobe("iomap_dio_rw", "trace_dio_entry")
+                self.add_kretprobe("iomap_dio_rw", "trace_dio_return")
+                logger("info", "Direct I/O tracing enabled via iomap_dio_rw")
+            elif BPF.get_kprobe_functions(b'__blockdev_direct_IO'):
+                self.add_kprobe("__blockdev_direct_IO", "trace_dio_entry")
+                self.add_kretprobe("__blockdev_direct_IO", "trace_dio_return")
+                logger("info", "Direct I/O tracing enabled via __blockdev_direct_IO")
+            else:
+                logger("warning", "Direct I/O probe not available on this kernel version")
+            
             # Cache Miss probes - kernel version dependent
             if BPF.get_kprobe_functions(b'filemap_add_folio'):
                 self.add_kprobe("filemap_add_folio", "trace_filemap_add_folio")
