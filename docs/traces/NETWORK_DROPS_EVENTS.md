@@ -1,9 +1,10 @@
 # Network Drops & Retransmissions
 
-**Description:** Captures TCP retransmission events for network reliability analysis.
+**Description:** Captures TCP retransmission events and packet drops for network reliability analysis.
 
 **Tracepoints Attached:**
 - `tcp:tcp_retransmit_skb` — TCP segment retransmission (stable tracepoint, kernel 4.16+)
+- `skb:kfree_skb` — Packet dropped by the kernel network stack
 
 ## Data Captured
 

@@ -474,8 +474,6 @@ class IOTracer:
             latency_ns,
         )
         
-        if event_type in ["EPOLL_CREATE", "SELECT"]:
-            print(output)
         self.writer.append_epoll_log(output)
 
     def _print_event_sockopt(self, cpu, data, size):
@@ -503,6 +501,7 @@ class IOTracer:
             str(e.optval),
             ret_val,
         )
+        
         self.writer.append_sockopt_log(output)
 
     def _print_event_drop(self, cpu, data, size):
@@ -543,6 +542,8 @@ class IOTracer:
             drop_reason,
             tcp_state,
         )
+        
+        print(output)
         self.writer.append_drop_log(output)
 
     def _print_event_pagefault(self, cpu, data, size):

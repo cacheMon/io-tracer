@@ -3869,3 +3869,75 @@ TRACEPOINT_PROBE(tcp, tcp_retransmit_skb) {
   return 0;
 }
 
+/* kfree_skb - Packet drops */
+TRACEPOINT_PROBE(skb, kfree_skb) {
+  struct net_drop_data e = {};
+  e.ts_ns = bpf_ktime_get_ns();
+  e.pid = bpf_get_current_pid_tgid() >> 32;
+  bpf_get_current_comm(&e.comm, sizeof(e.comm));
+  e.event_type = NET_DROP_PACKET;
+
+  /* Get SKB pointer and extract network info */
+  struct sk_buff *skb = (struct sk_buff *)args->skbaddr;
+  if (!skb) return 0;
+
+  /* Read drop reason (kernel 5.17+ has this field) */
+  bpf_probe_read_kernel(&e.drop_reason, sizeof(e.drop_reason), &args->reason);
+  
+  /* Read packet length */
+  bpf_probe_read_kernel(&e.skb_len, sizeof(e.skb_len), &skb->len);
+
+  /* Try to extract IP header info */
+  unsigned char *head, *data;
+  u16 network_header, transport_header;
+  
+  bpf_probe_read_kernel(&head, sizeof(head), &skb->head);
+  bpf_probe_read_kernel(&data, sizeof(data), &skb->data);
+  bpf_probe_read_kernel(&network_header, sizeof(network_header), &skb->network_header);
+  bpf_probe_read_kernel(&transport_header, sizeof(transport_header), &skb->transport_header);
+
+  unsigned char *ip_header = head + network_header;
+  
+  /* Read IP version from first byte of IP header */
+  u8 ip_version_byte;
+  bpf_probe_read_kernel(&ip_version_byte, sizeof(ip_version_byte), ip_header);
+  u8 ip_version = (ip_version_byte >> 4) & 0x0F;
+
+  if (ip_version == 4) {
+    e.ipver = 4;
+    /* IPv4 header offsets: saddr at +12, daddr at +16, protocol at +9 */
+    bpf_probe_read_kernel(&e.proto, sizeof(e.proto), ip_header + 9);
+    bpf_probe_read_kernel(&e.saddr_v4, sizeof(e.saddr_v4), ip_header + 12);
+    bpf_probe_read_kernel(&e.daddr_v4, sizeof(e.daddr_v4), ip_header + 16);
+    
+    /* Extract ports if TCP/UDP */
+    if (e.proto == 6 || e.proto == 17) {  /* TCP or UDP */
+      unsigned char *l4_header = head + transport_header;
+      u16 sport_be, dport_be;
+      bpf_probe_read_kernel(&sport_be, sizeof(sport_be), l4_header);
+      bpf_probe_read_kernel(&dport_be, sizeof(dport_be), l4_header + 2);
+      e.sport = __builtin_bswap16(sport_be);
+      e.dport = __builtin_bswap16(dport_be);
+    }
+  } else if (ip_version == 6) {
+    e.ipver = 6;
+    /* IPv6 header offsets: next_header at +6, saddr at +8, daddr at +24 */
+    bpf_probe_read_kernel(&e.proto, sizeof(e.proto), ip_header + 6);
+    bpf_probe_read_kernel(&e.saddr_v6, sizeof(e.saddr_v6), ip_header + 8);
+    bpf_probe_read_kernel(&e.daddr_v6, sizeof(e.daddr_v6), ip_header + 24);
+    
+    /* Extract ports if TCP/UDP */
+    if (e.proto == 6 || e.proto == 17) {
+      unsigned char *l4_header = head + transport_header;
+      u16 sport_be, dport_be;
+      bpf_probe_read_kernel(&sport_be, sizeof(sport_be), l4_header);
+      bpf_probe_read_kernel(&dport_be, sizeof(dport_be), l4_header + 2);
+      e.sport = __builtin_bswap16(sport_be);
+      e.dport = __builtin_bswap16(dport_be);
+    }
+  }
+
+  net_drop_events.perf_submit(args, &e, sizeof(e));
+  return 0;
+}
+
