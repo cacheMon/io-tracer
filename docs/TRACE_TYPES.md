@@ -176,21 +176,143 @@ The filename field is **always empty** for cache events due to eBPF constraints:
 
 ### 4. Network Events
 
-**Description:** Captures network send and receive operations with connection details.
+**Description:** Captures network send and receive operations with connection details, protocol, latency, error codes, and message flags.
 
 **Kernel Probes:** Attached via socket layer instrumentation in the eBPF program.
+
+**Kernel Probes Attached:**
+- `tcp_sendmsg` / `tcp_recvmsg` - TCP send/receive (kprobe + kretprobe for latency)
+- `udp_sendmsg` / `udp_recvmsg` - UDP send/receive (kprobe + kretprobe for latency)
+- `sys_enter_sendto` / `sys_enter_sendmsg` - Syscall MSG_* flag capture (tracepoint)
+- `sys_enter_recvfrom` / `sys_enter_recvmsg` - Syscall MSG_* flag capture (tracepoint)
 
 **Data Captured:**
 - Timestamp
 - Process ID and name
-- Source IP address
-- Destination IP address
-- Source port
-- Destination port
+- Protocol (TCP/UDP)
+- IP version (4/6)
+- Source/destination IP addresses
+- Source/destination ports
 - Payload size (bytes)
 - Direction (send/receive)
+- Latency in nanoseconds (send operations)
+- Error code (negative errno on failure)
+- MSG_* flags (MSG_DONTWAIT, MSG_PEEK, MSG_NOSIGNAL, etc.)
 
-**Output File:** `network_events.csv`
+**Output File:** `nw/nw_*.csv`
+
+---
+
+### 4a. Connection Lifecycle Events
+
+**Description:** Captures the full socket connection lifecycle from creation to shutdown.
+
+**Tracepoints Attached:**
+- `syscalls:sys_enter_socket` / `sys_exit_socket` - Socket creation
+- `syscalls:sys_enter_bind` - Bind to address/port
+- `syscalls:sys_enter_listen` - Start listening for connections
+- `syscalls:sys_enter_accept4` / `sys_exit_accept4` - Accept incoming connections (with latency)
+- `syscalls:sys_enter_connect` / `sys_exit_connect` - Initiate connection (with latency)
+- `syscalls:sys_enter_shutdown` - Shutdown connection
+
+**Event Types:**
+| Event | Description |
+|-------|-------------|
+| SOCKET_CREATE | New socket file descriptor created |
+| BIND | Socket bound to local address/port |
+| LISTEN | Socket set to listening state |
+| ACCEPT | New connection accepted (with accept latency) |
+| CONNECT | Connection initiated (with connect latency) |
+| SHUTDOWN | Connection shutdown (SHUT_RD/SHUT_WR/SHUT_RDWR) |
+
+**Data Captured:**
+- Timestamp, PID, TID, command
+- Event type
+- Socket domain (AF_INET, AF_INET6, AF_UNIX)
+- Socket type (SOCK_STREAM, SOCK_DGRAM)
+- Protocol, IP version
+- Local/remote addresses and ports
+- File descriptor, backlog (for listen), shutdown how
+- Latency (for accept/connect)
+- Return value
+
+**Output File:** `nw_conn/nw_conn_*.csv`
+
+---
+
+### 4b. Epoll/Multiplexing Events
+
+**Description:** Captures I/O multiplexing operations for understanding event-driven architectures.
+
+**Tracepoints Attached:**
+- `syscalls:sys_enter_epoll_create1` / `sys_exit_epoll_create1` - Create epoll instance
+- `syscalls:sys_enter_epoll_ctl` - Add/modify/remove FDs from epoll
+- `syscalls:sys_enter_epoll_wait` / `sys_exit_epoll_wait` - Wait for events (with latency)
+- `syscalls:sys_enter_poll` / `sys_exit_poll` - poll() syscall (with latency)
+- `syscalls:sys_enter_select` / `sys_exit_select` - select() syscall (with latency)
+
+**Event Types:**
+| Event | Description |
+|-------|-------------|
+| EPOLL_CREATE | New epoll file descriptor created |
+| EPOLL_CTL | FD added/modified/removed from epoll |
+| EPOLL_WAIT | Waiting for events (with wait latency) |
+| POLL | poll() syscall (with latency) |
+| SELECT | select() syscall (with latency) |
+
+**Data Captured:**
+- Timestamp, PID, TID, command
+- Epoll FD, target FD
+- Operation (ADD/MOD/DEL), event mask (EPOLLIN, EPOLLOUT, EPOLLET, etc.)
+- Max events, ready count, timeout
+- Wait latency in nanoseconds
+
+**Output File:** `nw_epoll/nw_epoll_*.csv`
+
+---
+
+### 4c. Socket Configuration Events
+
+**Description:** Captures socket option changes for performance-relevant settings.
+
+**Tracepoints Attached:**
+- `syscalls:sys_enter_setsockopt` - Set socket options
+- `syscalls:sys_enter_getsockopt` - Get socket options
+
+**Filtering:** Only SOL_SOCKET and IPPROTO_TCP level options are traced.
+
+**Data Captured:**
+- Timestamp, PID, command
+- Event type (SET/GET)
+- File descriptor, level, option name, option value
+- Return value
+
+**Output File:** `nw_sockopt/nw_sockopt_*.csv`
+
+---
+
+### 4d. Network Drops & Retransmissions
+
+**Description:** Captures TCP retransmission events for network reliability analysis.
+
+**Tracepoints Attached:**
+- `tcp:tcp_retransmit_skb` - TCP segment retransmission (stable tracepoint, kernel 4.16+)
+
+**Event Types:**
+| Event | Description |
+|-------|-------------|
+| TCP_RETRANSMIT | TCP segment retransmitted |
+
+**Data Captured:**
+- Timestamp, PID, command
+- Protocol, IP version
+- Source/destination addresses and ports
+- TCP state (ESTABLISHED, SYN_SENT, etc.)
+- Packet size
+
+**Output File:** `nw_drop/nw_drop_*.csv`
+
+**Note:** The `tcp:tcp_retransmit_skb` tracepoint is wrapped in try/except for kernel compatibility. On older kernels where it's unavailable, this category will be silently disabled.
 
 ---
 

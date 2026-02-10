@@ -328,7 +328,8 @@ class IOTracer:
         Callback for processing network I/O events from the perf buffer.
         
         Captures send and receive operations with source/destination
-        addresses and port numbers.
+        addresses, port numbers, protocol, IP version, latency, error codes,
+        and MSG_* flags.
         
         Args:
             cpu: CPU number where the event was captured
@@ -340,7 +341,9 @@ class IOTracer:
         pid = e.pid
         comm = e.comm.decode("utf-8", errors="replace").strip("\x00")
         size_bytes = e.size_bytes
-        ty = "send" if e.dir == 0 else "receive"
+        ty = FlagMapper.format_direction(e.dir)
+        proto = FlagMapper.format_proto(e.proto)
+        ipver = str(e.ipver) if e.ipver else ""
 
         # Handle IPv4 addresses
         if e.ipver == 4:
@@ -353,19 +356,183 @@ class IOTracer:
         else:
             s_addr = d_addr = "unknown"
 
+        latency_ns = e.latency_ns if hasattr(e, 'latency_ns') and e.latency_ns != 0 else ""
+        error_code = FlagMapper.format_errno(e.error_code) if hasattr(e, 'error_code') and e.error_code != 0 else ""
+        msg_flags = FlagMapper.format_msg_flags(e.msg_flags) if hasattr(e, 'msg_flags') and e.msg_flags != 0 else ""
 
         output = format_csv_row(
             ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
             str(pid),
             comm,
+            proto,
+            ipver,
             s_addr,
             d_addr,
             str(e.sport),
             str(e.dport),
             str(size_bytes),
             ty,
+            str(latency_ns) if latency_ns else "",
+            str(error_code),
+            msg_flags,
         )
         self.writer.append_network_log(output)
+
+    def _print_event_conn(self, cpu, data, size):
+        """
+        Callback for processing connection lifecycle events from the perf buffer.
+        
+        Captures socket creation, bind, listen, accept, connect, shutdown.
+        """
+        e = self.b["net_conn_events"].event(data)
+        ts = datetime.today()
+        comm = e.comm.decode("utf-8", errors="replace").strip("\x00")
+        event_type = FlagMapper.format_conn_event(e.event_type)
+        domain = FlagMapper.format_domain(e.domain) if e.domain else ""
+        sock_type = FlagMapper.format_sock_type(e.sock_type) if e.sock_type else ""
+        proto = FlagMapper.format_proto(e.proto) if e.proto else ""
+        ipver = str(e.ipver) if e.ipver else ""
+
+        # Address resolution
+        if e.ipver == 4:
+            local_addr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.saddr_v4)) if e.saddr_v4 else ""
+            remote_addr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.daddr_v4)) if e.daddr_v4 else ""
+        elif e.ipver == 6:
+            local_addr = inet6_from_event(e.saddr_v6) if e.saddr_v6 else ""
+            remote_addr = inet6_from_event(e.daddr_v6) if e.daddr_v6 else ""
+        else:
+            local_addr = remote_addr = ""
+
+        sport = str(e.sport) if e.sport else ""
+        dport = str(e.dport) if e.dport else ""
+        fd = str(e.fd) if e.fd else ""
+        backlog = str(e.backlog) if e.backlog else ""
+        latency_ns = str(e.latency_ns) if e.latency_ns else ""
+        ret_val = str(e.ret_val) if e.ret_val != 0 else "0"
+
+        output = format_csv_row(
+            ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
+            event_type,
+            str(e.pid),
+            str(e.tid),
+            comm,
+            domain,
+            sock_type,
+            proto,
+            ipver,
+            local_addr,
+            remote_addr,
+            sport,
+            dport,
+            fd,
+            backlog,
+            latency_ns,
+            ret_val,
+        )
+        self.writer.append_conn_log(output)
+
+    def _print_event_epoll(self, cpu, data, size):
+        """
+        Callback for processing epoll/multiplexing events from the perf buffer.
+        
+        Captures epoll_create, epoll_ctl, epoll_wait, poll, select.
+        """
+        e = self.b["net_epoll_events"].event(data)
+        ts = datetime.today()
+        comm = e.comm.decode("utf-8", errors="replace").strip("\x00")
+        event_type = FlagMapper.format_epoll_event_type(e.event_type)
+        epoll_fd = str(e.epoll_fd) if e.epoll_fd else ""
+        target_fd = str(e.target_fd) if e.target_fd else ""
+        operation = FlagMapper.format_epoll_op(e.epoll_op) if e.epoll_op else ""
+        event_mask = FlagMapper.format_epoll_events(e.epoll_events) if e.epoll_events else ""
+        max_events = str(e.max_events) if e.max_events else ""
+        ready_count = str(e.ready_count)
+        timeout_ms = str(e.timeout_ms) if e.timeout_ms else ""
+        latency_ns = str(e.latency_ns) if e.latency_ns else ""
+
+        output = format_csv_row(
+            ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
+            event_type,
+            str(e.pid),
+            str(e.tid),
+            comm,
+            epoll_fd,
+            target_fd,
+            operation,
+            event_mask,
+            max_events,
+            ready_count,
+            timeout_ms,
+            latency_ns,
+        )
+        self.writer.append_epoll_log(output)
+
+    def _print_event_sockopt(self, cpu, data, size):
+        """
+        Callback for processing socket option events from the perf buffer.
+        
+        Captures setsockopt/getsockopt for relevant options.
+        """
+        e = self.b["net_sockopt_events"].event(data)
+        ts = datetime.today()
+        comm = e.comm.decode("utf-8", errors="replace").strip("\x00")
+        event_type = FlagMapper.format_sockopt_event(e.event_type)
+        option_name = FlagMapper.format_sockopt(e.level, e.optname)
+        level = FlagMapper.sockopt_level_map.get(e.level, str(e.level))
+        ret_val = str(e.ret_val) if e.ret_val != 0 else "0"
+
+        output = format_csv_row(
+            ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
+            event_type,
+            str(e.pid),
+            comm,
+            str(e.fd),
+            level,
+            option_name,
+            str(e.optval),
+            ret_val,
+        )
+        self.writer.append_sockopt_log(output)
+
+    def _print_event_drop(self, cpu, data, size):
+        """
+        Callback for processing network drop/retransmission events.
+        """
+        e = self.b["net_drop_events"].event(data)
+        ts = datetime.today()
+        comm = e.comm.decode("utf-8", errors="replace").strip("\x00")
+        event_type = FlagMapper.format_drop_event(e.event_type)
+        proto = FlagMapper.format_proto(e.proto) if e.proto else ""
+        ipver = str(e.ipver) if e.ipver else ""
+
+        if e.ipver == 4:
+            s_addr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.saddr_v4)) if e.saddr_v4 else ""
+            d_addr = socket.inet_ntop(socket.AF_INET, struct.pack("!I", e.daddr_v4)) if e.daddr_v4 else ""
+        elif e.ipver == 6:
+            s_addr = inet6_from_event(e.saddr_v6) if e.saddr_v6 else ""
+            d_addr = inet6_from_event(e.daddr_v6) if e.daddr_v6 else ""
+        else:
+            s_addr = d_addr = ""
+
+        drop_reason = str(e.drop_reason) if e.drop_reason else ""
+        tcp_state = FlagMapper.format_tcp_state(e.state) if e.state else ""
+
+        output = format_csv_row(
+            ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
+            event_type,
+            str(e.pid),
+            comm,
+            proto,
+            ipver,
+            s_addr,
+            d_addr,
+            str(e.sport) if e.sport else "",
+            str(e.dport) if e.dport else "",
+            str(e.skb_len) if e.skb_len else "",
+            drop_reason,
+            tcp_state,
+        )
+        self.writer.append_drop_log(output)
 
     def _print_event_pagefault(self, cpu, data, size):
         """
@@ -522,6 +689,50 @@ class IOTracer:
             page_cnt=self.page_cnt,
             lost_cb=self._lost_cb
         )
+
+        # Connection lifecycle events (Phase 1)
+        try:
+            self.b["net_conn_events"].open_perf_buffer(
+                self._print_event_conn,
+                page_cnt=self.page_cnt,
+                lost_cb=self._lost_cb
+            )
+        except KeyError:
+            if self.verbose:
+                logger("warning", "net_conn_events buffer not available")
+
+        # Epoll/multiplexing events (Phase 2)
+        try:
+            self.b["net_epoll_events"].open_perf_buffer(
+                self._print_event_epoll,
+                page_cnt=self.page_cnt,
+                lost_cb=self._lost_cb
+            )
+        except KeyError:
+            if self.verbose:
+                logger("warning", "net_epoll_events buffer not available")
+
+        # Socket option events (Phase 4)
+        try:
+            self.b["net_sockopt_events"].open_perf_buffer(
+                self._print_event_sockopt,
+                page_cnt=self.page_cnt,
+                lost_cb=self._lost_cb
+            )
+        except KeyError:
+            if self.verbose:
+                logger("warning", "net_sockopt_events buffer not available")
+
+        # Network drop/retransmission events (Phase 5)
+        try:
+            self.b["net_drop_events"].open_perf_buffer(
+                self._print_event_drop,
+                page_cnt=self.page_cnt,
+                lost_cb=self._lost_cb
+            )
+        except KeyError:
+            if self.verbose:
+                logger("warning", "net_drop_events buffer not available")
 
         # Page fault events for mmap I/O tracking
         try:

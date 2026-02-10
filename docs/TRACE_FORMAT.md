@@ -12,6 +12,10 @@ output_YYYYMMDD_HHMMSS/
 ├── ds/                    # Block device traces
 ├── cache/                 # Page cache events
 ├── nw/                    # Network I/O traces
+├── nw_conn/               # Connection lifecycle events
+├── nw_epoll/              # Epoll/multiplexing events
+├── nw_sockopt/            # Socket configuration events
+├── nw_drop/               # Packet drops & retransmissions
 ├── pagefault/             # Memory-mapped page fault events
 ├── iouring/               # io_uring async I/O events
 ├── process/               # Process state snapshots
@@ -236,12 +240,12 @@ timestamp,pid,command,event_type,inode,index,size,cpu_id,dev_id,count
 
 **Location:** `output_*/nw/nw_*.csv.gz`
 
-**Description:** Captures TCP and UDP network I/O operations with address and port information.
+**Description:** Captures TCP and UDP network I/O operations with address, port, protocol, latency, error codes, and message flag information.
 
 ### CSV Format
 
 ```csv
-timestamp,pid,command,source_addr,dest_addr,source_port,dest_port,size,direction
+timestamp,pid,command,protocol,ip_version,source_addr,dest_addr,source_port,dest_port,size,direction,latency_ns,error_code,msg_flags
 ```
 
 | Column | Type | Description |
@@ -249,25 +253,224 @@ timestamp,pid,command,source_addr,dest_addr,source_port,dest_port,size,direction
 | `timestamp` | datetime | Event timestamp (YYYY-MM-DD HH:MM:SS.ffffff) |
 | `pid` | integer | Process ID |
 | `command` | string | Process command name |
+| `protocol` | string | Protocol name: "TCP" or "UDP" |
+| `ip_version` | integer | IP version: 4 or 6 |
 | `source_addr` | string | Source IP address (IPv4 or IPv6) |
 | `dest_addr` | string | Destination IP address (IPv4 or IPv6) |
 | `source_port` | integer | Source port number |
 | `dest_port` | integer | Destination port number |
 | `size` | integer | Bytes transferred |
 | `direction` | string | "send" or "receive" |
+| `latency_ns` | integer | Operation latency in nanoseconds (send only, empty if not measured) |
+| `error_code` | string | Error name (e.g., "ECONNRESET") or empty on success |
+| `msg_flags` | string | MSG_* flags (e.g., "MSG_DONTWAIT\|MSG_NOSIGNAL") or empty |
 
 ### Protocols Captured
 
-- **TCP:** tcp_sendmsg / tcp_recvmsg
-- **UDP:** udp_sendmsg / udp_recvmsg
+- **TCP:** tcp_sendmsg / tcp_recvmsg (with latency via kretprobe)
+- **UDP:** udp_sendmsg / udp_recvmsg (with latency via kretprobe)
 
 ### Example Rows
 
 ```csv
-2024-01-15 10:30:45.123456,1234,curl,192.168.1.100,93.184.216.34,54321,443,512,send
-2024-01-15 10:30:45.234567,1234,curl,192.168.1.100,93.184.216.34,54321,443,1460,receive
-2024-01-15 10:30:45.345678,5678,python3,::1,::1,8080,40123,256,send
-2024-01-15 10:30:45.456789,5678,python3,::1,::1,8080,40123,128,receive
+2024-01-15 10:30:45.123456,1234,curl,TCP,4,192.168.1.100,93.184.216.34,54321,443,512,send,15234,,
+2024-01-15 10:30:45.234567,1234,curl,TCP,4,192.168.1.100,93.184.216.34,54321,443,1460,receive,,,
+2024-01-15 10:30:45.345678,5678,python3,TCP,6,::1,::1,8080,40123,256,send,8901,,MSG_NOSIGNAL
+2024-01-15 10:30:45.456789,5678,python3,UDP,4,192.168.1.100,8.8.8.8,55555,53,128,send,5432,,
+```
+
+---
+
+## 4a. Connection Lifecycle Events
+
+**Location:** `output_*/nw_conn/nw_conn_*.csv.gz`
+
+**Description:** Captures the full connection lifecycle: socket creation, bind, listen, accept, connect, shutdown.
+
+### CSV Format
+
+```csv
+timestamp,event_type,pid,tid,command,domain,sock_type,protocol,ip_version,local_addr,remote_addr,local_port,remote_port,fd,backlog,latency_ns,return_value
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `timestamp` | datetime | Event timestamp |
+| `event_type` | string | SOCKET_CREATE, BIND, LISTEN, ACCEPT, CONNECT, SHUTDOWN, CLOSE |
+| `pid` | integer | Process ID |
+| `tid` | integer | Thread ID |
+| `command` | string | Process command name |
+| `domain` | string | Socket domain (AF_INET, AF_INET6, AF_UNIX) |
+| `sock_type` | string | Socket type (SOCK_STREAM, SOCK_DGRAM) |
+| `protocol` | string | Protocol (TCP, UDP) |
+| `ip_version` | integer | IP version: 4 or 6 |
+| `local_addr` | string | Local IP address (for bind) |
+| `remote_addr` | string | Remote IP address (for connect/accept) |
+| `local_port` | integer | Local port (for bind) |
+| `remote_port` | integer | Remote port (for connect) |
+| `fd` | integer | File descriptor |
+| `backlog` | integer | Listen backlog or shutdown how |
+| `latency_ns` | integer | Latency for accept/connect operations |
+| `return_value` | integer | Syscall return value |
+
+### Event Types
+
+| Event | Syscall | Key Fields |
+|-------|---------|------------|
+| `SOCKET_CREATE` | `socket()` | domain, sock_type, fd (returned) |
+| `BIND` | `bind()` | fd, local_addr, local_port |
+| `LISTEN` | `listen()` | fd, backlog |
+| `ACCEPT` | `accept4()` | fd (new), latency_ns |
+| `CONNECT` | `connect()` | latency_ns, return_value |
+| `SHUTDOWN` | `shutdown()` | fd, backlog (=how: SHUT_RD/WR/RDWR) |
+
+### Example Rows
+
+```csv
+2024-01-15 10:30:45.123456,SOCKET_CREATE,1234,1234,nginx,AF_INET,SOCK_STREAM,TCP,,,,,,3,,0,3
+2024-01-15 10:30:45.234567,BIND,1234,1234,nginx,AF_INET,,,4,0.0.0.0,,80,,3,,,
+2024-01-15 10:30:45.345678,LISTEN,1234,1234,nginx,,,,,,,,3,128,,
+2024-01-15 10:30:45.456789,ACCEPT,1234,1235,nginx,,,,,,,,5,,150000,5
+2024-01-15 10:30:46.123456,CONNECT,5678,5678,curl,,,,,,,,,,2500000,-115
+```
+
+---
+
+## 4b. Epoll/Multiplexing Events
+
+**Location:** `output_*/nw_epoll/nw_epoll_*.csv.gz`
+
+**Description:** Captures I/O multiplexing operations: epoll_create, epoll_ctl, epoll_wait, poll, select.
+
+### CSV Format
+
+```csv
+timestamp,event_type,pid,tid,command,epoll_fd,target_fd,operation,event_mask,max_events,ready_count,timeout_ms,latency_ns
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `timestamp` | datetime | Event timestamp |
+| `event_type` | string | EPOLL_CREATE, EPOLL_CTL, EPOLL_WAIT, POLL, SELECT |
+| `pid` | integer | Process ID |
+| `tid` | integer | Thread ID |
+| `command` | string | Process command name |
+| `epoll_fd` | integer | Epoll file descriptor |
+| `target_fd` | integer | Target FD for epoll_ctl |
+| `operation` | string | EPOLL_CTL_ADD, EPOLL_CTL_MOD, EPOLL_CTL_DEL |
+| `event_mask` | string | Event flags (EPOLLIN\|EPOLLOUT\|...) |
+| `max_events` | integer | Max events for epoll_wait |
+| `ready_count` | integer | Number of ready FDs (from return value) |
+| `timeout_ms` | integer | Timeout in milliseconds |
+| `latency_ns` | integer | Wait latency in nanoseconds |
+
+### Example Rows
+
+```csv
+2024-01-15 10:30:45.123456,EPOLL_CREATE,1234,1234,nginx,5,,,,,,,,
+2024-01-15 10:30:45.234567,EPOLL_CTL,1234,1234,nginx,5,3,EPOLL_CTL_ADD,EPOLLIN|EPOLLET,,,,
+2024-01-15 10:30:45.345678,EPOLL_WAIT,1234,1235,nginx,5,,,,,2,500,150000
+2024-01-15 10:30:45.456789,POLL,5678,5678,python3,,,,,,1,,8000000
+```
+
+---
+
+## 4c. Socket Configuration Events
+
+**Location:** `output_*/nw_sockopt/nw_sockopt_*.csv.gz`
+
+**Description:** Captures setsockopt/getsockopt operations for SOL_SOCKET and IPPROTO_TCP level options.
+
+### CSV Format
+
+```csv
+timestamp,event_type,pid,command,fd,level,option_name,option_value,return_value
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `timestamp` | datetime | Event timestamp |
+| `event_type` | string | SET or GET |
+| `pid` | integer | Process ID |
+| `command` | string | Process command name |
+| `fd` | integer | Socket file descriptor |
+| `level` | string | SOL_SOCKET or IPPROTO_TCP |
+| `option_name` | string | Option name (e.g., SO_REUSEADDR, TCP_NODELAY) |
+| `option_value` | integer | Option value (integer) |
+| `return_value` | integer | Syscall return value |
+
+### Tracked Options
+
+| Level | Option | Description |
+|-------|--------|-------------|
+| SOL_SOCKET | SO_SNDBUF | Send buffer size |
+| SOL_SOCKET | SO_RCVBUF | Receive buffer size |
+| SOL_SOCKET | SO_REUSEADDR | Allow address reuse |
+| SOL_SOCKET | SO_REUSEPORT | Allow port reuse |
+| SOL_SOCKET | SO_KEEPALIVE | Enable keep-alive |
+| IPPROTO_TCP | TCP_NODELAY | Disable Nagle's algorithm |
+| IPPROTO_TCP | TCP_KEEPIDLE | Keep-alive idle time |
+| IPPROTO_TCP | TCP_KEEPINTVL | Keep-alive interval |
+| IPPROTO_TCP | TCP_KEEPCNT | Keep-alive probe count |
+| IPPROTO_TCP | TCP_QUICKACK | Enable quick ACK mode |
+
+### Example Rows
+
+```csv
+2024-01-15 10:30:45.123456,SET,1234,nginx,3,SOL_SOCKET,SO_REUSEADDR,1,0
+2024-01-15 10:30:45.234567,SET,1234,nginx,3,IPPROTO_TCP,TCP_NODELAY,1,0
+2024-01-15 10:30:45.345678,SET,1234,nginx,3,SOL_SOCKET,SO_RCVBUF,65536,0
+```
+
+---
+
+## 4d. Network Drops & Retransmissions
+
+**Location:** `output_*/nw_drop/nw_drop_*.csv.gz`
+
+**Description:** Captures TCP retransmissions using the stable `tcp:tcp_retransmit_skb` kernel tracepoint.
+
+### CSV Format
+
+```csv
+timestamp,event_type,pid,command,protocol,ip_version,source_addr,dest_addr,source_port,dest_port,packet_size,drop_reason,tcp_state
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `timestamp` | datetime | Event timestamp |
+| `event_type` | string | TCP_RETRANSMIT |
+| `pid` | integer | Process ID |
+| `command` | string | Process command name |
+| `protocol` | string | Protocol (TCP) |
+| `ip_version` | integer | IP version: 4 or 6 |
+| `source_addr` | string | Source IP address |
+| `dest_addr` | string | Destination IP address |
+| `source_port` | integer | Source port |
+| `dest_port` | integer | Destination port |
+| `packet_size` | integer | Packet/SKB size in bytes |
+| `drop_reason` | integer | Kernel drop reason code |
+| `tcp_state` | string | TCP state (ESTABLISHED, SYN_SENT, etc.) |
+
+### TCP States
+
+| State | Description |
+|-------|-------------|
+| ESTABLISHED | Connection established |
+| SYN_SENT | SYN sent, awaiting SYN-ACK |
+| SYN_RECV | SYN received |
+| FIN_WAIT1 | FIN sent |
+| FIN_WAIT2 | FIN acknowledged |
+| TIME_WAIT | Waiting for delayed segments |
+| CLOSE_WAIT | Remote closed, local waiting |
+| LAST_ACK | Last ACK sent |
+| CLOSING | Both sides closing |
+
+### Example Rows
+
+```csv
+2024-01-15 10:30:45.123456,TCP_RETRANSMIT,1234,nginx,TCP,4,192.168.1.100,10.0.0.1,80,54321,,0,ESTABLISHED
+2024-01-15 10:30:45.234567,TCP_RETRANSMIT,5678,curl,TCP,4,192.168.1.100,93.184.216.34,55555,443,,0,SYN_SENT
 ```
 
 ---
