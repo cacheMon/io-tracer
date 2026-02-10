@@ -183,7 +183,6 @@ class IOTracer:
         flags_val = self.flag_mapper.format_fs_flags(event.flags) if event.flags else ""
         
         output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, inode_val, flags_val, offset_val, tid_val)
-        print(output)
         self.writer.append_fs_log(output)
         
     def _print_event_dual(self, cpu, data, size):
@@ -228,7 +227,6 @@ class IOTracer:
         inode_val = f"{inode_old}" if inode_old else ""
         
         output = format_csv_row(timestamp, op_name, event.pid, comm, dual_filename, 0, inode_val)
-        print(output)
         
         self.writer.append_fs_log(output)
     
@@ -271,6 +269,7 @@ class IOTracer:
         count = event.count if hasattr(event, 'count') else ""
 
         output = format_csv_row(timestamp, pid, comm, event_name, inode, index, size, cpu_id, dev_id, count)
+
         self.writer.append_cache_log(output)
 
     def _print_event_block(self, cpu, data, size):        
