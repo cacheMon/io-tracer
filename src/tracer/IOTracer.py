@@ -543,7 +543,6 @@ class IOTracer:
             tcp_state,
         )
         
-        print(output)
         self.writer.append_drop_log(output)
 
     def _print_event_pagefault(self, cpu, data, size):
@@ -572,35 +571,6 @@ class IOTracer:
         
         output = format_csv_row(timestamp, pid, tid, comm, fault_type, major, inode, offset, address, dev_id)
         self.writer.append_pagefault_log(output)
-
-    def _print_event_iouring(self, cpu, data, size):
-        """
-        Callback for processing io_uring events from the perf buffer.
-        
-        Captures modern async I/O operations using io_uring.
-        
-        Args:
-            cpu: CPU number where the event was captured
-            data: Raw event data pointer
-            size: Size of the event data
-        """
-        event = self.b["iouring_events"].event(data)
-        timestamp = datetime.today()
-        
-        pid = event.pid
-        comm = event.comm.decode('utf-8', errors='replace')
-        opcode = self.flag_mapper.format_iouring_opcode(event.opcode)
-        fd = event.fd if event.fd != 0 else ""
-        offset = event.offset if event.offset != 0 else ""
-        length = event.len if event.len != 0 else ""
-        result = event.result if hasattr(event, 'result') else ""
-        latency_ns = event.latency_ns if hasattr(event, 'latency_ns') and event.latency_ns != 0 else ""
-        latency_ms = latency_ns / 1_000_000.0 if latency_ns else ""
-        
-        output = format_csv_row(timestamp, pid, comm, opcode, fd, offset, length, result, latency_ms)
-        
-        self.writer.append_iouring_log(output)
-
 
     def _cleanup(self, signum, frame):
         """
@@ -756,17 +726,6 @@ class IOTracer:
         except KeyError:
             if self.verbose:
                 logger("warning", "pagefault_events buffer not available")
-
-        # io_uring events for async I/O tracking
-        try:
-            self.b["iouring_events"].open_perf_buffer(
-                self._print_event_iouring,
-                page_cnt=self.page_cnt,
-                lost_cb=self._lost_cb
-            )
-        except KeyError:
-            if self.verbose:
-                logger("warning", "iouring_events buffer not available")
 
         start = time.time()
         if self.duration is not None:

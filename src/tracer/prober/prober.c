@@ -8,7 +8,7 @@
  * - Page cache operations: hits, misses, dirty pages, writeback, eviction
  * - Network I/O: TCP/UDP send and receive operations
  * - Memory-mapped I/O: page faults, msync, madvise
- * - Async I/O: io_uring operations, direct I/O, splice
+ * - Async I/O: direct I/O, splice
  *
  * The tracer uses BCC (BPF Compiler Collection) and attaches to kernel
  * functions via kprobes, kretprobes, and tracepoints.
@@ -301,67 +301,6 @@ struct pagefault_data {
 };
 
 /* ============================================================================
- * IO_URING STRUCTURES
- * ============================================================================
- * io_uring is the modern async I/O interface in Linux (5.1+).
- * It allows batching multiple I/O operations with single syscall overhead.
- */
-
-/**
- * @brief io_uring operation types
- *
- * Subset of IORING_OP_* opcodes for categorizing async I/O operations.
- * Full list in include/uapi/linux/io_uring.h
- */
-enum iouring_op {
-  IORING_OP_NOP = 0,              /**< No operation (for testing) */
-  IORING_OP_READV = 1,            /**< Vectored read */
-  IORING_OP_WRITEV = 2,           /**< Vectored write */
-  IORING_OP_FSYNC = 3,            /**< Fsync file */
-  IORING_OP_READ_FIXED = 4,       /**< Read with registered buffers */
-  IORING_OP_WRITE_FIXED = 5,      /**< Write with registered buffers */
-  IORING_OP_POLL_ADD = 6,         /**< Add poll request */
-  IORING_OP_POLL_REMOVE = 7,      /**< Remove poll request */
-  IORING_OP_SYNC_FILE_RANGE = 8,  /**< Sync file range */
-  IORING_OP_SENDMSG = 9,          /**< Send message on socket */
-  IORING_OP_RECVMSG = 10,         /**< Receive message from socket */
-  IORING_OP_TIMEOUT = 11,         /**< Set timeout */
-  IORING_OP_TIMEOUT_REMOVE = 12,  /**< Remove timeout */
-  IORING_OP_ACCEPT = 13,          /**< Accept connection */
-  IORING_OP_ASYNC_CANCEL = 14,    /**< Cancel async operation */
-  IORING_OP_LINK_TIMEOUT = 15,    /**< Linked timeout */
-  IORING_OP_CONNECT = 16,
-  IORING_OP_FALLOCATE = 17,
-  IORING_OP_OPENAT = 18,
-  IORING_OP_CLOSE = 19,
-  IORING_OP_READ = 22,
-  IORING_OP_WRITE = 23,
-  IORING_OP_FADVISE = 24,
-  IORING_OP_MADVISE = 25,
-  IORING_OP_SEND = 26,
-  IORING_OP_RECV = 27,
-  IORING_OP_STATX = 28            /**< Get extended file attributes */
-};
-
-/**
- * @brief io_uring event data structure
- *
- * Captures async I/O submissions and completions through io_uring.
- */
-struct iouring_data {
-  u64 ts;                   /**< Timestamp in nanoseconds */
-  u32 pid;                  /**< Process ID */
-  char comm[TASK_COMM_LEN]; /**< Process name */
-  u8 opcode;                /**< IORING_OP_* opcode (255 = io_uring_enter itself) */
-  u32 fd;                   /**< File descriptor for the operation */
-  u64 offset;               /**< File offset for positioned I/O */
-  u32 len;                  /**< Number of operations (for io_uring_enter) */
-  s32 result;               /**< Operation result/return value */
-  u64 latency_ns;           /**< Operation latency */
-  u64 inode;                /**< File inode if available */
-};
-
-/* ============================================================================
  * PAGE CACHE TRACING STRUCTURES
  * ============================================================================
  * The page cache buffers disk I/O in memory. These structures track
@@ -606,8 +545,6 @@ BPF_HASH(epoll_wait_info, u64, struct epoll_event_data); /**< Epoll_wait context
 BPF_HASH(poll_ctx, u64, u64);      /**< Poll start timestamp */
 BPF_HASH(select_ctx, u64, u64);    /**< Select start timestamp */
 
-/* Async I/O tracking maps */
-BPF_HASH(iouring_start, u64, u64);       /**< io_uring request start times */
 // BPF_HASH(dio_start, u64, u64);           /**< Direct I/O operation start times (removed - no longer tracking latency) */
 
 /* Per-CPU buffer for large structs that exceed 512-byte stack limit */
@@ -630,7 +567,6 @@ BPF_PERF_OUTPUT(net_epoll_events);  /**< Epoll/multiplexing events (epoll_event_
 BPF_PERF_OUTPUT(net_sockopt_events);/**< Socket option events (sockopt_event_data) */
 BPF_PERF_OUTPUT(net_drop_events);   /**< Drop/retransmit events (net_drop_data) */
 BPF_PERF_OUTPUT(pagefault_events);  /**< Memory-mapped page faults (pagefault_data) */
-BPF_PERF_OUTPUT(iouring_events);    /**< io_uring async I/O events (iouring_data) */
 
 /* ============================================================================
  * HELPER FUNCTIONS
@@ -2897,42 +2833,6 @@ int trace_filemap_fault_entry(struct pt_regs *ctx, struct vm_fault *vmf) {
   data.major = 0;  // Will be updated by return probe if available
 
   pagefault_events.perf_submit(ctx, &data, sizeof(data));
-  return 0;
-}
-
-/* ============================================================================
- * IO_URING ASYNC I/O TRACING
- * ============================================================================
- * io_uring is Linux's modern async I/O interface, allowing batched
- * submissions with single syscall overhead.
- */
-
-/**
- * @brief io_uring submission tracepoint
- *
- * Captures io_uring_enter() syscalls that submit I/O batches.
- * len field contains number of operations being submitted.
- * opcode 255 indicates the io_uring_enter syscall itself.
- */
-TRACEPOINT_PROBE(syscalls, sys_enter_io_uring_enter) {
-  u32 pid = bpf_get_current_pid_tgid() >> 32;
-  u32 config_key = 0;
-  u32 *tracer_pid = tracer_config.lookup(&config_key);
-  if (tracer_pid && pid == *tracer_pid)
-    return 0;
-
-  struct iouring_data data = {};
-  data.ts = bpf_ktime_get_ns();
-  data.pid = pid;
-  bpf_get_current_comm(&data.comm, sizeof(data.comm));
-  data.fd = args->fd;
-  data.len = args->to_submit;
-  data.opcode = 255;  // Special value indicating io_uring_enter syscall itself
-  data.offset = 0;
-  data.result = 0;
-  data.latency_ns = 0;
-
-  iouring_events.perf_submit(args, &data, sizeof(data));
   return 0;
 }
 

@@ -23,7 +23,6 @@ result/linux_trace/<MACHINE_ID>/<YYYYMMDD_HHMMSS>/
 ├── nw_sockopt/            # Socket configuration events
 ├── nw_drop/               # Packet drops & retransmissions
 ├── pagefault/             # Page fault events
-├── iouring/               # io_uring async I/O events
 ├── process/               # Process state snapshots
 ├── filesystem_snapshot/   # Filesystem metadata snapshots
 └── system_spec/           # System specification file

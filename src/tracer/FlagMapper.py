@@ -146,44 +146,6 @@ class FlagMapper:
             27: "DIO_WRITE"
         }
 
-        # io_uring operation codes
-        self.iouring_opcodes = {
-            0: "NOP",
-            1: "READV",
-            2: "WRITEV",
-            3: "FSYNC",
-            4: "READ_FIXED",
-            5: "WRITE_FIXED",
-            6: "POLL_ADD",
-            7: "POLL_REMOVE",
-            8: "SYNC_FILE_RANGE",
-            9: "SENDMSG",
-            10: "RECVMSG",
-            11: "TIMEOUT",
-            12: "TIMEOUT_REMOVE",
-            13: "ACCEPT",
-            14: "ASYNC_CANCEL",
-            15: "LINK_TIMEOUT",
-            16: "CONNECT",
-            17: "FALLOCATE",
-            18: "OPENAT",
-            19: "CLOSE",
-            20: "FILES_UPDATE",
-            21: "STATX",
-            22: "READ",
-            23: "WRITE",
-            24: "FADVISE",
-            25: "MADVISE",
-            26: "SEND",
-            27: "RECV",
-            28: "OPENAT2",
-            29: "EPOLL_CTL",
-            30: "SPLICE",
-            31: "PROVIDE_BUFFERS",
-            32: "REMOVE_BUFFERS",
-            255: "IO_URING_ENTER"  # Special value for the syscall itself
-        }
-
         # msync flags
         self.msync_flags = {
             1: "MS_ASYNC",
@@ -509,18 +471,6 @@ class FlagMapper:
             return "|".join(result)
         else:
             return flag.lower()
-
-    def format_iouring_opcode(self, opcode):
-        """
-        Format an io_uring operation code to its name.
-        
-        Args:
-            opcode: Integer representing the io_uring opcode.
-            
-        Returns:
-            str: The opcode name (e.g., "READ", "WRITE") or "UNKNOWN_OP(X)" if unknown.
-        """
-        return self.iouring_opcodes.get(opcode, f"UNKNOWN_OP({opcode})")
 
     def format_msync_flags(self, flags):
         """
