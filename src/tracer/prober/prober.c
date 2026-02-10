@@ -203,7 +203,6 @@ struct data_t {
   u64 size;                       /**< Operation size in bytes (read/write length) */
   u32 flags;                      /**< File flags (O_RDONLY, O_SYNC, etc.) */
   enum op_type op;                /**< Operation type from op_type enum */
-  u64 latency_ns;                 /**< Operation latency in nanoseconds */
   /* Enhanced fields for I/O correlation and analysis */
   u32 fd;                         /**< File descriptor (0 if unavailable in kernel) */
   u64 offset;                     /**< File offset for read/write operations */
@@ -608,7 +607,7 @@ BPF_HASH(select_ctx, u64, u64);    /**< Select start timestamp */
 
 /* Async I/O tracking maps */
 BPF_HASH(iouring_start, u64, u64);       /**< io_uring request start times */
-BPF_HASH(dio_start, u64, u64);           /**< Direct I/O operation start times */
+// BPF_HASH(dio_start, u64, u64);           /**< Direct I/O operation start times (removed - no longer tracking latency) */
 
 /* Per-CPU buffer for large structs that exceed 512-byte stack limit */
 BPF_PERCPU_ARRAY(dual_data_buffer, struct data_dual_t, 1);
@@ -854,7 +853,7 @@ static u64 get_file_inode_from_dentry(struct dentry *dentry) {
 static int get_file_path_from_dentry(struct dentry *dentry, char *buf,
                                      int size) {
   if (!dentry) {
-    __builtin_memcpy(buf, "[no_dentry]", 12);
+    buf[0] = '\0';  // Empty string if dentry unavailable
     return 0;
   }
 
@@ -1641,7 +1640,6 @@ int trace_vfs_mkdir(struct pt_regs *ctx, struct inode *dir,
   data.size = 0;
   get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
   data.flags = mode;
-  data.latency_ns = 0;
 
   events.perf_submit(ctx, &data, sizeof(data));
   return 0;
@@ -1681,7 +1679,6 @@ int trace_vfs_rmdir(struct pt_regs *ctx, struct inode *dir,
   data.size = 0;
   get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
   data.flags = 0;
-  data.latency_ns = 0;
 
   events.perf_submit(ctx, &data, sizeof(data));
   return 0;
@@ -1848,7 +1845,6 @@ int trace_vfs_fallocate(struct pt_regs *ctx, struct file *file, int mode,
   data.size = len;
   get_file_path(file, data.filename, sizeof(data.filename));
   data.flags = mode;
-  data.latency_ns = 0;
 
   events.perf_submit(ctx, &data, sizeof(data));
   return 0;
@@ -1885,9 +1881,8 @@ int trace_sendfile(struct pt_regs *ctx, int out_fd, int in_fd, loff_t *offset,
   data.op = OP_SENDFILE;
   data.inode = 0;
   data.size = count;
-  __builtin_memcpy(data.filename, "[sendfile]", 11);
+  __builtin_memcpy(data.filename, "", 11);
   data.flags = 0;
-  data.latency_ns = 0;
 
   events.perf_submit(ctx, &data, sizeof(data));
   return 0;
@@ -2948,10 +2943,10 @@ TRACEPOINT_PROBE(syscalls, sys_enter_io_uring_enter) {
  */
 
 /**
- * @brief Direct I/O entry probe
+ * @brief Direct I/O entry probe (disabled - no longer tracking latency)
  *
  * iomap_dio_rw() handles direct I/O on modern kernels.
- * Stores timestamp for latency calculation on return.
+ * Entry probe disabled since VFS latency tracking was removed.
  *
  * @param ctx   BPF context
  * @param iocb  I/O control block
@@ -2960,6 +2955,7 @@ TRACEPOINT_PROBE(syscalls, sys_enter_io_uring_enter) {
  * @param flags DIO flags
  * @return      0
  */
+/*
 int trace_dio_entry(struct pt_regs *ctx, struct kiocb *iocb, struct iov_iter *iter,
                     void *ops, int flags) {
   u64 pid_tgid = bpf_get_current_pid_tgid();
@@ -2976,11 +2972,12 @@ int trace_dio_entry(struct pt_regs *ctx, struct kiocb *iocb, struct iov_iter *it
 
   return 0;
 }
+*/
 
 /**
  * @brief Direct I/O return probe
  *
- * Calculates latency and emits DIO completion event.
+ * Emits DIO completion event (no latency tracking).
  * Return value is bytes transferred (positive) or error (negative).
  */
 int trace_dio_return(struct pt_regs *ctx) {
@@ -2992,13 +2989,8 @@ int trace_dio_return(struct pt_regs *ctx) {
   if (tracer_pid && pid == *tracer_pid)
     return 0;
 
-  u64 *start_ts = dio_start.lookup(&pid_tgid);
-  if (!start_ts)
-    return 0;
-
   ssize_t ret = PT_REGS_RC(ctx);
   u64 end_ts = bpf_ktime_get_ns();
-  u64 latency = end_ts - *start_ts;
 
   // Emit as a special VFS event with DIO operation type
   struct data_t data = {};
@@ -3008,12 +3000,10 @@ int trace_dio_return(struct pt_regs *ctx) {
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = (ret >= 0) ? OP_DIO_READ : OP_DIO_WRITE;  // Simplified - actual direction needs more context
   data.size = (ret >= 0) ? (u64)ret : 0;
-  data.latency_ns = latency;
-  __builtin_memcpy(data.filename, "[direct_io]", 12);
+  __builtin_memcpy(data.filename, "", 12);
 
   events.perf_submit(ctx, &data, sizeof(data));
 
-  dio_start.delete(&pid_tgid);
   return 0;
 }
 
@@ -3066,7 +3056,7 @@ int trace_splice(struct pt_regs *ctx, struct file *in, loff_t *off_in,
       bpf_probe_read_kernel(&data.offset, sizeof(data.offset), off_in);
     }
   } else {
-    __builtin_memcpy(data.filename, "[splice]", 9);
+    __builtin_memcpy(data.filename, "", 9);
   }
 
   events.perf_submit(ctx, &data, sizeof(data));
@@ -3102,7 +3092,7 @@ TRACEPOINT_PROBE(syscalls, sys_enter_msync) {
   data.offset = args->start;  // Store address as offset
   data.size = args->len;
   data.flags = args->flags;
-  __builtin_memcpy(data.filename, "[msync]", 8);
+  __builtin_memcpy(data.filename, "", 8);
 
   events.perf_submit(args, &data, sizeof(data));
   return 0;
@@ -3130,7 +3120,7 @@ TRACEPOINT_PROBE(syscalls, sys_enter_madvise) {
   data.offset = args->start;  // Store address as offset
   data.size = args->len_in;
   data.flags = args->behavior;
-  __builtin_memcpy(data.filename, "[madvise]", 10);
+  __builtin_memcpy(data.filename, "", 10);
 
   events.perf_submit(args, &data, sizeof(data));
   return 0;
@@ -3338,7 +3328,7 @@ int kretprobe__udp_recvmsg(struct pt_regs *ctx) {
 }
 
 /* ============================================================================
- * PHASE 3: SYSCALL MSG_FLAGS CAPTURE
+ * SYSCALL MSG_FLAGS CAPTURE
  * ============================================================================
  * Tracepoints on sendto/sendmsg/recvfrom/recvmsg syscalls to capture
  * MSG_* flags and pass them to kernel-level probes via per-tid BPF maps.
@@ -3389,7 +3379,7 @@ TRACEPOINT_PROBE(syscalls, sys_enter_recvmsg) {
 }
 
 /* ============================================================================
- * PHASE 1: CONNECTION LIFECYCLE PROBES
+ * CONNECTION LIFECYCLE PROBES
  * ============================================================================
  * Captures socket creation, bind, listen, accept, connect, shutdown, close.
  */
@@ -3558,7 +3548,7 @@ TRACEPOINT_PROBE(syscalls, sys_enter_shutdown) {
 }
 
 /* ============================================================================
- * PHASE 2: EPOLL/MULTIPLEXING PROBES
+ * EPOLL/MULTIPLEXING PROBES
  * ============================================================================
  */
 
@@ -3721,7 +3711,7 @@ TRACEPOINT_PROBE(syscalls, sys_exit_select) {
 }
 
 /* ============================================================================
- * PHASE 4: SOCKET CONFIGURATION PROBES
+ * SOCKET CONFIGURATION PROBES
  * ============================================================================
  * Captures setsockopt/getsockopt for relevant socket options.
  */
@@ -3784,7 +3774,7 @@ TRACEPOINT_PROBE(syscalls, sys_enter_getsockopt) {
 }
 
 /* ============================================================================
- * PHASE 5: NETWORK DROPS & RETRANSMISSIONS
+ * NETWORK DROPS & RETRANSMISSIONS
  * ============================================================================
  */
 

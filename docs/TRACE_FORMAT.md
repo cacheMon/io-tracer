@@ -46,7 +46,7 @@ timestamp,operation,pid,command,filename,size,inode,flags,latency_ns,offset,tid
 | `operation` | string | Operation type (READ, WRITE, OPEN, CLOSE, etc.) |
 | `pid` | integer | Process ID that performed the operation |
 | `command` | string | Process command name (truncated to 16 chars) |
-| `filename` | string | Full path of the file or "[decode_error]" if path unavailable |
+| `filename` | string | Full path of the file; empty if path unavailable (see reasons below) |
 | `size` | integer | Operation size in bytes (0 for metadata operations) |
 | `inode` | integer | Inode number of the file |
 | `flags` | string | Operation-specific flags (pipe-separated) |
@@ -684,8 +684,13 @@ These are JSON files capturing system hardware and configuration at trace start:
 - Always absolute paths when available
 - Special values:
   - `[sendfile]` - sendfile() operation (no specific file)
-  - `[decode_error]` - Path decoding failed
-  - Empty string - Path unavailable (e.g., anonymous mmap)
+  - Empty string - Path unavailable or unresolvable (see "Empty Filenames" section in VFS_EVENTS.md for detailed reasons)
+- Common reasons for empty paths:
+  - Anonymous file descriptors (pipes, sockets, memfd)
+  - Null/invalid dentry structures (race conditions, deleted files)
+  - Virtual/pseudo filesystems edge cases
+  - eBPF probe read failures or kernel memory access restrictions
+  - Unicode decode errors (invalid UTF-8 in filenames)
 
 ### Process Information
 - `pid` - Process ID (TGID in kernel terms)

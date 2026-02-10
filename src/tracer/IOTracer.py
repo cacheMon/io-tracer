@@ -164,7 +164,7 @@ class IOTracer:
             if self.anonymous:
                 filename = hash_filename_in_path(Path(filename))
         except UnicodeDecodeError:
-            filename = "[decode_error]"
+            filename = ""
         
         timestamp = datetime.today()
         
@@ -181,9 +181,9 @@ class IOTracer:
         offset_val = event.offset if hasattr(event, 'offset') and event.offset != 0 else ""
         tid_val = event.tid if hasattr(event, 'tid') and event.tid != 0 else ""
         flags_val = self.flag_mapper.format_fs_flags(event.flags) if event.flags else ""
-        latency_val = event.latency_ns if hasattr(event, 'latency_ns') and event.latency_ns != 0 else ""
         
-        output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, inode_val, flags_val, latency_val, offset_val, tid_val)
+        output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, inode_val, flags_val, offset_val, tid_val)
+        print(output)
         self.writer.append_fs_log(output)
         
     def _print_event_dual(self, cpu, data, size):
@@ -208,8 +208,8 @@ class IOTracer:
                 filename_old = hash_filename_in_path(Path(filename_old))
                 filename_new = hash_filename_in_path(Path(filename_new))
         except UnicodeDecodeError:
-            filename_old = "[decode_error]"
-            filename_new = "[decode_error]"
+            filename_old = ""
+            filename_new = ""
         
         timestamp = datetime.today()
         
@@ -329,7 +329,6 @@ class IOTracer:
                 print("Warning: LBA 0 detected in block trace")
                 print(output)
                 print("="*50)
-        print(output)
         self.writer.append_block_log(output)
 
     def _print_event_net(self, cpu, data, size):
