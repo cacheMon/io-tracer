@@ -164,7 +164,7 @@ class IOTracer:
             if self.anonymous:
                 filename = hash_filename_in_path(Path(filename))
         except UnicodeDecodeError:
-            filename = "[decode_error]"
+            filename = ""
         
         timestamp = datetime.today()
         
@@ -181,9 +181,8 @@ class IOTracer:
         offset_val = event.offset if hasattr(event, 'offset') and event.offset != 0 else ""
         tid_val = event.tid if hasattr(event, 'tid') and event.tid != 0 else ""
         flags_val = self.flag_mapper.format_fs_flags(event.flags) if event.flags else ""
-        latency_val = event.latency_ns if hasattr(event, 'latency_ns') and event.latency_ns != 0 else ""
         
-        output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, inode_val, flags_val, latency_val, offset_val, tid_val)
+        output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, inode_val, flags_val, offset_val, tid_val)
         self.writer.append_fs_log(output)
         
     def _print_event_dual(self, cpu, data, size):
@@ -208,8 +207,8 @@ class IOTracer:
                 filename_old = hash_filename_in_path(Path(filename_old))
                 filename_new = hash_filename_in_path(Path(filename_new))
         except UnicodeDecodeError:
-            filename_old = "[decode_error]"
-            filename_new = "[decode_error]"
+            filename_old = ""
+            filename_new = ""
         
         timestamp = datetime.today()
         
@@ -228,7 +227,6 @@ class IOTracer:
         inode_val = f"{inode_old}" if inode_old else ""
         
         output = format_csv_row(timestamp, op_name, event.pid, comm, dual_filename, 0, inode_val)
-        print(output)
         
         self.writer.append_fs_log(output)
     
@@ -271,6 +269,7 @@ class IOTracer:
         count = event.count if hasattr(event, 'count') else ""
 
         output = format_csv_row(timestamp, pid, comm, event_name, inode, index, size, cpu_id, dev_id, count)
+
         self.writer.append_cache_log(output)
 
     def _print_event_block(self, cpu, data, size):        
@@ -329,7 +328,6 @@ class IOTracer:
                 print("Warning: LBA 0 detected in block trace")
                 print(output)
                 print("="*50)
-        print(output)
         self.writer.append_block_log(output)
 
     def _print_event_net(self, cpu, data, size):
@@ -438,6 +436,7 @@ class IOTracer:
             latency_ns,
             ret_val,
         )
+        
         self.writer.append_conn_log(output)
 
     def _print_event_epoll(self, cpu, data, size):
@@ -474,6 +473,7 @@ class IOTracer:
             timeout_ms,
             latency_ns,
         )
+        
         self.writer.append_epoll_log(output)
 
     def _print_event_sockopt(self, cpu, data, size):
@@ -501,6 +501,7 @@ class IOTracer:
             str(e.optval),
             ret_val,
         )
+        
         self.writer.append_sockopt_log(output)
 
     def _print_event_drop(self, cpu, data, size):
@@ -541,6 +542,7 @@ class IOTracer:
             drop_reason,
             tcp_state,
         )
+        
         self.writer.append_drop_log(output)
 
     def _print_event_pagefault(self, cpu, data, size):
@@ -569,35 +571,6 @@ class IOTracer:
         
         output = format_csv_row(timestamp, pid, tid, comm, fault_type, major, inode, offset, address, dev_id)
         self.writer.append_pagefault_log(output)
-
-    def _print_event_iouring(self, cpu, data, size):
-        """
-        Callback for processing io_uring events from the perf buffer.
-        
-        Captures modern async I/O operations using io_uring.
-        
-        Args:
-            cpu: CPU number where the event was captured
-            data: Raw event data pointer
-            size: Size of the event data
-        """
-        event = self.b["iouring_events"].event(data)
-        timestamp = datetime.today()
-        
-        pid = event.pid
-        comm = event.comm.decode('utf-8', errors='replace')
-        opcode = self.flag_mapper.format_iouring_opcode(event.opcode)
-        fd = event.fd if event.fd != 0 else ""
-        offset = event.offset if event.offset != 0 else ""
-        length = event.len if event.len != 0 else ""
-        result = event.result if hasattr(event, 'result') else ""
-        latency_ns = event.latency_ns if hasattr(event, 'latency_ns') and event.latency_ns != 0 else ""
-        latency_ms = latency_ns / 1_000_000.0 if latency_ns else ""
-        
-        output = format_csv_row(timestamp, pid, comm, opcode, fd, offset, length, result, latency_ms)
-        
-        self.writer.append_iouring_log(output)
-
 
     def _cleanup(self, signum, frame):
         """
@@ -753,17 +726,6 @@ class IOTracer:
         except KeyError:
             if self.verbose:
                 logger("warning", "pagefault_events buffer not available")
-
-        # io_uring events for async I/O tracking
-        try:
-            self.b["iouring_events"].open_perf_buffer(
-                self._print_event_iouring,
-                page_cnt=self.page_cnt,
-                lost_cb=self._lost_cb
-            )
-        except KeyError:
-            if self.verbose:
-                logger("warning", "iouring_events buffer not available")
 
         start = time.time()
         if self.duration is not None:

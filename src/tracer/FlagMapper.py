@@ -146,44 +146,6 @@ class FlagMapper:
             27: "DIO_WRITE"
         }
 
-        # io_uring operation codes
-        self.iouring_opcodes = {
-            0: "NOP",
-            1: "READV",
-            2: "WRITEV",
-            3: "FSYNC",
-            4: "READ_FIXED",
-            5: "WRITE_FIXED",
-            6: "POLL_ADD",
-            7: "POLL_REMOVE",
-            8: "SYNC_FILE_RANGE",
-            9: "SENDMSG",
-            10: "RECVMSG",
-            11: "TIMEOUT",
-            12: "TIMEOUT_REMOVE",
-            13: "ACCEPT",
-            14: "ASYNC_CANCEL",
-            15: "LINK_TIMEOUT",
-            16: "CONNECT",
-            17: "FALLOCATE",
-            18: "OPENAT",
-            19: "CLOSE",
-            20: "FILES_UPDATE",
-            21: "STATX",
-            22: "READ",
-            23: "WRITE",
-            24: "FADVISE",
-            25: "MADVISE",
-            26: "SEND",
-            27: "RECV",
-            28: "OPENAT2",
-            29: "EPOLL_CTL",
-            30: "SPLICE",
-            31: "PROVIDE_BUFFERS",
-            32: "REMOVE_BUFFERS",
-            255: "IO_URING_ENTER"  # Special value for the syscall itself
-        }
-
         # msync flags
         self.msync_flags = {
             1: "MS_ASYNC",
@@ -441,13 +403,12 @@ class FlagMapper:
     def format_block_ops(self, flag: str):
         """
         Normalize block operation strings to simple read/write format.
-        Enhanced to recognize more operation types from rwbs strings.
+        Enhanced to recognize more operation types from various flag formats.
         
-        Takes an operation string and returns a simplified representation
-        based on the first character.
+        Takes an operation string and returns a simplified representation.
         
         Args:
-            flag: String representing the operation (e.g., "REQ_OP_READ").
+            flag: String representing the operation (e.g., "REQ_OP_READ", "WS", "READ").
             
         Returns:
             str: "read", "write", "discard", "flush", "secure_erase", "none",
@@ -458,38 +419,58 @@ class FlagMapper:
             'read'
             >>> mapper.format_block_ops("WS")
             'write'
+            >>> mapper.format_block_ops("READ")
+            'read'
         """
         if not flag:
             return "unknown"
-            
-        first_char = flag[0].upper()
         
-        if first_char == 'W':
-            return "write"
-        elif first_char == 'R':
+        flag_upper = flag.upper()
+        
+        # Handle REQ_OP_* format
+        if flag_upper.startswith("REQ_OP_"):
+            op_suffix = flag_upper[7:]  # Remove "REQ_OP_" prefix
+            if op_suffix == "READ":
+                return "read"
+            elif op_suffix == "WRITE":
+                return "write"
+            elif op_suffix == "DISCARD":
+                return "discard"
+            elif op_suffix == "FLUSH":
+                return "flush"
+            elif op_suffix == "SECURE_ERASE":
+                return "secure_erase"
+            elif op_suffix in ["WRITE_SAME", "WRITE_ZEROES", "ZONE_APPEND"]:
+                return "write"
+            else:
+                return flag.lower()
+        
+        # Handle full word operations
+        if flag_upper == "READ":
             return "read"
-        elif first_char == 'D':
+        elif flag_upper == "WRITE":
+            return "write"
+        elif flag_upper == "DISCARD":
             return "discard"
-        elif first_char == 'F':
+        elif flag_upper == "FLUSH":
             return "flush"
-        elif first_char == 'E':
+        elif flag_upper == "SECURE_ERASE":
             return "secure_erase"
-        elif first_char == 'N':
+        elif flag_upper == "NONE":
             return "none"
+        
+        # Handle rwbs format (e.g., "WS", "R", "WM")
+        # Parse all characters and concatenate with pipe
+        result = []
+        for char in flag_upper:
+            flag_name = self.block_flags.get(char)
+            if flag_name:
+                result.append(flag_name.lower())
+        
+        if result:
+            return "|".join(result)
         else:
             return flag.lower()
-
-    def format_iouring_opcode(self, opcode):
-        """
-        Format an io_uring operation code to its name.
-        
-        Args:
-            opcode: Integer representing the io_uring opcode.
-            
-        Returns:
-            str: The opcode name (e.g., "READ", "WRITE") or "UNKNOWN_OP(X)" if unknown.
-        """
-        return self.iouring_opcodes.get(opcode, f"UNKNOWN_OP({opcode})")
 
     def format_msync_flags(self, flags):
         """

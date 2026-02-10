@@ -213,13 +213,11 @@ class KernelProbeTracker:
             else:
                 logger("warning", "filemap_fault not available - mmap I/O tracking disabled")
             
-            # Direct I/O probe for bypass detection
+            # Direct I/O probe for bypass detection (return probe only - no latency tracking)
             if BPF.get_kprobe_functions(b'iomap_dio_rw'):
-                self.add_kprobe("iomap_dio_rw", "trace_dio_entry")
                 self.add_kretprobe("iomap_dio_rw", "trace_dio_return")
                 logger("info", "Direct I/O tracing enabled via iomap_dio_rw")
             elif BPF.get_kprobe_functions(b'__blockdev_direct_IO'):
-                self.add_kprobe("__blockdev_direct_IO", "trace_dio_entry")
                 self.add_kretprobe("__blockdev_direct_IO", "trace_dio_return")
                 logger("info", "Direct I/O tracing enabled via __blockdev_direct_IO")
             else:

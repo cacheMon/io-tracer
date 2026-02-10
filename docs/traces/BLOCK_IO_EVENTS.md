@@ -27,7 +27,7 @@
 
 ## Operation Types
 
-Derived from the block layer `rwbs` string and normalized:
+Derived from the block layer `rwbs` string and normalized. When the rwbs string contains multiple flags (e.g., "WS", "RM"), the operation field contains pipe-separated values (e.g., "write|sync", "read|meta"):
 
 | Value | Description |
 |-------|-------------|
@@ -37,6 +37,11 @@ Derived from the block layer `rwbs` string and normalized:
 | `flush` | Cache flush operation |
 | `secure_erase` | Secure erase operation |
 | `none` | No operation |
+| `sync` | Synchronous operation flag |
+| `meta` | Metadata operation flag |
+| `ahead` | Read-ahead flag |
+| `prio` | High priority flag |
+| `barrier` | Barrier flag (legacy) |
 
 ## Block Operation Codes (`REQ_OP_*`)
 
@@ -87,7 +92,13 @@ Command flags captured in the `Command Flags` field (field 13). Multiple flags a
 
 ## RWBS Flags
 
-Character flags from the block layer tracepoint `rwbs` string:
+Character flags from the block layer tracepoint `rwbs` string. Each character in the rwbs string is decoded to its corresponding flag name, and when multiple characters are present, they are concatenated with pipes in the Operation field (field 5).
+
+**Examples:**
+- `"R"` → `"read"`
+- `"WS"` → `"write|sync"`
+- `"RM"` → `"read|meta"`
+- `"WMA"` → `"write|meta|ahead"`
 
 | Char | Name | Description |
 |------|------|-------------|

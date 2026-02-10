@@ -15,7 +15,6 @@ IO Tracer uses eBPF/BPF technology to intercept kernel functions and collect var
 | 4c | [Socket Configuration](traces/SOCKET_CONFIG_EVENTS.md) | Socket option changes (setsockopt/getsockopt) | `nw_sockopt/nw_sockopt_*.csv` |
 | 4d | [Network Drops](traces/NETWORK_DROPS_EVENTS.md) | TCP retransmissions | `nw_drop/nw_drop_*.csv` |
 | 5 | [Page Fault Events](traces/PAGE_FAULT_EVENTS.md) | File-backed page faults from mmap access | `pagefault/pagefault_*.csv` |
-| 6 | [io_uring Events](traces/IO_URING_EVENTS.md) | Async I/O via io_uring (Linux 5.1+) | `iouring/iouring_*.csv` |
 
 ## Snapshot Types
 
@@ -45,8 +44,8 @@ IO Tracer uses eBPF/BPF technology to intercept kernel functions and collect var
 │  │  • Block Events  │    │ - _print_event_cache (Cache)      │  │
 │  │  • Cache Events  │    │ - _print_event_net (Network)      │  │
 │  │  • Net Events    │    │ - _print_event_pagefault (Fault)  │  │
-│  │  • Page Faults   │    │ - _print_event_iouring (io_uring) │  │
-│  │  • io_uring      │    └─────────────────────────────────┘  │
+│  │  • Page Faults   │    │ - _print_event_pagefault (Fault)  │  │
+│  │                  │    └─────────────────────────────────┘  │
 │  └────────┬────────┘                                           │
 │           │                                                    │
 │  ┌────────▼────────┐    ┌─────────────────────────────────┐  │
@@ -65,7 +64,6 @@ IO Tracer uses eBPF/BPF technology to intercept kernel functions and collect var
 │  │                  │    • cache_events.csv                   │  │
 │  │                  │    • network_events.csv                 │  │
 │  │                  │    • pagefault_events.csv               │  │
-│  │                  │    • iouring_events.csv                 │  │
 │  │                  │    • filesystem_snap.csv.gz             │  │
 │  │                  │    • process_snap.csv                   │  │
 │  │                  │    • device_spec.txt                    │  │

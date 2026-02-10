@@ -17,7 +17,6 @@ output_YYYYMMDD_HHMMSS/
 ├── nw_sockopt/            # Socket configuration events
 ├── nw_drop/               # Packet drops & retransmissions
 ├── pagefault/             # Memory-mapped page fault events
-├── iouring/               # io_uring async I/O events
 ├── process/               # Process state snapshots
 ├── filesystem_snapshot/   # Filesystem metadata snapshots
 └── system_spec/           # System specification files
@@ -46,7 +45,7 @@ timestamp,operation,pid,command,filename,size,inode,flags,latency_ns,offset,tid
 | `operation` | string | Operation type (READ, WRITE, OPEN, CLOSE, etc.) |
 | `pid` | integer | Process ID that performed the operation |
 | `command` | string | Process command name (truncated to 16 chars) |
-| `filename` | string | Full path of the file or "[decode_error]" if path unavailable |
+| `filename` | string | Full path of the file; empty if path unavailable (see reasons below) |
 | `size` | integer | Operation size in bytes (0 for metadata operations) |
 | `inode` | integer | Inode number of the file |
 | `flags` | string | Operation-specific flags (pipe-separated) |
@@ -517,84 +516,7 @@ timestamp,pid,tid,command,fault_type,severity,inode,offset,address,dev_id
 
 ---
 
-## 6. io_uring Events
-
-**Location:** `output_*/iouring/iouring_*.csv.gz`
-
-**Description:** Captures modern asynchronous I/O operations using the io_uring interface (Linux 5.1+). Tracks both file and network async operations.
-
-### CSV Format
-
-```csv
-timestamp,pid,command,opcode,fd,offset,length,result,latency_ms
-```
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `timestamp` | datetime | Event timestamp (YYYY-MM-DD HH:MM:SS.ffffff) |
-| `pid` | integer | Process ID |
-| `command` | string | Process command name |
-| `opcode` | string | io_uring operation type (see below) |
-| `fd` | integer | File descriptor (0 if not applicable) |
-| `offset` | integer | File offset for positioned I/O (empty if not applicable) |
-| `length` | integer | Operation length/count (empty if not applicable) |
-| `result` | integer | Operation result/return value (empty if not available) |
-| `latency_ms` | float | Operation latency in milliseconds (empty if not measured) |
-
-### Operation Types (Opcode)
-
-| Opcode | Description |
-|--------|-------------|
-| `READ` | Asynchronous read |
-| `WRITE` | Asynchronous write |
-| `READV` | Vectored read |
-| `WRITEV` | Vectored write |
-| `READ_FIXED` | Read with pre-registered buffers |
-| `WRITE_FIXED` | Write with pre-registered buffers |
-| `FSYNC` | Asynchronous fsync |
-| `SYNC_FILE_RANGE` | Sync specific file range |
-| `FALLOCATE` | Asynchronous fallocate |
-| `OPENAT` | Asynchronous file open |
-| `CLOSE` | Asynchronous file close |
-| `STATX` | Get extended file attributes |
-| `SENDMSG` | Send message on socket |
-| `RECVMSG` | Receive message from socket |
-| `SEND` | Send data on socket |
-| `RECV` | Receive data from socket |
-| `ACCEPT` | Accept connection |
-| `CONNECT` | Connect socket |
-| `POLL_ADD` | Add poll request |
-| `POLL_REMOVE` | Remove poll request |
-| `TIMEOUT` | Set timeout |
-| `MADVISE` | Memory advice |
-| `FADVISE` | File access advice |
-| `SPLICE` | Zero-copy data transfer |
-| `IO_URING_ENTER` | The io_uring_enter syscall itself (batch submission) |
-| `NOP` | No operation |
-
-### Example Rows
-
-```csv
-2024-01-15 10:30:45.123456,1234,postgres,READ,5,0,8192,8192,0.234
-2024-01-15 10:30:45.234567,1234,postgres,WRITE,5,8192,4096,4096,0.567
-2024-01-15 10:30:45.345678,1234,postgres,FSYNC,5,,,0,1.234
-2024-01-15 10:30:45.456789,5678,nginx,ACCEPT,10,,,15,0.012
-2024-01-15 10:30:45.567890,5678,nginx,RECVMSG,15,,,1024,0.045
-2024-01-15 10:30:45.678901,1234,app,IO_URING_ENTER,0,,32,,
-```
-
-**Use Cases:**
-- Monitor high-performance async I/O applications
-- Compare io_uring vs traditional I/O performance
-- Analyze batched I/O submission patterns
-- Track both file and network async operations
-- Identify bottlenecks in async I/O pipelines
-
-**Note:** The `IO_URING_ENTER` opcode represents the `io_uring_enter` syscall which can batch multiple operations. The `length` field for this operation indicates the number of operations submitted in that batch.
-
----
-
-## 7. Process Snapshots
+## 6. Process Snapshots
 
 **Location:** `output_*/process/process_*.csv.gz`
 
@@ -629,7 +551,7 @@ timestamp,pid,ppid,name,state,uid,gid,num_threads,cpu_percent,memory_percent,cmd
 
 ---
 
-## 8. Filesystem Snapshots
+## 7. Filesystem Snapshots
 
 **Location:** `output_*/filesystem_snapshot/filesystem_snapshot_*.csv.gz`
 
@@ -659,7 +581,7 @@ snapshot_timestamp,path,size,ctime,mtime,atime
 
 ---
 
-## 9. System Specification Files
+## 8. System Specification Files
 
 **Location:** `output_*/system_spec/`
 
@@ -684,8 +606,13 @@ These are JSON files capturing system hardware and configuration at trace start:
 - Always absolute paths when available
 - Special values:
   - `[sendfile]` - sendfile() operation (no specific file)
-  - `[decode_error]` - Path decoding failed
-  - Empty string - Path unavailable (e.g., anonymous mmap)
+  - Empty string - Path unavailable or unresolvable (see "Empty Filenames" section in VFS_EVENTS.md for detailed reasons)
+- Common reasons for empty paths:
+  - Anonymous file descriptors (pipes, sockets, memfd)
+  - Null/invalid dentry structures (race conditions, deleted files)
+  - Virtual/pseudo filesystems edge cases
+  - eBPF probe read failures or kernel memory access restrictions
+  - Unicode decode errors (invalid UTF-8 in filenames)
 
 ### Process Information
 - `pid` - Process ID (TGID in kernel terms)

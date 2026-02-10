@@ -8,6 +8,9 @@
 - `syscalls:sys_enter_epoll_wait` / `sys_exit_epoll_wait` — Wait for events (with latency)
 - `syscalls:sys_enter_poll` / `sys_exit_poll` — poll() syscall (with latency)
 - `syscalls:sys_enter_select` / `sys_exit_select` — select() syscall (with latency)
+- `syscalls:sys_enter_pselect6` / `sys_exit_pselect6` — pselect6() syscall (with latency)
+
+> **Note:** Modern glibc's `select()` function actually calls the `pselect6()` syscall. Both are monitored and reported as `SELECT` events.
 
 ## Data Captured
 

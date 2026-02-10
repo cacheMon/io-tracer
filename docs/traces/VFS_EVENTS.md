@@ -32,9 +32,8 @@
 | 6 | Size | `u64` | I/O size in bytes (`0` for non-I/O operations) |
 | 7 | Inode | `u64` | File inode number; empty if `0` |
 | 8 | Flags | `string` | Operation-specific flags (see tables below); empty if none |
-| 9 | Latency | `u64` | Operation latency in nanoseconds; empty if `0` |
-| 10 | Offset | `u64` | File offset for positioned I/O; empty if `0` |
-| 11 | TID | `u32` | Thread ID for multi-threaded correlation; empty if `0` |
+| 9 | Offset | `u64` | File offset for positioned I/O; empty if `0` |
+| 10 | TID | `u32` | Thread ID for multi-threaded correlation; empty if `0` |
 
 ## Operation Types
 
@@ -177,5 +176,45 @@ Displayed for `MADVISE` operations:
 | `MADV_PAGEOUT` | 21 | Hint to page out to swap |
 | `MADV_POPULATE_READ` | 22 | Populate (fault in) pages for reading |
 | `MADV_POPULATE_WRITE` | 23 | Populate (fault in) pages for writing |
+
+## Empty Filenames
+
+In some cases, the filename field may be empty. This occurs when the kernel data structures required for path resolution are unavailable or inaccessible. Common reasons include:
+
+**1. Null or Invalid Dentry**
+- The file's dentry (directory entry) structure is NULL or invalid
+- Occurs during race conditions when files are being deleted or during unusual kernel states
+- More common with short-lived temporary files or anonymous file descriptors
+
+**2. Anonymous File Descriptors**
+- Pipes and sockets (not backed by regular files)
+- Anonymous memory mappings (`MAP_ANONYMOUS` without a backing file)
+- memfd and other in-memory file descriptors
+- File descriptors created via `O_TMPFILE` before being linked to the filesystem
+
+**3. Early/Late Lifecycle Events**
+- File descriptor operations during process creation or teardown
+- Operations on file descriptors that are in the process of being closed
+- Race conditions between file deletion and ongoing operations
+
+**4. Virtual/Pseudo Filesystems**
+- Some operations on procfs (`/proc`), sysfs (`/sys`), or other virtual filesystems
+- These are filtered out by default, but edge cases may occur during the filtering check
+
+**5. eBPF Probe Read Failures**
+- Kernel memory read restrictions in hardened kernels
+- Memory paging issues where the dentry name is swapped out
+- Corruption or transient kernel data structure states
+
+**6. Userspace Decode Failures**
+- Unicode decode errors when the filename contains invalid UTF-8 sequences
+- Non-standard character encodings in filenames
+- Binary or corrupted data in the filename buffer
+
+**Analysis Recommendations:**
+- Empty filenames are typically safe to filter out for filesystem I/O analysis
+- For network and IPC analysis, empty filenames are expected for sockets and pipes
+- Check the inode field — if it's non-zero, the file exists but the path couldn't be resolved
+- Correlate with the operation type and process command to determine if the empty filename is expected
 
 **Output File:** `fs/fs_*.csv`

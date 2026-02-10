@@ -83,7 +83,6 @@ class WriteManager:
         self.output_network_file = f"{self.output_dir}/nw/nw_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_snapshot/filesystem_snapshot_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_pagefault_file = f"{self.output_dir}/pagefault/pagefault_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-        self.output_iouring_file = f"{self.output_dir}/iouring/iouring_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_conn_file = f"{self.output_dir}/nw_conn/nw_conn_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_epoll_file = f"{self.output_dir}/nw_epoll/nw_epoll_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_sockopt_file = f"{self.output_dir}/nw_sockopt/nw_sockopt_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
@@ -98,7 +97,6 @@ class WriteManager:
         os.makedirs(f"{self.output_dir}/filesystem_snapshot", exist_ok=True)
         os.makedirs(f"{self.output_dir}/nw", exist_ok=True)
         os.makedirs(f"{self.output_dir}/pagefault", exist_ok=True)
-        os.makedirs(f"{self.output_dir}/iouring", exist_ok=True)
         os.makedirs(f"{self.output_dir}/nw_conn", exist_ok=True)
         os.makedirs(f"{self.output_dir}/nw_epoll", exist_ok=True)
         os.makedirs(f"{self.output_dir}/nw_sockopt", exist_ok=True)
@@ -115,7 +113,6 @@ class WriteManager:
         self.process_buffer = deque()
         self.fs_snap_buffer = deque()
         self.pagefault_buffer = deque()
-        self.iouring_buffer = deque()
         self.conn_buffer = deque()
         self.epoll_buffer = deque()
         self.sockopt_buffer = deque()
@@ -130,7 +127,6 @@ class WriteManager:
             'fs_state': deque(maxlen=1000),
             'proc_state': deque(maxlen=1000),
             'pagefault': deque(maxlen=1000),
-            'iouring': deque(maxlen=1000),
             'conn': deque(maxlen=1000),
             'epoll': deque(maxlen=1000),
             'sockopt': deque(maxlen=1000),
@@ -146,7 +142,6 @@ class WriteManager:
             'fs_state': (8000, 20000),
             'proc_state': (8000, 10000),  # Match new process_max_events threshold
             'pagefault': (8000, 100000),
-            'iouring': (8000, 50000),
             'conn': (8000, 100000),
             'epoll': (8000, 200000),
             'sockopt': (8000, 50000),
@@ -172,7 +167,6 @@ class WriteManager:
         self.process_max_events = 8000  # Large enough to fit entire hourly snapshot
         self.fs_snap_max_events = 8000
         self.pagefault_max_events = 8000
-        self.iouring_max_events = 8000
         self.conn_max_events = 8000
         self.epoll_max_events = 8000
         self.sockopt_max_events = 8000
@@ -185,7 +179,6 @@ class WriteManager:
         self._network_handle = None
         self._process_handle = None
         self._pagefault_handle = None
-        self._iouring_handle = None
         self._fs_snap_handle = None
         self._conn_handle = None
         self._epoll_handle = None
@@ -226,7 +219,7 @@ class WriteManager:
         while True:
             time.sleep(10)  
             
-            for event_type in ['vfs', 'block', 'cache', 'network','fs_state','proc_state', 'pagefault', 'iouring', 'conn', 'epoll', 'sockopt', 'drop']:
+            for event_type in ['vfs', 'block', 'cache', 'network','fs_state','proc_state', 'pagefault', 'conn', 'epoll', 'sockopt', 'drop']:
                 rate = self._calculate_event_rate(event_type)
                 min_limit, max_limit = self.dynamic_limits[event_type]
                 
@@ -253,8 +246,6 @@ class WriteManager:
                     self.process_max_events = new_limit
                 elif event_type == 'pagefault':
                     self.pagefault_max_events = new_limit
-                elif event_type == 'iouring':
-                    self.iouring_max_events = new_limit
                 elif event_type == 'conn':
                     self.conn_max_events = new_limit
                 elif event_type == 'epoll':
@@ -330,10 +321,6 @@ class WriteManager:
     def should_flush_pagefault(self) -> bool:
         """Check if pagefault buffer should be flushed."""
         return (len(self.pagefault_buffer) >= self.pagefault_max_events)
-
-    def should_flush_iouring(self) -> bool:
-        """Check if iouring buffer should be flushed."""
-        return (len(self.iouring_buffer) >= self.iouring_max_events)
 
     def should_flush_conn(self) -> bool:
         """Check if connection lifecycle buffer should be flushed."""
@@ -470,21 +457,6 @@ class WriteManager:
         else:
             logger("error", "Invalid pagefault log output format. Expected a string.")
 
-    def append_iouring_log(self, log_output: str):
-        """
-        Add an io_uring event log entry.
-        
-        Args:
-            log_output: CSV-formatted log string
-        """
-        if isinstance(log_output, str):
-            self.iouring_buffer.append(log_output)
-            self.event_timestamps['iouring'].append(time.time())
-
-            if self.should_flush_iouring():
-                self.flush_iouring_only()
-        else:
-            logger("error", "Invalid iouring log output format. Expected a string.")
     def append_conn_log(self, log_output: str):
         """Add a connection lifecycle event log entry."""
         if isinstance(log_output, str):
@@ -648,20 +620,6 @@ class WriteManager:
             self._pagefault_handle = open(self.output_pagefault_file, 'a', buffering=8192)
             self._reset_flush_timer()
 
-    def flush_iouring_only(self):
-        """Flush io_uring buffer to file."""
-        if self.iouring_buffer:
-            if self._iouring_handle is None:
-                self._iouring_handle = open(self.output_iouring_file, 'a', buffering=8192)
-            self.current_datetime = datetime.now()
-            
-            self._write_buffer_to_file(self.iouring_buffer, self._iouring_handle, "IOUring")
-            self.compress_log(self.output_iouring_file)
-            self.output_iouring_file = f"{self.output_dir}/iouring/iouring_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-
-            self._iouring_handle.close()
-            self._iouring_handle = open(self.output_iouring_file, 'a', buffering=8192)
-            self._reset_flush_timer()
     def flush_conn_only(self):
         """Flush connection lifecycle buffer to file."""
         if self.conn_buffer:
@@ -730,7 +688,6 @@ class WriteManager:
         self.compress_log(self.output_fs_snapshot_file)
         self.compress_log(self.output_network_file)
         self.compress_log(self.output_pagefault_file)
-        self.compress_log(self.output_iouring_file)
         self.compress_log(self.output_conn_file)
         self.compress_log(self.output_epoll_file)
         self.compress_log(self.output_sockopt_file)
@@ -748,7 +705,6 @@ class WriteManager:
         self.fs_snap_buffer.clear()
         self.network_buffer.clear()
         self.pagefault_buffer.clear()
-        self.iouring_buffer.clear()
         self.conn_buffer.clear()
         self.epoll_buffer.clear()
         self.sockopt_buffer.clear()
@@ -827,12 +783,6 @@ class WriteManager:
                     self._pagefault_handle = open(self.output_pagefault_file, 'a', buffering=8192)
                 self._write_buffer_to_file(self.pagefault_buffer, self._pagefault_handle, "PageFault")
 
-        def write_iouring():
-            if self.iouring_buffer:
-                if self._iouring_handle is None:
-                    self._iouring_handle = open(self.output_iouring_file, 'a', buffering=8192)
-                self._write_buffer_to_file(self.iouring_buffer, self._iouring_handle, "IOUring")
-
         def write_conn():
             if self.conn_buffer:
                 if self._conn_handle is None:
@@ -894,11 +844,6 @@ class WriteManager:
             t7 = threading.Thread(target=write_pagefault)
             threads.append(t7)
             t7.start()
-
-        if self.iouring_buffer:
-            t8 = threading.Thread(target=write_iouring)
-            threads.append(t8)
-            t8.start()
 
         if self.conn_buffer:
             t9 = threading.Thread(target=write_conn)
@@ -987,7 +932,6 @@ class WriteManager:
             (self._fs_snap_handle, "Filesystem Snapshot"),
             (self._network_handle, "Network"),
             (self._pagefault_handle, "PageFault"),
-            (self._iouring_handle, "IOUring"),
             (self._conn_handle, "Connection"),
             (self._epoll_handle, "Epoll"),
             (self._sockopt_handle, "Sockopt"),
@@ -1010,7 +954,6 @@ class WriteManager:
         self._fs_snap_handle = None
         self._network_handle = None
         self._pagefault_handle = None
-        self._iouring_handle = None
         self._conn_handle = None
         self._epoll_handle = None
         self._sockopt_handle = None

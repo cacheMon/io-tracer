@@ -8,7 +8,7 @@
  * - Page cache operations: hits, misses, dirty pages, writeback, eviction
  * - Network I/O: TCP/UDP send and receive operations
  * - Memory-mapped I/O: page faults, msync, madvise
- * - Async I/O: io_uring operations, direct I/O, splice
+ * - Async I/O: direct I/O, splice
  *
  * The tracer uses BCC (BPF Compiler Collection) and attaches to kernel
  * functions via kprobes, kretprobes, and tracepoints.
@@ -203,7 +203,6 @@ struct data_t {
   u64 size;                       /**< Operation size in bytes (read/write length) */
   u32 flags;                      /**< File flags (O_RDONLY, O_SYNC, etc.) */
   enum op_type op;                /**< Operation type from op_type enum */
-  u64 latency_ns;                 /**< Operation latency in nanoseconds */
   /* Enhanced fields for I/O correlation and analysis */
   u32 fd;                         /**< File descriptor (0 if unavailable in kernel) */
   u64 offset;                     /**< File offset for read/write operations */
@@ -299,67 +298,6 @@ struct pagefault_data {
   u8 fault_type;            /**< FAULT_READ or FAULT_WRITE */
   u8 major;                 /**< 0=minor (cached), 1=major (disk read) */
   u32 dev_id;               /**< Device ID from file's superblock */
-};
-
-/* ============================================================================
- * IO_URING STRUCTURES
- * ============================================================================
- * io_uring is the modern async I/O interface in Linux (5.1+).
- * It allows batching multiple I/O operations with single syscall overhead.
- */
-
-/**
- * @brief io_uring operation types
- *
- * Subset of IORING_OP_* opcodes for categorizing async I/O operations.
- * Full list in include/uapi/linux/io_uring.h
- */
-enum iouring_op {
-  IORING_OP_NOP = 0,              /**< No operation (for testing) */
-  IORING_OP_READV = 1,            /**< Vectored read */
-  IORING_OP_WRITEV = 2,           /**< Vectored write */
-  IORING_OP_FSYNC = 3,            /**< Fsync file */
-  IORING_OP_READ_FIXED = 4,       /**< Read with registered buffers */
-  IORING_OP_WRITE_FIXED = 5,      /**< Write with registered buffers */
-  IORING_OP_POLL_ADD = 6,         /**< Add poll request */
-  IORING_OP_POLL_REMOVE = 7,      /**< Remove poll request */
-  IORING_OP_SYNC_FILE_RANGE = 8,  /**< Sync file range */
-  IORING_OP_SENDMSG = 9,          /**< Send message on socket */
-  IORING_OP_RECVMSG = 10,         /**< Receive message from socket */
-  IORING_OP_TIMEOUT = 11,         /**< Set timeout */
-  IORING_OP_TIMEOUT_REMOVE = 12,  /**< Remove timeout */
-  IORING_OP_ACCEPT = 13,          /**< Accept connection */
-  IORING_OP_ASYNC_CANCEL = 14,    /**< Cancel async operation */
-  IORING_OP_LINK_TIMEOUT = 15,    /**< Linked timeout */
-  IORING_OP_CONNECT = 16,
-  IORING_OP_FALLOCATE = 17,
-  IORING_OP_OPENAT = 18,
-  IORING_OP_CLOSE = 19,
-  IORING_OP_READ = 22,
-  IORING_OP_WRITE = 23,
-  IORING_OP_FADVISE = 24,
-  IORING_OP_MADVISE = 25,
-  IORING_OP_SEND = 26,
-  IORING_OP_RECV = 27,
-  IORING_OP_STATX = 28            /**< Get extended file attributes */
-};
-
-/**
- * @brief io_uring event data structure
- *
- * Captures async I/O submissions and completions through io_uring.
- */
-struct iouring_data {
-  u64 ts;                   /**< Timestamp in nanoseconds */
-  u32 pid;                  /**< Process ID */
-  char comm[TASK_COMM_LEN]; /**< Process name */
-  u8 opcode;                /**< IORING_OP_* opcode (255 = io_uring_enter itself) */
-  u32 fd;                   /**< File descriptor for the operation */
-  u64 offset;               /**< File offset for positioned I/O */
-  u32 len;                  /**< Number of operations (for io_uring_enter) */
-  s32 result;               /**< Operation result/return value */
-  u64 latency_ns;           /**< Operation latency */
-  u64 inode;                /**< File inode if available */
 };
 
 /* ============================================================================
@@ -597,6 +535,7 @@ BPF_HASH(recv_flags_ctx, u64, u32); /**< Recv flags from syscall entry */
 BPF_HASH(accept_ctx, u64, u64);   /**< Accept start timestamp */
 BPF_HASH(connect_ctx, u64, u64);  /**< Connect start timestamp */
 BPF_HASH(socket_create_ctx, u64, struct conn_event_data); /**< Socket create context */
+BPF_HASH(socket_fds, u64, u8);  /**< Track socket file descriptors (key: (pid<<32)|fd) */
 
 /* Epoll wait context */
 BPF_HASH(epoll_wait_ctx, u64, u64); /**< Epoll_wait start timestamp */
@@ -606,9 +545,7 @@ BPF_HASH(epoll_wait_info, u64, struct epoll_event_data); /**< Epoll_wait context
 BPF_HASH(poll_ctx, u64, u64);      /**< Poll start timestamp */
 BPF_HASH(select_ctx, u64, u64);    /**< Select start timestamp */
 
-/* Async I/O tracking maps */
-BPF_HASH(iouring_start, u64, u64);       /**< io_uring request start times */
-BPF_HASH(dio_start, u64, u64);           /**< Direct I/O operation start times */
+// BPF_HASH(dio_start, u64, u64);           /**< Direct I/O operation start times (removed - no longer tracking latency) */
 
 /* Per-CPU buffer for large structs that exceed 512-byte stack limit */
 BPF_PERCPU_ARRAY(dual_data_buffer, struct data_dual_t, 1);
@@ -630,7 +567,6 @@ BPF_PERF_OUTPUT(net_epoll_events);  /**< Epoll/multiplexing events (epoll_event_
 BPF_PERF_OUTPUT(net_sockopt_events);/**< Socket option events (sockopt_event_data) */
 BPF_PERF_OUTPUT(net_drop_events);   /**< Drop/retransmit events (net_drop_data) */
 BPF_PERF_OUTPUT(pagefault_events);  /**< Memory-mapped page faults (pagefault_data) */
-BPF_PERF_OUTPUT(iouring_events);    /**< io_uring async I/O events (iouring_data) */
 
 /* ============================================================================
  * HELPER FUNCTIONS
@@ -854,7 +790,7 @@ static u64 get_file_inode_from_dentry(struct dentry *dentry) {
 static int get_file_path_from_dentry(struct dentry *dentry, char *buf,
                                      int size) {
   if (!dentry) {
-    __builtin_memcpy(buf, "[no_dentry]", 12);
+    buf[0] = '\0';  // Empty string if dentry unavailable
     return 0;
   }
 
@@ -1641,7 +1577,6 @@ int trace_vfs_mkdir(struct pt_regs *ctx, struct inode *dir,
   data.size = 0;
   get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
   data.flags = mode;
-  data.latency_ns = 0;
 
   events.perf_submit(ctx, &data, sizeof(data));
   return 0;
@@ -1681,7 +1616,6 @@ int trace_vfs_rmdir(struct pt_regs *ctx, struct inode *dir,
   data.size = 0;
   get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
   data.flags = 0;
-  data.latency_ns = 0;
 
   events.perf_submit(ctx, &data, sizeof(data));
   return 0;
@@ -1848,7 +1782,6 @@ int trace_vfs_fallocate(struct pt_regs *ctx, struct file *file, int mode,
   data.size = len;
   get_file_path(file, data.filename, sizeof(data.filename));
   data.flags = mode;
-  data.latency_ns = 0;
 
   events.perf_submit(ctx, &data, sizeof(data));
   return 0;
@@ -1885,9 +1818,8 @@ int trace_sendfile(struct pt_regs *ctx, int out_fd, int in_fd, loff_t *offset,
   data.op = OP_SENDFILE;
   data.inode = 0;
   data.size = count;
-  __builtin_memcpy(data.filename, "[sendfile]", 11);
+  __builtin_memcpy(data.filename, "", 11);
   data.flags = 0;
-  data.latency_ns = 0;
 
   events.perf_submit(ctx, &data, sizeof(data));
   return 0;
@@ -2905,42 +2837,6 @@ int trace_filemap_fault_entry(struct pt_regs *ctx, struct vm_fault *vmf) {
 }
 
 /* ============================================================================
- * IO_URING ASYNC I/O TRACING
- * ============================================================================
- * io_uring is Linux's modern async I/O interface, allowing batched
- * submissions with single syscall overhead.
- */
-
-/**
- * @brief io_uring submission tracepoint
- *
- * Captures io_uring_enter() syscalls that submit I/O batches.
- * len field contains number of operations being submitted.
- * opcode 255 indicates the io_uring_enter syscall itself.
- */
-TRACEPOINT_PROBE(syscalls, sys_enter_io_uring_enter) {
-  u32 pid = bpf_get_current_pid_tgid() >> 32;
-  u32 config_key = 0;
-  u32 *tracer_pid = tracer_config.lookup(&config_key);
-  if (tracer_pid && pid == *tracer_pid)
-    return 0;
-
-  struct iouring_data data = {};
-  data.ts = bpf_ktime_get_ns();
-  data.pid = pid;
-  bpf_get_current_comm(&data.comm, sizeof(data.comm));
-  data.fd = args->fd;
-  data.len = args->to_submit;
-  data.opcode = 255;  // Special value indicating io_uring_enter syscall itself
-  data.offset = 0;
-  data.result = 0;
-  data.latency_ns = 0;
-
-  iouring_events.perf_submit(args, &data, sizeof(data));
-  return 0;
-}
-
-/* ============================================================================
  * DIRECT I/O TRACING
  * ============================================================================
  * Direct I/O bypasses the page cache for applications managing their
@@ -2948,10 +2844,10 @@ TRACEPOINT_PROBE(syscalls, sys_enter_io_uring_enter) {
  */
 
 /**
- * @brief Direct I/O entry probe
+ * @brief Direct I/O entry probe (disabled - no longer tracking latency)
  *
  * iomap_dio_rw() handles direct I/O on modern kernels.
- * Stores timestamp for latency calculation on return.
+ * Entry probe disabled since VFS latency tracking was removed.
  *
  * @param ctx   BPF context
  * @param iocb  I/O control block
@@ -2960,6 +2856,7 @@ TRACEPOINT_PROBE(syscalls, sys_enter_io_uring_enter) {
  * @param flags DIO flags
  * @return      0
  */
+/*
 int trace_dio_entry(struct pt_regs *ctx, struct kiocb *iocb, struct iov_iter *iter,
                     void *ops, int flags) {
   u64 pid_tgid = bpf_get_current_pid_tgid();
@@ -2976,11 +2873,12 @@ int trace_dio_entry(struct pt_regs *ctx, struct kiocb *iocb, struct iov_iter *it
 
   return 0;
 }
+*/
 
 /**
  * @brief Direct I/O return probe
  *
- * Calculates latency and emits DIO completion event.
+ * Emits DIO completion event (no latency tracking).
  * Return value is bytes transferred (positive) or error (negative).
  */
 int trace_dio_return(struct pt_regs *ctx) {
@@ -2992,13 +2890,8 @@ int trace_dio_return(struct pt_regs *ctx) {
   if (tracer_pid && pid == *tracer_pid)
     return 0;
 
-  u64 *start_ts = dio_start.lookup(&pid_tgid);
-  if (!start_ts)
-    return 0;
-
   ssize_t ret = PT_REGS_RC(ctx);
   u64 end_ts = bpf_ktime_get_ns();
-  u64 latency = end_ts - *start_ts;
 
   // Emit as a special VFS event with DIO operation type
   struct data_t data = {};
@@ -3008,12 +2901,10 @@ int trace_dio_return(struct pt_regs *ctx) {
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = (ret >= 0) ? OP_DIO_READ : OP_DIO_WRITE;  // Simplified - actual direction needs more context
   data.size = (ret >= 0) ? (u64)ret : 0;
-  data.latency_ns = latency;
-  __builtin_memcpy(data.filename, "[direct_io]", 12);
+  __builtin_memcpy(data.filename, "", 12);
 
   events.perf_submit(ctx, &data, sizeof(data));
 
-  dio_start.delete(&pid_tgid);
   return 0;
 }
 
@@ -3066,7 +2957,7 @@ int trace_splice(struct pt_regs *ctx, struct file *in, loff_t *off_in,
       bpf_probe_read_kernel(&data.offset, sizeof(data.offset), off_in);
     }
   } else {
-    __builtin_memcpy(data.filename, "[splice]", 9);
+    __builtin_memcpy(data.filename, "", 9);
   }
 
   events.perf_submit(ctx, &data, sizeof(data));
@@ -3102,7 +2993,7 @@ TRACEPOINT_PROBE(syscalls, sys_enter_msync) {
   data.offset = args->start;  // Store address as offset
   data.size = args->len;
   data.flags = args->flags;
-  __builtin_memcpy(data.filename, "[msync]", 8);
+  __builtin_memcpy(data.filename, "", 8);
 
   events.perf_submit(args, &data, sizeof(data));
   return 0;
@@ -3130,7 +3021,7 @@ TRACEPOINT_PROBE(syscalls, sys_enter_madvise) {
   data.offset = args->start;  // Store address as offset
   data.size = args->len_in;
   data.flags = args->behavior;
-  __builtin_memcpy(data.filename, "[madvise]", 10);
+  __builtin_memcpy(data.filename, "", 10);
 
   events.perf_submit(args, &data, sizeof(data));
   return 0;
@@ -3338,7 +3229,7 @@ int kretprobe__udp_recvmsg(struct pt_regs *ctx) {
 }
 
 /* ============================================================================
- * PHASE 3: SYSCALL MSG_FLAGS CAPTURE
+ * SYSCALL MSG_FLAGS CAPTURE
  * ============================================================================
  * Tracepoints on sendto/sendmsg/recvfrom/recvmsg syscalls to capture
  * MSG_* flags and pass them to kernel-level probes via per-tid BPF maps.
@@ -3389,7 +3280,7 @@ TRACEPOINT_PROBE(syscalls, sys_enter_recvmsg) {
 }
 
 /* ============================================================================
- * PHASE 1: CONNECTION LIFECYCLE PROBES
+ * CONNECTION LIFECYCLE PROBES
  * ============================================================================
  * Captures socket creation, bind, listen, accept, connect, shutdown, close.
  */
@@ -3430,6 +3321,13 @@ TRACEPOINT_PROBE(syscalls, sys_exit_socket) {
   e->fd = args->ret >= 0 ? (u32)args->ret : 0;
   net_conn_events.perf_submit(args, e, sizeof(*e));
   socket_create_ctx.delete(&tid);
+
+  /* Track this socket fd for close() filtering */
+  if (args->ret >= 0) {
+    u64 pid_fd = (tid & 0xFFFFFFFF00000000ULL) | (u32)args->ret;
+    u8 marker = 1;
+    socket_fds.update(&pid_fd, &marker);
+  }
   return 0;
 }
 
@@ -3509,6 +3407,13 @@ TRACEPOINT_PROBE(syscalls, sys_exit_accept4) {
   e.fd = args->ret >= 0 ? (u32)args->ret : 0;
   net_conn_events.perf_submit(args, &e, sizeof(e));
   accept_ctx.delete(&tid);
+
+  /* Track this socket fd for close() filtering */
+  if (args->ret >= 0) {
+    u64 pid_fd = (tid & 0xFFFFFFFF00000000ULL) | (u32)args->ret;
+    u8 marker = 1;
+    socket_fds.update(&pid_fd, &marker);
+  }
   return 0;
 }
 
@@ -3557,8 +3462,31 @@ TRACEPOINT_PROBE(syscalls, sys_enter_shutdown) {
   return 0;
 }
 
+/* close() syscall */
+TRACEPOINT_PROBE(syscalls, sys_enter_close) {
+  u64 tid = bpf_get_current_pid_tgid();
+  u32 pid = tid >> 32;
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) return 0;
+
+  /* Only emit close event if this fd was tracked as a socket */
+  u64 pid_fd = (tid & 0xFFFFFFFF00000000ULL) | (u32)args->fd;
+  u8 *tracked = socket_fds.lookup(&pid_fd);
+  if (!tracked) return 0;
+
+  struct conn_event_data e = {};
+  fill_conn_common(&e, CONN_CLOSE);
+  e.fd = (u32)args->fd;
+  net_conn_events.perf_submit(args, &e, sizeof(e));
+  
+  /* Remove from tracking map */
+  socket_fds.delete(&pid_fd);
+  return 0;
+}
+
 /* ============================================================================
- * PHASE 2: EPOLL/MULTIPLEXING PROBES
+ * EPOLL/MULTIPLEXING PROBES
  * ============================================================================
  */
 
@@ -3720,8 +3648,35 @@ TRACEPOINT_PROBE(syscalls, sys_exit_select) {
   return 0;
 }
 
+/* pselect6() syscall - modern libc select() uses this */
+TRACEPOINT_PROBE(syscalls, sys_enter_pselect6) {
+  u64 tid = bpf_get_current_pid_tgid();
+  u32 pid = tid >> 32;
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) return 0;
+
+  u64 ts = bpf_ktime_get_ns();
+  select_ctx.update(&tid, &ts);
+  return 0;
+}
+
+TRACEPOINT_PROBE(syscalls, sys_exit_pselect6) {
+  u64 tid = bpf_get_current_pid_tgid();
+  u64 *start_ts = select_ctx.lookup(&tid);
+  if (!start_ts) return 0;
+
+  struct epoll_event_data e = {};
+  fill_epoll_common(&e, EPOLL_EV_SELECT);
+  e.latency_ns = bpf_ktime_get_ns() - *start_ts;
+  e.ready_count = (s32)args->ret;
+  net_epoll_events.perf_submit(args, &e, sizeof(e));
+  select_ctx.delete(&tid);
+  return 0;
+}
+
 /* ============================================================================
- * PHASE 4: SOCKET CONFIGURATION PROBES
+ * SOCKET CONFIGURATION PROBES
  * ============================================================================
  * Captures setsockopt/getsockopt for relevant socket options.
  */
@@ -3784,7 +3739,7 @@ TRACEPOINT_PROBE(syscalls, sys_enter_getsockopt) {
 }
 
 /* ============================================================================
- * PHASE 5: NETWORK DROPS & RETRANSMISSIONS
+ * NETWORK DROPS & RETRANSMISSIONS
  * ============================================================================
  */
 
@@ -3809,6 +3764,78 @@ TRACEPOINT_PROBE(tcp, tcp_retransmit_skb) {
 
   e.state = args->state;
   e.ipver = (e.saddr_v4 != 0 || e.daddr_v4 != 0) ? 4 : 6;
+
+  net_drop_events.perf_submit(args, &e, sizeof(e));
+  return 0;
+}
+
+/* kfree_skb - Packet drops */
+TRACEPOINT_PROBE(skb, kfree_skb) {
+  struct net_drop_data e = {};
+  e.ts_ns = bpf_ktime_get_ns();
+  e.pid = bpf_get_current_pid_tgid() >> 32;
+  bpf_get_current_comm(&e.comm, sizeof(e.comm));
+  e.event_type = NET_DROP_PACKET;
+
+  /* Get SKB pointer and extract network info */
+  struct sk_buff *skb = (struct sk_buff *)args->skbaddr;
+  if (!skb) return 0;
+
+  /* Read drop reason (kernel 5.17+ has this field) */
+  bpf_probe_read_kernel(&e.drop_reason, sizeof(e.drop_reason), &args->reason);
+  
+  /* Read packet length */
+  bpf_probe_read_kernel(&e.skb_len, sizeof(e.skb_len), &skb->len);
+
+  /* Try to extract IP header info */
+  unsigned char *head, *data;
+  u16 network_header, transport_header;
+  
+  bpf_probe_read_kernel(&head, sizeof(head), &skb->head);
+  bpf_probe_read_kernel(&data, sizeof(data), &skb->data);
+  bpf_probe_read_kernel(&network_header, sizeof(network_header), &skb->network_header);
+  bpf_probe_read_kernel(&transport_header, sizeof(transport_header), &skb->transport_header);
+
+  unsigned char *ip_header = head + network_header;
+  
+  /* Read IP version from first byte of IP header */
+  u8 ip_version_byte;
+  bpf_probe_read_kernel(&ip_version_byte, sizeof(ip_version_byte), ip_header);
+  u8 ip_version = (ip_version_byte >> 4) & 0x0F;
+
+  if (ip_version == 4) {
+    e.ipver = 4;
+    /* IPv4 header offsets: saddr at +12, daddr at +16, protocol at +9 */
+    bpf_probe_read_kernel(&e.proto, sizeof(e.proto), ip_header + 9);
+    bpf_probe_read_kernel(&e.saddr_v4, sizeof(e.saddr_v4), ip_header + 12);
+    bpf_probe_read_kernel(&e.daddr_v4, sizeof(e.daddr_v4), ip_header + 16);
+    
+    /* Extract ports if TCP/UDP */
+    if (e.proto == 6 || e.proto == 17) {  /* TCP or UDP */
+      unsigned char *l4_header = head + transport_header;
+      u16 sport_be, dport_be;
+      bpf_probe_read_kernel(&sport_be, sizeof(sport_be), l4_header);
+      bpf_probe_read_kernel(&dport_be, sizeof(dport_be), l4_header + 2);
+      e.sport = __builtin_bswap16(sport_be);
+      e.dport = __builtin_bswap16(dport_be);
+    }
+  } else if (ip_version == 6) {
+    e.ipver = 6;
+    /* IPv6 header offsets: next_header at +6, saddr at +8, daddr at +24 */
+    bpf_probe_read_kernel(&e.proto, sizeof(e.proto), ip_header + 6);
+    bpf_probe_read_kernel(&e.saddr_v6, sizeof(e.saddr_v6), ip_header + 8);
+    bpf_probe_read_kernel(&e.daddr_v6, sizeof(e.daddr_v6), ip_header + 24);
+    
+    /* Extract ports if TCP/UDP */
+    if (e.proto == 6 || e.proto == 17) {
+      unsigned char *l4_header = head + transport_header;
+      u16 sport_be, dport_be;
+      bpf_probe_read_kernel(&sport_be, sizeof(sport_be), l4_header);
+      bpf_probe_read_kernel(&dport_be, sizeof(dport_be), l4_header + 2);
+      e.sport = __builtin_bswap16(sport_be);
+      e.dport = __builtin_bswap16(dport_be);
+    }
+  }
 
   net_drop_events.perf_submit(args, &e, sizeof(e));
   return 0;

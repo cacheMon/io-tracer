@@ -9,6 +9,7 @@
 - `syscalls:sys_enter_accept4` / `sys_exit_accept4` — Accept incoming connections (with latency)
 - `syscalls:sys_enter_connect` / `sys_exit_connect` — Initiate connection (with latency)
 - `syscalls:sys_enter_shutdown` — Shutdown connection
+- `syscalls:sys_enter_close` — Close file descriptor
 
 ## Data Captured
 
@@ -72,5 +73,14 @@ The `SHUTDOWN` event uses the following `how` values:
 | `SHUT_RD` | Disallow further receives |
 | `SHUT_WR` | Disallow further sends |
 | `SHUT_RDWR` | Disallow further sends and receives |
+
+## Important Notes
+
+**CLOSE Event Filtering:**
+- Only socket file descriptors are tracked for CLOSE events
+- Regular files, pipes, and other non-socket fds do NOT trigger CLOSE events
+- Tracking begins when a socket is created via `socket()` or accepted via `accept4()`
+- This filtering prevents excessive noise from non-network file descriptor closes
+- If you see unexpected CLOSE events, verify the fd was tracked as a socket from creation
 
 **Output File:** `nw_conn/nw_conn_*.csv`
