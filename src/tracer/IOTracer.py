@@ -436,6 +436,7 @@ class IOTracer:
             latency_ns,
             ret_val,
         )
+        
         self.writer.append_conn_log(output)
 
     def _print_event_epoll(self, cpu, data, size):

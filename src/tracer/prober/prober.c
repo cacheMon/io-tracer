@@ -596,6 +596,7 @@ BPF_HASH(recv_flags_ctx, u64, u32); /**< Recv flags from syscall entry */
 BPF_HASH(accept_ctx, u64, u64);   /**< Accept start timestamp */
 BPF_HASH(connect_ctx, u64, u64);  /**< Connect start timestamp */
 BPF_HASH(socket_create_ctx, u64, struct conn_event_data); /**< Socket create context */
+BPF_HASH(socket_fds, u64, u8);  /**< Track socket file descriptors (key: (pid<<32)|fd) */
 
 /* Epoll wait context */
 BPF_HASH(epoll_wait_ctx, u64, u64); /**< Epoll_wait start timestamp */
@@ -3420,6 +3421,13 @@ TRACEPOINT_PROBE(syscalls, sys_exit_socket) {
   e->fd = args->ret >= 0 ? (u32)args->ret : 0;
   net_conn_events.perf_submit(args, e, sizeof(*e));
   socket_create_ctx.delete(&tid);
+
+  /* Track this socket fd for close() filtering */
+  if (args->ret >= 0) {
+    u64 pid_fd = (tid & 0xFFFFFFFF00000000ULL) | (u32)args->ret;
+    u8 marker = 1;
+    socket_fds.update(&pid_fd, &marker);
+  }
   return 0;
 }
 
@@ -3499,6 +3507,13 @@ TRACEPOINT_PROBE(syscalls, sys_exit_accept4) {
   e.fd = args->ret >= 0 ? (u32)args->ret : 0;
   net_conn_events.perf_submit(args, &e, sizeof(e));
   accept_ctx.delete(&tid);
+
+  /* Track this socket fd for close() filtering */
+  if (args->ret >= 0) {
+    u64 pid_fd = (tid & 0xFFFFFFFF00000000ULL) | (u32)args->ret;
+    u8 marker = 1;
+    socket_fds.update(&pid_fd, &marker);
+  }
   return 0;
 }
 
@@ -3544,6 +3559,29 @@ TRACEPOINT_PROBE(syscalls, sys_enter_shutdown) {
   e.fd = (u32)args->fd;
   e.backlog = (u32)args->how; /* reuse backlog field for shutdown 'how' */
   net_conn_events.perf_submit(args, &e, sizeof(e));
+  return 0;
+}
+
+/* close() syscall */
+TRACEPOINT_PROBE(syscalls, sys_enter_close) {
+  u64 tid = bpf_get_current_pid_tgid();
+  u32 pid = tid >> 32;
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) return 0;
+
+  /* Only emit close event if this fd was tracked as a socket */
+  u64 pid_fd = (tid & 0xFFFFFFFF00000000ULL) | (u32)args->fd;
+  u8 *tracked = socket_fds.lookup(&pid_fd);
+  if (!tracked) return 0;
+
+  struct conn_event_data e = {};
+  fill_conn_common(&e, CONN_CLOSE);
+  e.fd = (u32)args->fd;
+  net_conn_events.perf_submit(args, &e, sizeof(e));
+  
+  /* Remove from tracking map */
+  socket_fds.delete(&pid_fd);
   return 0;
 }
 
