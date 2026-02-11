@@ -213,6 +213,78 @@ class FlagMapper:
             0x40: "FALLOC_FL_UNSHARE_RANGE"
         }
 
+        # io_uring event types
+        self.io_uring_event_types = {
+            0: "ENTER",
+            1: "SUBMIT",
+            2: "COMPLETE",
+            3: "WORKER"
+        }
+
+        # io_uring opcodes
+        self.io_uring_opcodes = {
+            0: "NOP",
+            1: "READV",
+            2: "WRITEV",
+            3: "FSYNC",
+            4: "READ_FIXED",
+            5: "WRITE_FIXED",
+            6: "POLL_ADD",
+            7: "POLL_REMOVE",
+            8: "SYNC_FILE_RANGE",
+            9: "SENDMSG",
+            10: "RECVMSG",
+            11: "TIMEOUT",
+            12: "TIMEOUT_REMOVE",
+            13: "ACCEPT",
+            14: "ASYNC_CANCEL",
+            15: "LINK_TIMEOUT",
+            16: "CONNECT",
+            17: "FALLOCATE",
+            18: "OPENAT",
+            19: "CLOSE",
+            20: "FILES_UPDATE",
+            21: "STATX",
+            22: "READ",
+            23: "WRITE",
+            24: "FADVISE",
+            25: "MADVISE",
+            26: "SEND",
+            27: "RECV",
+            28: "OPENAT2",
+            29: "EPOLL_CTL",
+            30: "SPLICE",
+            31: "PROVIDE_BUFFERS",
+            32: "REMOVE_BUFFERS",
+            33: "TEE",
+            34: "SHUTDOWN",
+            35: "RENAMEAT",
+            36: "UNLINKAT",
+            37: "MKDIRAT",
+            38: "SYMLINKAT",
+            39: "LINKAT",
+        }
+
+        # io_uring_enter flags (IORING_ENTER_*)
+        self.io_uring_enter_flags = {
+            0x01: "GETEVENTS",
+            0x02: "SQ_WAKEUP",
+            0x04: "SQ_WAIT",
+            0x08: "EXT_ARG",
+            0x10: "REGISTERED_RING",
+        }
+
+        # io_uring SQE flags (IOSQE_*)
+        self.io_uring_sqe_flags = {
+            0x01: "FIXED_FILE",
+            0x02: "IO_DRAIN",
+            0x04: "IO_LINK",
+            0x08: "IO_HARDLINK",
+            0x10: "ASYNC",
+            0x20: "BUFFER_SELECT",
+            0x40: "CQE_SKIP_SUCCESS",
+        }
+
     def format_block_operation(self, flags):
         """
         Format a block device operation code to its name.
@@ -736,3 +808,31 @@ class FlagMapper:
     def format_shutdown_how(cls, how):
         """Map shutdown 'how' to name."""
         return cls.shutdown_how_map.get(how, f"HOW({how})")
+
+    def format_io_uring_event_type(self, event_type):
+        """Map io_uring event type to name."""
+        return self.io_uring_event_types.get(event_type, f"IOURING({event_type})")
+
+    def format_io_uring_opcode(self, opcode):
+        """Map io_uring opcode to name."""
+        return self.io_uring_opcodes.get(opcode, f"OP({opcode})")
+
+    def format_io_uring_enter_flags(self, flags):
+        """Format io_uring_enter flags to human-readable string."""
+        if not flags:
+            return ""
+        result = []
+        for flag, name in self.io_uring_enter_flags.items():
+            if flags & flag:
+                result.append(name)
+        return "|".join(result) if result else ""
+
+    def format_io_uring_sqe_flags(self, flags):
+        """Format io_uring SQE flags to human-readable string."""
+        if not flags:
+            return ""
+        result = []
+        for flag, name in self.io_uring_sqe_flags.items():
+            if flags & flag:
+                result.append(name)
+        return "|".join(result) if result else ""

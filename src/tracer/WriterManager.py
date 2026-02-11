@@ -87,6 +87,7 @@ class WriteManager:
         self.output_epoll_file = f"{self.output_dir}/nw_epoll/nw_epoll_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_sockopt_file = f"{self.output_dir}/nw_sockopt/nw_sockopt_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_drop_file = f"{self.output_dir}/nw_drop/nw_drop_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+        self.output_io_uring_file = f"{self.output_dir}/io_uring/io_uring_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
 
         # Create output directories
         os.makedirs(f"{self.output_dir}/system_spec", exist_ok=True)
@@ -101,6 +102,7 @@ class WriteManager:
         os.makedirs(f"{self.output_dir}/nw_epoll", exist_ok=True)
         os.makedirs(f"{self.output_dir}/nw_sockopt", exist_ok=True)
         os.makedirs(f"{self.output_dir}/nw_drop", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/io_uring", exist_ok=True)
 
         self.upload_manager = upload_manager
         self.automatic_upload = automatic_upload
@@ -117,6 +119,7 @@ class WriteManager:
         self.epoll_buffer = deque()
         self.sockopt_buffer = deque()
         self.drop_buffer = deque()
+        self.io_uring_buffer = deque()
         
         # Event rate tracking
         self.event_timestamps = {
@@ -131,6 +134,7 @@ class WriteManager:
             'epoll': deque(maxlen=1000),
             'sockopt': deque(maxlen=1000),
             'drop': deque(maxlen=1000),
+            'io_uring': deque(maxlen=1000),
         }
         
         # Dynamic thresholds (min, max)
@@ -146,6 +150,7 @@ class WriteManager:
             'epoll': (8000, 200000),
             'sockopt': (8000, 50000),
             'drop': (8000, 50000),
+            'io_uring': (8000, 200000),
         }
         
         # Start adaptive sizing thread
@@ -171,6 +176,7 @@ class WriteManager:
         self.epoll_max_events = 8000
         self.sockopt_max_events = 8000
         self.drop_max_events = 8000
+        self.io_uring_max_events = 8000
 
         # File handles for each output
         self._vfs_handle = None
@@ -184,6 +190,7 @@ class WriteManager:
         self._epoll_handle = None
         self._sockopt_handle = None
         self._drop_handle = None
+        self._io_uring_handle = None
 
         # Cache sampling configuration
         self.cache_sample_rate = 1  # Can be increased to reduce cache event volume
@@ -219,7 +226,7 @@ class WriteManager:
         while True:
             time.sleep(10)  
             
-            for event_type in ['vfs', 'block', 'cache', 'network','fs_state','proc_state', 'pagefault', 'conn', 'epoll', 'sockopt', 'drop']:
+            for event_type in ['vfs', 'block', 'cache', 'network','fs_state','proc_state', 'pagefault', 'conn', 'epoll', 'sockopt', 'drop', 'io_uring']:
                 rate = self._calculate_event_rate(event_type)
                 min_limit, max_limit = self.dynamic_limits[event_type]
                 
@@ -254,6 +261,8 @@ class WriteManager:
                     self.sockopt_max_events = new_limit
                 elif event_type == 'drop':
                     self.drop_max_events = new_limit
+                elif event_type == 'io_uring':
+                    self.io_uring_max_events = new_limit
 
     def _periodic_flush(self):
         """
@@ -338,6 +347,9 @@ class WriteManager:
         """Check if drop buffer should be flushed."""
         return (len(self.drop_buffer) >= self.drop_max_events)
 
+    def should_flush_io_uring(self) -> bool:
+        """Check if io_uring buffer should be flushed."""
+        return (len(self.io_uring_buffer) >= self.io_uring_max_events)
 
     def append_fs_snap_log(self, log_output: str):
         """
@@ -496,6 +508,16 @@ class WriteManager:
                 self.flush_drop_only()
         else:
             logger("error", "Invalid drop log output format. Expected a string.")
+
+    def append_io_uring_log(self, log_output: str):
+        """Add an io_uring event log entry."""
+        if isinstance(log_output, str):
+            self.io_uring_buffer.append(log_output)
+            self.event_timestamps['io_uring'].append(time.time())
+            if self.should_flush_io_uring():
+                self.flush_io_uring_only()
+        else:
+            logger("error", "Invalid io_uring log output format. Expected a string.")
 
     def direct_write(self, output_path: str, spec_str: str):
         """
@@ -679,6 +701,22 @@ class WriteManager:
             self._drop_handle.close()
             self._drop_handle = open(self.output_drop_file, 'a', buffering=8192)
             self._reset_flush_timer()
+
+    def flush_io_uring_only(self):
+        """Flush io_uring buffer to file."""
+        if self.io_uring_buffer:
+            if self._io_uring_handle is None:
+                self._io_uring_handle = open(self.output_io_uring_file, 'a', buffering=8192)
+            self.current_datetime = datetime.now()
+
+            self._write_buffer_to_file(self.io_uring_buffer, self._io_uring_handle, "IO_Uring")
+            self.compress_log(self.output_io_uring_file)
+            self.output_io_uring_file = f"{self.output_dir}/io_uring/io_uring_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
+
+            self._io_uring_handle.close()
+            self._io_uring_handle = open(self.output_io_uring_file, 'a', buffering=8192)
+            self._reset_flush_timer()
+
     def force_flush(self):
         """Flush all buffers and compress all output files."""
         self.compress_log(self.output_block_file)
@@ -692,6 +730,7 @@ class WriteManager:
         self.compress_log(self.output_epoll_file)
         self.compress_log(self.output_sockopt_file)
         self.compress_log(self.output_drop_file)
+        self.compress_log(self.output_io_uring_file)
         self.compress_dir(self.output_dir)
 
 
@@ -709,6 +748,7 @@ class WriteManager:
         self.epoll_buffer.clear()
         self.sockopt_buffer.clear()
         self.drop_buffer.clear()
+        self.io_uring_buffer.clear()
 
     def _write_buffer_to_file(self, buffer, file_handle, buffer_name: str):
         """
@@ -807,6 +847,12 @@ class WriteManager:
                     self._drop_handle = open(self.output_drop_file, 'a', buffering=8192)
                 self._write_buffer_to_file(self.drop_buffer, self._drop_handle, "Drop")
 
+        def write_io_uring():
+            if self.io_uring_buffer:
+                if self._io_uring_handle is None:
+                    self._io_uring_handle = open(self.output_io_uring_file, 'a', buffering=8192)
+                self._write_buffer_to_file(self.io_uring_buffer, self._io_uring_handle, "IO_Uring")
+
         threads = []
         
         # Start parallel write threads for each buffer
@@ -864,6 +910,11 @@ class WriteManager:
             t12 = threading.Thread(target=write_drop)
             threads.append(t12)
             t12.start()
+
+        if self.io_uring_buffer:
+            t13 = threading.Thread(target=write_io_uring)
+            threads.append(t13)
+            t13.start()
 
         # Wait for all threads to complete
         for thread in threads:
@@ -936,6 +987,7 @@ class WriteManager:
             (self._epoll_handle, "Epoll"),
             (self._sockopt_handle, "Sockopt"),
             (self._drop_handle, "Drop"),
+            (self._io_uring_handle, "IO_Uring"),
         ]
         
         for handle, name in handles:
@@ -958,3 +1010,4 @@ class WriteManager:
         self._epoll_handle = None
         self._sockopt_handle = None
         self._drop_handle = None
+        self._io_uring_handle = None
