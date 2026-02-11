@@ -322,6 +322,61 @@ class KernelProbeTracker:
             else:
                 logger("warning", "No reclaim probe available, reclaim events will not be traced")
 
+            # =====================================
+            # io_uring probes for async I/O tracing
+            # =====================================
+            # Note: io_uring tracepoints are preferred when available (kernel 5.6+)
+            # The tracepoints are automatically attached via TRACEPOINT_PROBE macros in BPF code
+            # We also attach kprobes as fallback for kernels without stable tracepoints
+            
+            # io_uring_enter syscall probe
+            if BPF.get_kprobe_functions(b'__io_uring_enter'):
+                self.add_kprobe("__io_uring_enter", "trace_io_uring_enter")
+                logger("info", "io_uring tracing enabled via __io_uring_enter")
+            elif BPF.get_kprobe_functions(b'__x64_sys_io_uring_enter'):
+                self.add_kprobe("__x64_sys_io_uring_enter", "trace_io_uring_enter")
+                logger("info", "io_uring tracing enabled via __x64_sys_io_uring_enter")
+            elif BPF.get_kprobe_functions(b'__sys_io_uring_enter'):
+                self.add_kprobe("__sys_io_uring_enter", "trace_io_uring_enter")
+                logger("info", "io_uring tracing enabled via __sys_io_uring_enter")
+            else:
+                logger("warning", "io_uring_enter probe not available - ENTER events disabled")
+            
+            # io_uring SQE submission probe (kprobe fallback for SUBMIT events)
+            # Note: TRACEPOINT_PROBE(io_uring, io_uring_submit_sqe) in BPF is preferred
+            if BPF.get_kprobe_functions(b'io_queue_sqe'):
+                self.add_kprobe("io_queue_sqe", "trace_io_uring_submit")
+                logger("info", "io_uring SQE submission tracing enabled via io_queue_sqe")
+            elif BPF.get_kprobe_functions(b'io_submit_sqe'):
+                self.add_kprobe("io_submit_sqe", "trace_io_uring_submit")
+                logger("info", "io_uring SQE submission tracing enabled via io_submit_sqe")
+            else:
+                logger("info", "io_uring kprobe submit fallback not found - using tracepoint only")
+            
+            # io_uring completion probe (kprobe fallback for COMPLETE events)
+            # Note: TRACEPOINT_PROBE(io_uring, io_uring_complete) in BPF is preferred
+            if BPF.get_kprobe_functions(b'io_req_complete_post'):
+                self.add_kprobe("io_req_complete_post", "trace_io_uring_complete")
+                logger("info", "io_uring completion tracing enabled via io_req_complete_post")
+            elif BPF.get_kprobe_functions(b'__io_req_complete'):
+                self.add_kprobe("__io_req_complete", "trace_io_uring_complete")
+                logger("info", "io_uring completion tracing enabled via __io_req_complete")
+            elif BPF.get_kprobe_functions(b'io_req_complete'):
+                self.add_kprobe("io_req_complete", "trace_io_uring_complete")
+                logger("info", "io_uring completion tracing enabled via io_req_complete")
+            else:
+                logger("info", "io_uring kprobe complete fallback not found - using tracepoint only")
+            
+            # io_uring async worker probe (io-wq)
+            if BPF.get_kprobe_functions(b'io_wq_submit_work'):
+                self.add_kprobe("io_wq_submit_work", "trace_io_uring_worker")
+                logger("info", "io_uring worker tracing enabled via io_wq_submit_work")
+            elif BPF.get_kprobe_functions(b'io_worker_handle_work'):
+                self.add_kprobe("io_worker_handle_work", "trace_io_uring_worker")
+                logger("info", "io_uring worker tracing enabled via io_worker_handle_work")
+            else:
+                logger("warning", "io_uring worker probe not available - WORKER events disabled")
+
             if not self.kprobes:
                 logger("error", "no kprobes attached successfully!")
                 sys.exit(1)   

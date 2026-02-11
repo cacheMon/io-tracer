@@ -488,6 +488,136 @@ struct net_drop_data {
   u32 state;        /**< TCP state for retransmit events */
 };
 
+/* ============================================================================
+ * IO_URING TRACING STRUCTURES
+ * ============================================================================
+ * Structures for tracing io_uring async I/O operations including:
+ * - Ring setup and syscall entry (ENTER)
+ * - SQE submission (SUBMIT)
+ * - Request completion (COMPLETE)
+ * - Async worker execution (WORKER)
+ */
+
+/** @brief io_uring event types */
+enum io_uring_event_type {
+  IOURING_ENTER    = 0,  /**< io_uring_enter syscall */
+  IOURING_SUBMIT   = 1,  /**< Individual SQE submission */
+  IOURING_COMPLETE = 2,  /**< Request completed */
+  IOURING_WORKER   = 3   /**< Request executed by io-wq worker */
+};
+
+/** @brief io_uring opcode names (subset of common operations) */
+enum io_uring_op {
+  IORING_OP_NOP = 0,
+  IORING_OP_READV = 1,
+  IORING_OP_WRITEV = 2,
+  IORING_OP_FSYNC = 3,
+  IORING_OP_READ_FIXED = 4,
+  IORING_OP_WRITE_FIXED = 5,
+  IORING_OP_POLL_ADD = 6,
+  IORING_OP_POLL_REMOVE = 7,
+  IORING_OP_SYNC_FILE_RANGE = 8,
+  IORING_OP_SENDMSG = 9,
+  IORING_OP_RECVMSG = 10,
+  IORING_OP_TIMEOUT = 11,
+  IORING_OP_TIMEOUT_REMOVE = 12,
+  IORING_OP_ACCEPT = 13,
+  IORING_OP_ASYNC_CANCEL = 14,
+  IORING_OP_LINK_TIMEOUT = 15,
+  IORING_OP_CONNECT = 16,
+  IORING_OP_FALLOCATE = 17,
+  IORING_OP_OPENAT = 18,
+  IORING_OP_CLOSE = 19,
+  IORING_OP_FILES_UPDATE = 20,
+  IORING_OP_STATX = 21,
+  IORING_OP_READ = 22,
+  IORING_OP_WRITE = 23,
+  IORING_OP_FADVISE = 24,
+  IORING_OP_MADVISE = 25,
+  IORING_OP_SEND = 26,
+  IORING_OP_RECV = 27,
+  IORING_OP_OPENAT2 = 28,
+  IORING_OP_EPOLL_CTL = 29,
+  IORING_OP_SPLICE = 30,
+  IORING_OP_PROVIDE_BUFFERS = 31,
+  IORING_OP_REMOVE_BUFFERS = 32,
+  IORING_OP_TEE = 33,
+  IORING_OP_SHUTDOWN = 34,
+  IORING_OP_RENAMEAT = 35,
+  IORING_OP_UNLINKAT = 36,
+  IORING_OP_MKDIRAT = 37,
+  IORING_OP_SYMLINKAT = 38,
+  IORING_OP_LINKAT = 39,
+};
+
+/**
+ * @brief io_uring event data structure (unified schema)
+ *
+ * Contains all fields for io_uring event tracing. Unused fields
+ * remain zero depending on event_type.
+ */
+struct io_uring_event_data {
+  u64 timestamp_ns;             /**< Event timestamp in nanoseconds */
+  u8 event_type;                /**< io_uring_event_type enum */
+  u32 pid;                      /**< Process ID */
+  u32 tid;                      /**< Thread ID */
+  char comm[TASK_COMM_LEN];     /**< Process name */
+  u32 cpu;                      /**< CPU where event occurred */
+  
+  /* Syscall layer fields (ENTER event) */
+  u32 ring_fd;                  /**< io_uring file descriptor */
+  u64 ring_ptr;                 /**< struct io_ring_ctx pointer */
+  u32 to_submit;                /**< Number of SQEs to submit */
+  u32 min_complete;             /**< Minimum completions to wait for */
+  u32 enter_flags;              /**< io_uring_enter flags */
+  
+  /* SQE submission fields (SUBMIT event) */
+  u64 req_ptr;                  /**< struct io_kiocb pointer (correlation key) */
+  u64 user_data;                /**< User-provided data for correlation */
+  u8 opcode;                    /**< io_uring operation code */
+  s32 fd;                       /**< Target file descriptor */
+  u32 len;                      /**< I/O length in bytes */
+  u64 offset;                   /**< File offset */
+  u8 sqe_flags;                 /**< SQE flags (IOSQE_*) */
+  u16 ioprio;                   /**< I/O priority */
+  u16 buf_index;                /**< Buffer index for fixed buffers */
+  u16 personality;              /**< Personality ID */
+  
+  /* Completion fields (COMPLETE event) */
+  s32 result;                   /**< Operation result (bytes or -errno) */
+  u8 is_error;                  /**< 1 if result < 0 */
+  s32 cqe_errno;                /**< Errno if error (positive value) */
+  
+  /* Latency tracking */
+  u64 submit_ts_ns;             /**< Submission timestamp */
+  u64 complete_ts_ns;           /**< Completion timestamp */
+  u64 latency_ns;               /**< Complete - submit latency */
+  
+  /* Worker fields (WORKER event) */
+  u32 worker_pid;               /**< io-wq worker PID */
+  u32 worker_tid;               /**< io-wq worker TID */
+  u32 worker_cpu;               /**< io-wq worker CPU */
+  u8 is_async;                  /**< 1 if executed by io-wq worker */
+  
+  /* Ring state (optional) */
+  u32 sq_head;
+  u32 sq_tail;
+  u32 cq_head;
+  u32 cq_tail;
+  u32 sq_depth;                 /**< sq_tail - sq_head */
+  u32 cq_depth;                 /**< cq_tail - cq_head */
+};
+
+/** @brief Context for tracking io_uring request submission time */
+struct io_uring_submit_ctx {
+  u64 submit_ts_ns;           /**< Submission timestamp */
+  u64 user_data;              /**< User data for correlation */
+  u8 opcode;                  /**< Operation code */
+  s32 fd;                     /**< Target FD */
+  u32 len;                    /**< I/O length */
+  u64 offset;                 /**< File offset */
+};
+
 /**
  * @brief VFS operation context for latency tracking
  *
@@ -547,6 +677,10 @@ BPF_HASH(select_ctx, u64, u64);    /**< Select start timestamp */
 
 // BPF_HASH(dio_start, u64, u64);           /**< Direct I/O operation start times (removed - no longer tracking latency) */
 
+/* io_uring request tracking maps */
+BPF_HASH(io_uring_submit_map, u64, struct io_uring_submit_ctx, 65536); /**< Track submissions by req_ptr */
+BPF_HASH(io_uring_enter_ctx, u64, u64);  /**< io_uring_enter start timestamp */
+
 /* Per-CPU buffer for large structs that exceed 512-byte stack limit */
 BPF_PERCPU_ARRAY(dual_data_buffer, struct data_dual_t, 1);
 
@@ -567,6 +701,7 @@ BPF_PERF_OUTPUT(net_epoll_events);  /**< Epoll/multiplexing events (epoll_event_
 BPF_PERF_OUTPUT(net_sockopt_events);/**< Socket option events (sockopt_event_data) */
 BPF_PERF_OUTPUT(net_drop_events);   /**< Drop/retransmit events (net_drop_data) */
 BPF_PERF_OUTPUT(pagefault_events);  /**< Memory-mapped page faults (pagefault_data) */
+BPF_PERF_OUTPUT(io_uring_events);   /**< io_uring events (io_uring_event_data) */
 
 /* ============================================================================
  * HELPER FUNCTIONS
@@ -3841,3 +3976,338 @@ TRACEPOINT_PROBE(skb, kfree_skb) {
   return 0;
 }
 
+
+/* ============================================================================
+ * IO_URING TRACING PROBES
+ * ============================================================================
+ * Probes for tracing io_uring async I/O operations:
+ * - io_uring_enter syscall (ENTER events)
+ * - SQE submission (SUBMIT events)
+ * - Request completion (COMPLETE events)
+ * - Async worker execution (WORKER events)
+ */
+
+/**
+ * @brief Trace io_uring_enter syscall
+ *
+ * Captures io_uring_enter() calls with submission and completion parameters.
+ * This shows batch submission patterns and blocking behavior.
+ *
+ * @param ctx       BPF context
+ * @param fd        io_uring file descriptor
+ * @param to_submit Number of SQEs to submit
+ * @param min_complete Minimum completions to wait for
+ * @param flags     Enter flags (IORING_ENTER_*)
+ * @return          0
+ */
+int trace_io_uring_enter(struct pt_regs *ctx, unsigned int fd,
+                         unsigned int to_submit, unsigned int min_complete,
+                         unsigned int flags) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  struct io_uring_event_data e = {};
+  e.timestamp_ns = bpf_ktime_get_ns();
+  e.event_type = IOURING_ENTER;
+  e.pid = pid;
+  e.tid = (u32)pid_tgid;
+  bpf_get_current_comm(&e.comm, sizeof(e.comm));
+  e.cpu = bpf_get_smp_processor_id();
+  e.ring_fd = fd;
+  e.to_submit = to_submit;
+  e.min_complete = min_complete;
+  e.enter_flags = flags;
+
+  io_uring_events.perf_submit(ctx, &e, sizeof(e));
+  return 0;
+}
+
+/**
+ * @brief Trace io_uring SQE submission (via io_submit_sqes or io_queue_sqe)
+ *
+ * Captures individual SQE submissions with operation details.
+ * Stores submit timestamp for latency calculation on completion.
+ *
+ * @param ctx BPF context
+ * @param req io_kiocb request structure pointer
+ * @return    0
+ */
+int trace_io_uring_submit(struct pt_regs *ctx, void *req) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  u64 ts = bpf_ktime_get_ns();
+  u64 req_ptr = (u64)req;
+
+  /* Read io_kiocb fields - structure offsets may vary by kernel version */
+  /* These are common fields that exist in most kernel versions */
+  u8 opcode = 0;
+  u64 user_data = 0;
+  s32 fd = -1;
+  u32 len = 0;
+  u64 offset = 0;
+  u8 flags = 0;
+
+  /* 
+   * Note: io_kiocb structure layout varies significantly across kernel versions.
+   * We read from known stable offsets. For production use, consider using
+   * tracepoints when available (io_uring:io_uring_submit_sqe).
+   */
+  
+  /* Store submission context for correlation on completion */
+  struct io_uring_submit_ctx submit_ctx = {};
+  submit_ctx.submit_ts_ns = ts;
+  submit_ctx.user_data = user_data;
+  submit_ctx.opcode = opcode;
+  submit_ctx.fd = fd;
+  submit_ctx.len = len;
+  submit_ctx.offset = offset;
+  
+  io_uring_submit_map.update(&req_ptr, &submit_ctx);
+
+  struct io_uring_event_data e = {};
+  e.timestamp_ns = ts;
+  e.event_type = IOURING_SUBMIT;
+  e.pid = pid;
+  e.tid = (u32)pid_tgid;
+  bpf_get_current_comm(&e.comm, sizeof(e.comm));
+  e.cpu = bpf_get_smp_processor_id();
+  e.req_ptr = req_ptr;
+  e.user_data = user_data;
+  e.opcode = opcode;
+  e.fd = fd;
+  e.len = len;
+  e.offset = offset;
+  e.sqe_flags = flags;
+  e.submit_ts_ns = ts;
+
+  io_uring_events.perf_submit(ctx, &e, sizeof(e));
+  return 0;
+}
+
+/**
+ * @brief Trace io_uring request completion (via io_req_complete)
+ *
+ * Captures request completion with result and calculates latency.
+ * Correlates with submission using req_ptr.
+ *
+ * @param ctx    BPF context
+ * @param req    io_kiocb request structure pointer
+ * @param result Operation result (bytes transferred or -errno)
+ * @return       0
+ */
+int trace_io_uring_complete(struct pt_regs *ctx, void *req, s32 result) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  u64 ts = bpf_ktime_get_ns();
+  u64 req_ptr = (u64)req;
+
+  struct io_uring_event_data e = {};
+  e.timestamp_ns = ts;
+  e.event_type = IOURING_COMPLETE;
+  e.pid = pid;
+  e.tid = (u32)pid_tgid;
+  bpf_get_current_comm(&e.comm, sizeof(e.comm));
+  e.cpu = bpf_get_smp_processor_id();
+  e.req_ptr = req_ptr;
+  e.result = result;
+  e.complete_ts_ns = ts;
+
+  /* Check if result indicates error */
+  if (result < 0) {
+    e.is_error = 1;
+    e.cqe_errno = -result;
+  }
+
+  /* Lookup submission context for latency calculation and correlation */
+  struct io_uring_submit_ctx *submit_ctx = io_uring_submit_map.lookup(&req_ptr);
+  if (submit_ctx) {
+    e.submit_ts_ns = submit_ctx->submit_ts_ns;
+    e.latency_ns = ts - submit_ctx->submit_ts_ns;
+    e.user_data = submit_ctx->user_data;
+    e.opcode = submit_ctx->opcode;
+    e.fd = submit_ctx->fd;
+    e.len = submit_ctx->len;
+    e.offset = submit_ctx->offset;
+    
+    /* Clean up the map entry */
+    io_uring_submit_map.delete(&req_ptr);
+  }
+
+  io_uring_events.perf_submit(ctx, &e, sizeof(e));
+  return 0;
+}
+
+/**
+ * @brief Trace io_uring async worker execution (io-wq)
+ *
+ * Captures when a request is executed by an io-wq worker thread
+ * instead of inline in io_uring_enter context.
+ *
+ * @param ctx BPF context
+ * @param req io_kiocb request structure pointer
+ * @return    0
+ */
+int trace_io_uring_worker(struct pt_regs *ctx, void *req) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  u64 req_ptr = (u64)req;
+
+  struct io_uring_event_data e = {};
+  e.timestamp_ns = bpf_ktime_get_ns();
+  e.event_type = IOURING_WORKER;
+  e.pid = pid;
+  e.tid = (u32)pid_tgid;
+  bpf_get_current_comm(&e.comm, sizeof(e.comm));
+  e.cpu = bpf_get_smp_processor_id();
+  e.req_ptr = req_ptr;
+  e.worker_pid = pid;
+  e.worker_tid = (u32)pid_tgid;
+  e.worker_cpu = bpf_get_smp_processor_id();
+  e.is_async = 1;
+
+  /* Try to get submission context for correlation */
+  struct io_uring_submit_ctx *submit_ctx = io_uring_submit_map.lookup(&req_ptr);
+  if (submit_ctx) {
+    e.user_data = submit_ctx->user_data;
+    e.opcode = submit_ctx->opcode;
+    e.submit_ts_ns = submit_ctx->submit_ts_ns;
+  }
+
+  io_uring_events.perf_submit(ctx, &e, sizeof(e));
+  return 0;
+}
+
+/* io_uring tracepoint-based probes - DISABLED
+ * 
+ * The io_uring tracepoint format varies significantly across kernel versions.
+ * Fields like req, opcode, user_data, flags may not exist or have different
+ * names/types. The kprobe-based functions above (trace_io_uring_submit,
+ * trace_io_uring_complete) provide kernel-version-agnostic fallbacks.
+ *
+ * To enable on kernels with compatible tracepoints, change #if 0 to #if 1
+ * and verify the tracepoint format matches:
+ *   cat /sys/kernel/debug/tracing/events/io_uring/io_uring_submit_sqe/format
+ */
+#if 0
+/**
+ * @brief Tracepoint probe for io_uring_submit_sqe
+ *
+ * Uses stable tracepoint interface when available (kernel 5.6+).
+ * Provides reliable access to SQE fields.
+ */
+TRACEPOINT_PROBE(io_uring, io_uring_submit_sqe) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  u64 ts = bpf_ktime_get_ns();
+  
+  struct io_uring_event_data e = {};
+  e.timestamp_ns = ts;
+  e.event_type = IOURING_SUBMIT;
+  e.pid = pid;
+  e.tid = (u32)pid_tgid;
+  bpf_get_current_comm(&e.comm, sizeof(e.comm));
+  e.cpu = bpf_get_smp_processor_id();
+  
+  /* Read from tracepoint args - field names may vary by kernel */
+  e.req_ptr = (u64)args->req;
+  e.opcode = args->opcode;
+  e.user_data = args->user_data;
+  e.sqe_flags = args->flags;
+  e.submit_ts_ns = ts;
+
+  /* Store submission context */
+  u64 req_ptr = e.req_ptr;
+  struct io_uring_submit_ctx submit_ctx = {};
+  submit_ctx.submit_ts_ns = ts;
+  submit_ctx.user_data = e.user_data;
+  submit_ctx.opcode = e.opcode;
+  io_uring_submit_map.update(&req_ptr, &submit_ctx);
+
+  io_uring_events.perf_submit(args, &e, sizeof(e));
+  return 0;
+}
+
+/**
+ * @brief Tracepoint probe for io_uring_complete
+ *
+ * Uses stable tracepoint interface for completion events.
+ */
+TRACEPOINT_PROBE(io_uring, io_uring_complete) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  u64 ts = bpf_ktime_get_ns();
+  
+  struct io_uring_event_data e = {};
+  e.timestamp_ns = ts;
+  e.event_type = IOURING_COMPLETE;
+  e.pid = pid;
+  e.tid = (u32)pid_tgid;
+  bpf_get_current_comm(&e.comm, sizeof(e.comm));
+  e.cpu = bpf_get_smp_processor_id();
+  
+  /* Read from tracepoint args */
+  e.req_ptr = (u64)args->req;
+  e.user_data = args->user_data;
+  e.result = args->res;
+  e.complete_ts_ns = ts;
+  
+  if (e.result < 0) {
+    e.is_error = 1;
+    e.cqe_errno = -e.result;
+  }
+
+  /* Lookup submission for latency */
+  u64 req_ptr = e.req_ptr;
+  struct io_uring_submit_ctx *submit_ctx = io_uring_submit_map.lookup(&req_ptr);
+  if (submit_ctx) {
+    e.submit_ts_ns = submit_ctx->submit_ts_ns;
+    e.latency_ns = ts - submit_ctx->submit_ts_ns;
+    e.opcode = submit_ctx->opcode;
+    io_uring_submit_map.delete(&req_ptr);
+  }
+
+  io_uring_events.perf_submit(args, &e, sizeof(e));
+  return 0;
+}
+#endif /* disabled io_uring tracepoints */

@@ -572,6 +572,108 @@ class IOTracer:
         output = format_csv_row(timestamp, pid, tid, comm, fault_type, major, inode, offset, address, dev_id)
         self.writer.append_pagefault_log(output)
 
+    def _print_event_io_uring(self, cpu, data, size):
+        """
+        Callback for processing io_uring events from the perf buffer.
+        
+        Captures io_uring async I/O operations including:
+        - ENTER: io_uring_enter syscall
+        - SUBMIT: Individual SQE submissions
+        - COMPLETE: Request completions with latency
+        - WORKER: Async worker executions
+        
+        Args:
+            cpu: CPU number where the event was captured
+            data: Raw event data pointer
+            size: Size of the event data
+        """
+        e = self.b["io_uring_events"].event(data)
+        ts = datetime.today()
+        
+        comm = e.comm.decode("utf-8", errors="replace").strip("\x00")
+        event_type = self.flag_mapper.format_io_uring_event_type(e.event_type)
+        opcode = self.flag_mapper.format_io_uring_opcode(e.opcode) if e.opcode else ""
+        enter_flags = self.flag_mapper.format_io_uring_enter_flags(e.enter_flags) if e.enter_flags else ""
+        sqe_flags = self.flag_mapper.format_io_uring_sqe_flags(e.sqe_flags) if e.sqe_flags else ""
+        
+        # Format fields based on event type
+        ring_fd = str(e.ring_fd) if e.ring_fd else ""
+        ring_ptr = hex(e.ring_ptr) if e.ring_ptr else ""
+        to_submit = str(e.to_submit) if e.to_submit else ""
+        min_complete = str(e.min_complete) if e.min_complete else ""
+        
+        req_ptr = hex(e.req_ptr) if e.req_ptr else ""
+        user_data = str(e.user_data) if e.user_data else ""
+        fd = str(e.fd) if e.fd != 0 and e.fd != -1 else ""
+        length = str(e.len) if e.len else ""
+        offset = str(e.offset) if e.offset else ""
+        ioprio = str(e.ioprio) if e.ioprio else ""
+        buf_index = str(e.buf_index) if e.buf_index else ""
+        personality = str(e.personality) if e.personality else ""
+        
+        result = str(e.result) if e.result != 0 or e.event_type == 2 else ""
+        is_error = "1" if e.is_error else ""
+        cqe_errno = str(e.cqe_errno) if e.cqe_errno else ""
+        
+        submit_ts = str(e.submit_ts_ns) if e.submit_ts_ns else ""
+        complete_ts = str(e.complete_ts_ns) if e.complete_ts_ns else ""
+        latency_ns = str(e.latency_ns) if e.latency_ns else ""
+        
+        worker_pid = str(e.worker_pid) if e.worker_pid else ""
+        worker_tid = str(e.worker_tid) if e.worker_tid else ""
+        worker_cpu = str(e.worker_cpu) if e.worker_cpu else ""
+        is_async = "1" if e.is_async else ""
+        
+        sq_head = str(e.sq_head) if e.sq_head else ""
+        sq_tail = str(e.sq_tail) if e.sq_tail else ""
+        cq_head = str(e.cq_head) if e.cq_head else ""
+        cq_tail = str(e.cq_tail) if e.cq_tail else ""
+        sq_depth = str(e.sq_depth) if e.sq_depth else ""
+        cq_depth = str(e.cq_depth) if e.cq_depth else ""
+
+        # Build CSV row matching the unified schema from the guide
+        output = format_csv_row(
+            ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
+            str(e.timestamp_ns),
+            event_type,
+            str(e.pid),
+            str(e.tid),
+            comm,
+            str(e.cpu),
+            ring_fd,
+            ring_ptr,
+            to_submit,
+            min_complete,
+            enter_flags,
+            req_ptr,
+            user_data,
+            opcode,
+            fd,
+            length,
+            offset,
+            sqe_flags,
+            ioprio,
+            buf_index,
+            personality,
+            result,
+            is_error,
+            cqe_errno,
+            submit_ts,
+            complete_ts,
+            latency_ns,
+            worker_pid,
+            worker_tid,
+            worker_cpu,
+            is_async,
+            sq_head,
+            sq_tail,
+            cq_head,
+            cq_tail,
+            sq_depth,
+            cq_depth,
+        )
+        self.writer.append_io_uring_log(output)
+
     def _cleanup(self, signum, frame):
         """
         Signal handler for graceful shutdown.
@@ -726,6 +828,17 @@ class IOTracer:
         except KeyError:
             if self.verbose:
                 logger("warning", "pagefault_events buffer not available")
+
+        # io_uring events for async I/O tracking
+        try:
+            self.b["io_uring_events"].open_perf_buffer(
+                self._print_event_io_uring,
+                page_cnt=self.page_cnt,
+                lost_cb=self._lost_cb
+            )
+        except KeyError:
+            if self.verbose:
+                logger("warning", "io_uring_events buffer not available")
 
         start = time.time()
         if self.duration is not None:
