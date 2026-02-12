@@ -6,8 +6,8 @@ IO Tracer uses eBPF/BPF technology to intercept kernel functions and collect var
 
 | # | Trace Type | Description | Output |
 |---|------------|-------------|--------|
-| 1 | [VFS Events](traces/VFS_EVENTS.md) | File system operations at the VFS layer | `fs_events.csv` |
-| 2 | [Block I/O Events](traces/BLOCK_IO_EVENTS.md) | Block-level device I/O operations | `block_events.csv` |
+| 1 | [VFS Events](traces/VFS_EVENTS.md) | File system operations at the VFS layer | `fs/fs_*.csv` |
+| 2 | [Block I/O Events](traces/BLOCK_IO_EVENTS.md) | Block-level device I/O operations | `ds/ds_*.csv` |
 | 3 | [Page Cache Events](traces/PAGE_CACHE_EVENTS.md) | Page cache hits, misses, writebacks, evictions | `cache/cache_*.csv` |
 | 4 | [Network Events](traces/NETWORK_EVENTS.md) | Network send/receive with protocol details | `nw/nw_*.csv` |
 | 4a | [Connection Lifecycle](traces/CONNECTION_LIFECYCLE_EVENTS.md) | Socket creation, bind, listen, accept, connect, shutdown | `nw_conn/nw_conn_*.csv` |
@@ -39,13 +39,12 @@ IO Tracer uses eBPF/BPF technology to intercept kernel functions and collect var
 │  ┌────────▼────────┐    ┌─────────────────────────────────┐  │
 │  │  IOTracer.py     │───►│  Event Callbacks                 │  │
 │  │                  │    │ - _print_event (VFS)              │  │
-│  │  Trace Types:    │    │ - _print_event_dual (VFS dual)    │  │
-│  │  • VFS Events    │    │ - _print_event_block (Block)      │  │
-│  │  • Block Events  │    │ - _print_event_cache (Cache)      │  │
-│  │  • Cache Events  │    │ - _print_event_net (Network)      │  │
-│  │  • Net Events    │    │ - _print_event_pagefault (Fault)  │  │
-│  │  • Page Faults   │    │ - _print_event_pagefault (Fault)  │  │
-│  │                  │    └─────────────────────────────────┘  │
+│  │  Trace Types:    │    │ - _print_event_block (Block)      │  │
+│  │  • VFS Events    │    │ - _print_event_cache (Cache)      │  │
+│  │  • Block Events  │    │ - _print_event_net (Network)      │  │
+│  │  • Cache Events  │    │ - _print_event_pagefault (Fault)  │  │
+│  │  • Net Events    │    └─────────────────────────────────┘  │
+│  │  • Page Faults   │                                          │
 │  └────────┬────────┘                                           │
 │           │                                                    │
 │  ┌────────▼────────┐    ┌─────────────────────────────────┐  │
@@ -59,14 +58,14 @@ IO Tracer uses eBPF/BPF technology to intercept kernel functions and collect var
 │           │                                                    │
 │  ┌────────▼────────┐                                           │
 │  │  WriterManager  │    Output:                               │
-│  │                  │    • fs_events.csv                      │  │
-│  │                  │    • block_events.csv                   │  │
-│  │                  │    • cache_events.csv                   │  │
-│  │                  │    • network_events.csv                 │  │
-│  │                  │    • pagefault_events.csv               │  │
-│  │                  │    • filesystem_snap.csv.gz             │  │
-│  │                  │    • process_snap.csv                   │  │
-│  │                  │    • device_spec.txt                    │  │
+│  │                  │    • fs/*.csv (VFS events)              │  │
+│  │                  │    • ds/*.csv (block events)            │  │
+│  │                  │    • cache/*.csv (cache events)         │  │
+│  │                  │    • nw/*.csv (network events)          │  │
+│  │                  │    • pagefault/*.csv (page faults)      │  │
+│  │                  │    • filesystem_snapshot/*.csv.gz       │  │
+│  │                  │    • process/*.csv                      │  │
+│  │                  │    • system_spec/*                      │  │
 │  └──────────────────┘                                           │
 └─────────────────────────────────────────────────────────────────┘
 ```

@@ -28,7 +28,7 @@
 | 2 | Operation | `string` | VFS operation type (see table below) |
 | 3 | PID | `u32` | Process ID |
 | 4 | Command | `string` | Process name (max 16 characters) |
-| 5 | Filename | `string` | File path (or `old_path -> new_path` for dual-path operations) |
+| 5 | Filename | `string` | File path; for dual-path operations (RENAME, LINK) formatted as `old_path -> new_path` |
 | 6 | Size | `u64` | I/O size in bytes (`0` for non-I/O operations) |
 | 7 | Inode | `u64` | File inode number; empty if `0` |
 | 8 | Flags | `string` | Operation-specific flags (see tables below); empty if none |
@@ -37,37 +37,37 @@
 
 ## Operation Types
 
-| Code | Operation | Kernel Function | Dual-Path | Description |
-|------|-----------|----------------|-----------|-------------|
-| 1 | `READ` | `vfs_read()` | No | Read data from a file |
-| 2 | `WRITE` | `vfs_write()` | No | Write data to a file |
-| 3 | `OPEN` | `vfs_open()` | No | Open a file descriptor |
-| 4 | `CLOSE` | `fput()` | No | Close/release a file descriptor |
-| 5 | `FSYNC` | `vfs_fsync()` | No | Flush file data to storage |
-| 6 | `MMAP` | `mmap_region()` | No | Memory-map a file |
-| 7 | `MUNMAP` | `vm_munmap()` | No | Unmap a memory-mapped region |
-| 8 | `GETATTR` | `vfs_getattr()` | No | Query file attributes (stat) |
-| 9 | `SETATTR` | `vfs_setattr()` | No | Set file attributes (chmod, chown) |
-| 10 | `CHDIR` | `sys_chdir()` | No | Change working directory |
-| 11 | `READDIR` | `iterate_dir()` | No | Read directory entries |
-| 12 | `UNLINK` | `vfs_unlink()` | No | Delete a file |
-| 13 | `TRUNCATE` | `vfs_truncate()` | No | Truncate file to a given size |
-| 14 | `SYNC` | `ksys_sync()` | No | System-wide filesystem sync |
-| 15 | `RENAME` | `vfs_rename()` | Yes | Rename or move a file/directory |
-| 16 | `MKDIR` | `vfs_mkdir()` | No | Create a directory |
-| 17 | `RMDIR` | `vfs_rmdir()` | No | Remove an empty directory |
-| 18 | `LINK` | `vfs_link()` | Yes | Create a hard link |
-| 19 | `SYMLINK` | `vfs_symlink()` | No | Create a symbolic link |
-| 20 | `FALLOCATE` | `vfs_fallocate()` | No | Pre-allocate file space |
-| 21 | `SENDFILE` | `do_sendfile()` | No | Zero-copy file-to-socket transfer |
-| 22 | `SPLICE` | `splice()` | No | Zero-copy pipe transfer |
-| 23 | `VMSPLICE` | `vmsplice()` | No | Splice user pages to pipe |
-| 24 | `MSYNC` | `msync()` | No | Sync memory-mapped region to disk |
-| 25 | `MADVISE` | `madvise()` | No | Provide memory usage advice to kernel |
-| 26 | `DIO_READ` | Direct I/O path | No | Direct I/O read (bypasses page cache) |
-| 27 | `DIO_WRITE` | Direct I/O path | No | Direct I/O write (bypasses page cache) |
+| Code | Operation | Kernel Function | Description |
+|------|-----------|-----------------|-------------|
+| 1 | `READ` | `vfs_read()` | Read data from a file |
+| 2 | `WRITE` | `vfs_write()` | Write data to a file |
+| 3 | `OPEN` | `vfs_open()` | Open a file descriptor |
+| 4 | `CLOSE` | `fput()` | Close/release a file descriptor |
+| 5 | `FSYNC` | `vfs_fsync()` | Flush file data to storage |
+| 6 | `MMAP` | `mmap_region()` | Memory-map a file |
+| 7 | `MUNMAP` | `vm_munmap()` | Unmap a memory-mapped region |
+| 8 | `GETATTR` | `vfs_getattr()` | Query file attributes (stat) |
+| 9 | `SETATTR` | `vfs_setattr()` | Set file attributes (chmod, chown) |
+| 10 | `CHDIR` | `sys_chdir()` | Change working directory |
+| 11 | `READDIR` | `iterate_dir()` | Read directory entries |
+| 12 | `UNLINK` | `vfs_unlink()` | Delete a file |
+| 13 | `TRUNCATE` | `vfs_truncate()` | Truncate file to a given size |
+| 14 | `SYNC` | `ksys_sync()` | System-wide filesystem sync |
+| 15 | `RENAME` | `vfs_rename()` | Rename or move a file/directory (dual-path: `old -> new`) |
+| 16 | `MKDIR` | `vfs_mkdir()` | Create a directory |
+| 17 | `RMDIR` | `vfs_rmdir()` | Remove an empty directory |
+| 18 | `LINK` | `vfs_link()` | Create a hard link (dual-path: `existing -> link`) |
+| 19 | `SYMLINK` | `vfs_symlink()` | Create a symbolic link |
+| 20 | `FALLOCATE` | `vfs_fallocate()` | Pre-allocate file space |
+| 21 | `SENDFILE` | `do_sendfile()` | Zero-copy file-to-socket transfer |
+| 22 | `SPLICE` | `splice()` | Zero-copy pipe transfer |
+| 23 | `VMSPLICE` | `vmsplice()` | Splice user pages to pipe |
+| 24 | `MSYNC` | `msync()` | Sync memory-mapped region to disk |
+| 25 | `MADVISE` | `madvise()` | Provide memory usage advice to kernel |
+| 26 | `DIO_READ` | Direct I/O path | Direct I/O read (bypasses page cache) |
+| 27 | `DIO_WRITE` | Direct I/O path | Direct I/O write (bypasses page cache) |
 
-**Dual-Path Operations:** `RENAME` and `LINK` involve two paths. The filename column is formatted as `old_path -> new_path`.
+**Dual-Path Operations:** `RENAME` and `LINK` operations include both source and destination paths in the filename field, formatted as `old_path -> new_path`.
 
 ## File Open Flags
 
@@ -217,4 +217,4 @@ In some cases, the filename field may be empty. This occurs when the kernel data
 - Check the inode field — if it's non-zero, the file exists but the path couldn't be resolved
 - Correlate with the operation type and process command to determine if the empty filename is expected
 
-**Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/fs/fs_*.csv`
+**Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/fs/fs_*.csv.gz`
