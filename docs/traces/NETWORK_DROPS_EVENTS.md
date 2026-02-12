@@ -48,6 +48,6 @@
 | `CLOSING` | Both sides sent FIN simultaneously |
 | `NEW_SYN_RECV` | SYN received in new mini-socket (syncookie/fastopen) |
 
-**Output File:** `nw_drop/nw_drop_*.csv`
+**Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/nw_drop/nw_drop_*.csv`
 
 **Note:** The `tcp:tcp_retransmit_skb` tracepoint is wrapped in try/except for kernel compatibility. On older kernels where it's unavailable, this category will be silently disabled.

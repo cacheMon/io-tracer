@@ -71,4 +71,4 @@ Multiple flags can be combined with `|` (pipe):
 | `EPOLLONESHOT` | `1 << 30` | One-shot notification; must re-arm after event |
 | `EPOLLET` | `1 << 31` | Edge-triggered notification mode |
 
-**Output File:** `nw_epoll/nw_epoll_*.csv`
+**Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/nw_epoll/nw_epoll_*.csv`

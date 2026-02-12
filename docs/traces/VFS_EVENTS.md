@@ -217,4 +217,4 @@ In some cases, the filename field may be empty. This occurs when the kernel data
 - Check the inode field — if it's non-zero, the file exists but the path couldn't be resolved
 - Correlate with the operation type and process command to determine if the empty filename is expected
 
-**Output File:** `fs/fs_*.csv`
+**Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/fs/fs_*.csv`

@@ -175,4 +175,4 @@ The io_uring tracepoint probes (`io_uring:io_uring_submit_sqe`, `io_uring:io_uri
 
 2. If the format includes `req`, `opcode`, `user_data`, and `flags` fields, change `#if 0` to `#if 1` around line 4218 in `prober.c`.
 
-**Output File:** `io_uring/io_uring_*.csv`
+**Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/io_uring/io_uring_*.csv`

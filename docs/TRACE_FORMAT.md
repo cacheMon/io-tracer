@@ -4,10 +4,10 @@ This document describes the CSV output format for all trace types produced by io
 
 ## Output Structure
 
-The tracer creates a timestamped output directory containing subdirectories for each trace category:
+Traces are uploaded to object storage with the following prefix structure:
 
 ```
-output_YYYYMMDD_HHMMSS/
+linux_trace_v3_test/{MACHINE_ID}/{YYYYMMDD_HHMMSS_mmm}/
 ├── fs/                    # VFS (Virtual File System) traces
 ├── ds/                    # Block device traces
 ├── cache/                 # Page cache events
@@ -17,10 +17,14 @@ output_YYYYMMDD_HHMMSS/
 ├── nw_sockopt/            # Socket configuration events
 ├── nw_drop/               # Packet drops & retransmissions
 ├── pagefault/             # Memory-mapped page fault events
+├── io_uring/              # io_uring async I/O events
 ├── process/               # Process state snapshots
 ├── filesystem_snapshot/   # Filesystem metadata snapshots
 └── system_spec/           # System specification files
 ```
+
+- `{MACHINE_ID}`: Uppercase machine identifier
+- `{YYYYMMDD_HHMMSS_mmm}`: Timestamp with millisecond precision
 
 Each subdirectory contains CSV files that are automatically compressed to `.csv.gz` format.
 
@@ -28,7 +32,7 @@ Each subdirectory contains CSV files that are automatically compressed to `.csv.
 
 ## 1. VFS (Virtual File System) Traces
 
-**Location:** `output_*/fs/fs_*.csv.gz`
+**Location:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/fs/fs_*.csv.gz`
 
 **Description:** Captures all file system operations at the VFS layer, including reads, writes, opens, closes, and metadata operations.
 
@@ -131,7 +135,7 @@ FALLOC_FL_KEEP_SIZE|FALLOC_FL_PUNCH_HOLE|FALLOC_FL_ZERO_RANGE|...
 
 ## 2. Block Device Traces
 
-**Location:** `output_*/ds/ds_*.csv.gz`
+**Location:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/ds/ds_*.csv.gz`
 
 **Description:** Captures block layer I/O operations with latency measurements from issue to completion.
 
@@ -179,7 +183,7 @@ timestamp,pid,command,sector,operation,size,latency_ms,tid,cpu_id,ppid,dev,queue
 
 ## 3. Cache Events
 
-**Location:** `output_*/cache/cache_*.csv.gz`
+**Location:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/cache/cache_*.csv.gz`
 
 **Description:** Captures page cache operations including hits, misses, dirty pages, writeback, and evictions.
 
@@ -237,7 +241,7 @@ timestamp,pid,command,event_type,inode,index,size,cpu_id,dev_id,count
 
 ## 4. Network Traces
 
-**Location:** `output_*/nw/nw_*.csv.gz`
+**Location:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/nw/nw_*.csv.gz`
 
 **Description:** Captures TCP and UDP network I/O operations with address, port, protocol, latency, error codes, and message flag information.
 
@@ -282,7 +286,7 @@ timestamp,pid,command,protocol,ip_version,source_addr,dest_addr,source_port,dest
 
 ## 4a. Connection Lifecycle Events
 
-**Location:** `output_*/nw_conn/nw_conn_*.csv.gz`
+**Location:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/nw_conn/nw_conn_*.csv.gz`
 
 **Description:** Captures the full connection lifecycle: socket creation, bind, listen, accept, connect, shutdown.
 
@@ -337,7 +341,7 @@ timestamp,event_type,pid,tid,command,domain,sock_type,protocol,ip_version,local_
 
 ## 4b. Epoll/Multiplexing Events
 
-**Location:** `output_*/nw_epoll/nw_epoll_*.csv.gz`
+**Location:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/nw_epoll/nw_epoll_*.csv.gz`
 
 **Description:** Captures I/O multiplexing operations: epoll_create, epoll_ctl, epoll_wait, poll, select.
 
@@ -376,7 +380,7 @@ timestamp,event_type,pid,tid,command,epoll_fd,target_fd,operation,event_mask,max
 
 ## 4c. Socket Configuration Events
 
-**Location:** `output_*/nw_sockopt/nw_sockopt_*.csv.gz`
+**Location:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/nw_sockopt/nw_sockopt_*.csv.gz`
 
 **Description:** Captures setsockopt/getsockopt operations for SOL_SOCKET and IPPROTO_TCP level options.
 
@@ -425,7 +429,7 @@ timestamp,event_type,pid,command,fd,level,option_name,option_value,return_value
 
 ## 4d. Network Drops & Retransmissions
 
-**Location:** `output_*/nw_drop/nw_drop_*.csv.gz`
+**Location:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/nw_drop/nw_drop_*.csv.gz`
 
 **Description:** Captures TCP retransmissions using the stable `tcp:tcp_retransmit_skb` kernel tracepoint.
 
@@ -476,7 +480,7 @@ timestamp,event_type,pid,command,protocol,ip_version,source_addr,dest_addr,sourc
 
 ## 5. Page Fault Events
 
-**Location:** `output_*/pagefault/pagefault_*.csv.gz`
+**Location:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/pagefault/pagefault_*.csv.gz`
 
 **Description:** Captures file-backed page faults from memory-mapped I/O operations. Tracks which memory accesses trigger disk reads (major faults) vs cache hits (minor faults).
 
@@ -518,7 +522,7 @@ timestamp,pid,tid,command,fault_type,severity,inode,offset,address,dev_id
 
 ## 6. Process Snapshots
 
-**Location:** `output_*/process/process_*.csv.gz`
+**Location:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/process/process_*.csv.gz`
 
 **Description:** Periodic snapshots of all running processes (captured hourly by default).
 
@@ -553,7 +557,7 @@ timestamp,pid,ppid,name,state,uid,gid,num_threads,cpu_percent,memory_percent,cmd
 
 ## 7. Filesystem Snapshots
 
-**Location:** `output_*/filesystem_snapshot/filesystem_snapshot_*.csv.gz`
+**Location:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/filesystem_snapshot/filesystem_snapshot_*.csv.gz`
 
 **Description:** Periodic directory tree snapshots showing file metadata (captured hourly by default).
 
@@ -583,7 +587,7 @@ snapshot_timestamp,path,size,ctime,mtime,atime
 
 ## 8. System Specification Files
 
-**Location:** `output_*/system_spec/`
+**Location:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/system_spec/`
 
 These are JSON files capturing system hardware and configuration at trace start:
 
@@ -656,17 +660,18 @@ File naming: `{type}_{YYYYMMDD_HHMMSS_mmm}.csv.gz`
 
 ### Command Line
 ```bash
-# View compressed file
-zcat output_*/fs/fs_*.csv.gz | less
+# View compressed file (download from object storage first)
+# Path format: linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/fs/fs_*.csv.gz
+zcat fs_*.csv.gz | less
 
 # Parse with csvkit
-zcat output_*/fs/fs_*.csv.gz | csvstat
+zcat fs_*.csv.gz | csvstat
 
 # Count events
-zcat output_*/fs/fs_*.csv.gz | wc -l
+zcat fs_*.csv.gz | wc -l
 
 # Filter specific operation
-zcat output_*/fs/fs_*.csv.gz | grep ",WRITE,"
+zcat fs_*.csv.gz | grep ",WRITE,"
 ```
 
 ### Python
@@ -674,7 +679,8 @@ zcat output_*/fs/fs_*.csv.gz | grep ",WRITE,"
 import gzip
 import csv
 
-with gzip.open('output_20240115_103045/fs/fs_20240115_103045_123.csv.gz', 'rt') as f:
+# After downloading from: linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/fs/
+with gzip.open('fs_20240115_103045_123.csv.gz', 'rt') as f:
     reader = csv.reader(f)
     for row in reader:
         timestamp, operation, pid, command, filename, size, inode, flags, latency = row
@@ -684,13 +690,14 @@ with gzip.open('output_20240115_103045/fs/fs_20240115_103045_123.csv.gz', 'rt') 
 ### Pandas
 ```python
 import pandas as pd
-
-# Single file
-df = pd.read_csv('output_*/fs/fs_*.csv.gz', compression='gzip')
-
-# Multiple files
 import glob
-files = glob.glob('output_*/fs/fs_*.csv.gz')
+
+# After downloading from: linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/fs/
+# Single file
+df = pd.read_csv('fs_20240115_103045_123.csv.gz', compression='gzip')
+
+# Multiple files in a directory
+files = glob.glob('*.csv.gz')
 df = pd.concat([pd.read_csv(f, compression='gzip') for f in files])
 ```
 

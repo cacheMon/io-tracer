@@ -37,4 +37,4 @@
 | `dead` | Process is dead (should not normally be seen) |
 | `idle` | Process is idle (kernel threads) |
 
-**Output File:** `process/process_*.csv`
+**Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/process/process_*.csv`

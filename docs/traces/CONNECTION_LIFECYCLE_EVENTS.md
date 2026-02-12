@@ -83,4 +83,4 @@ The `SHUTDOWN` event uses the following `how` values:
 - This filtering prevents excessive noise from non-network file descriptor closes
 - If you see unexpected CLOSE events, verify the fd was tracked as a socket from creation
 
-**Output File:** `nw_conn/nw_conn_*.csv`
+**Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/nw_conn/nw_conn_*.csv`

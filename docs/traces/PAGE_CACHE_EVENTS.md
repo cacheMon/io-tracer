@@ -43,7 +43,7 @@
 | 8 | `READAHEAD` | Pages prefetched into cache by readahead |
 | 9 | `RECLAIM` | Pages reclaimed under memory pressure (kswapd/direct reclaim) |
 
-**Output File:** `cache/cache_*.csv`
+**Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/cache/cache_*.csv`
 
 **Important Limitation — Filename Resolution:**
 The filename is **not captured** for cache events due to eBPF constraints. Cache events provide only: folio/page → address_space → inode. Resolving inode → filename requires traversing `inode->i_dentry` (a linked list of hard links), which is impractical in eBPF. Use inode numbers to correlate with VFS events or filesystem snapshots.

@@ -71,4 +71,4 @@ Multiple flags can be combined with `|` (pipe):
 | `MSG_MORE` | `0x4000` | More data coming (cork) |
 | `MSG_ZEROCOPY` | `0x8000000` | Zero-copy send (kernel 4.14+) |
 
-**Output File:** `nw/nw_*.csv`
+**Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/nw/nw_*.csv`

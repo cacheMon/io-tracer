@@ -7,8 +7,16 @@ about the system including:
 - GPU (detected NVIDIA cards)
 - Memory (total and available)
 - Storage devices
+- Network interfaces
 - Operating system version
 - Geographic location (country code)
+
+Output files (JSON format):
+- cpu_info.json - CPU model, cores, frequency
+- memory_info.json - Total RAM, available memory
+- disk_info.json - Storage devices and partitions
+- network_info.json - Network interfaces and addresses
+- os_info.json - Kernel version, distribution, hostname
 
 Example:
     snapper = SystemSnapper(writer_manager=wm)
@@ -22,6 +30,7 @@ import psutil
 import platform
 import shutil
 import requests
+import json
 
 
 class SystemSnapper:
@@ -140,33 +149,162 @@ class SystemSnapper:
             pass
         return "Unknown"
 
+    def get_network_interfaces(self) -> dict:
+        """
+        Get network interface information.
+        
+        Returns:
+            dict: Network interfaces with their addresses
+        """
+        interfaces = {}
+        try:
+            net_if_addrs = psutil.net_if_addrs()
+            net_if_stats = psutil.net_if_stats()
+            
+            for iface, addrs in net_if_addrs.items():
+                interface_info = {
+                    "addresses": [],
+                    "is_up": False,
+                    "speed_mbps": None,
+                    "mtu": None
+                }
+                
+                for addr in addrs:
+                    addr_info = {
+                        "family": str(addr.family.name) if hasattr(addr.family, 'name') else str(addr.family),
+                        "address": addr.address,
+                        "netmask": addr.netmask,
+                        "broadcast": addr.broadcast
+                    }
+                    interface_info["addresses"].append(addr_info)
+                
+                if iface in net_if_stats:
+                    stats = net_if_stats[iface]
+                    interface_info["is_up"] = stats.isup
+                    interface_info["speed_mbps"] = stats.speed
+                    interface_info["mtu"] = stats.mtu
+                
+                interfaces[iface] = interface_info
+        except Exception:
+            pass
+        return interfaces
+
+    def get_disk_partitions(self) -> list:
+        """
+        Get disk partition information.
+        
+        Returns:
+            list: Disk partitions with mount points and usage
+        """
+        partitions = []
+        try:
+            for part in psutil.disk_partitions(all=False):
+                partition_info = {
+                    "device": part.device,
+                    "mountpoint": part.mountpoint,
+                    "fstype": part.fstype,
+                    "opts": part.opts
+                }
+                try:
+                    usage = psutil.disk_usage(part.mountpoint)
+                    partition_info["total_bytes"] = usage.total
+                    partition_info["used_bytes"] = usage.used
+                    partition_info["free_bytes"] = usage.free
+                    partition_info["percent_used"] = usage.percent
+                except Exception:
+                    pass
+                partitions.append(partition_info)
+        except Exception:
+            pass
+        return partitions
+
     def capture_spec_snapshot(self):
         """
-        Capture all system specifications and write to file.
+        Capture all system specifications and write to JSON files.
         
         Collects comprehensive system information and writes it
-        to device_spec.txt in the system_spec output directory.
+        to separate JSON files in the system_spec output directory:
+        - cpu_info.json - CPU model, cores, frequency
+        - memory_info.json - Total RAM, available memory
+        - disk_info.json - Storage devices and partitions
+        - network_info.json - Network interfaces and addresses
+        - os_info.json - Kernel version, distribution, hostname
         """
+        # CPU Info
+        cpu_freq = psutil.cpu_freq()
+        cpu_info = {
+            "brand": self.get_cpu_brand(),
+            "cores_logical": psutil.cpu_count(logical=True),
+            "cores_physical": psutil.cpu_count(logical=False),
+            "frequency_mhz": cpu_freq.current if cpu_freq else None,
+            "frequency_min_mhz": cpu_freq.min if cpu_freq else None,
+            "frequency_max_mhz": cpu_freq.max if cpu_freq else None
+        }
+        self.wm.direct_write("cpu_info.json", json.dumps(cpu_info, indent=2))
+
+        # Memory Info
         mem = psutil.virtual_memory()
-        gpus = self.get_gpu_brand()
-        storages = self.get_storage_brands()
+        swap = psutil.swap_memory()
+        memory_info = {
+            "total_bytes": mem.total,
+            "available_bytes": mem.available,
+            "used_bytes": mem.used,
+            "percent_used": mem.percent,
+            "total_gb": round(mem.total / (1024**3), 2),
+            "available_gb": round(mem.available / (1024**3), 2),
+            "swap_total_bytes": swap.total,
+            "swap_used_bytes": swap.used,
+            "swap_free_bytes": swap.free
+        }
+        self.wm.direct_write("memory_info.json", json.dumps(memory_info, indent=2))
 
-        country = self.get_country_code()
+        # Disk Info
+        disk_info = {
+            "storage_devices": self.get_storage_brands(),
+            "partitions": self.get_disk_partitions(),
+            "gpus": self.get_gpu_brand()
+        }
+        self.wm.direct_write("disk_info.json", json.dumps(disk_info, indent=2))
 
-        device_specs_str = (
-    f"System: {platform.system()}\n"
-    f"Release: {platform.release()}\n"
-    f"Version: {platform.version()}\n"
-    f"Machine: {platform.machine()}\n"
-    f"Country: {country}\n\n"
-    f"CPU Brand: {self.get_cpu_brand()}\n"
-    f"CPU Cores (logical): {psutil.cpu_count(logical=True)}\n"
-    f"CPU Cores (physical): {psutil.cpu_count(logical=False)}\n"
-    f"CPU Frequency: {psutil.cpu_freq().current if psutil.cpu_freq() else 'N/A'} MHz\n\n"
-    f"Total Memory: {round(mem.total / (1024**3), 2)} GB\n"
-    f"Available Memory: {round(mem.available / (1024**3), 2)} GB\n\n"
-    f"GPUs: {', '.join(gpus) if gpus else 'None detected'}\n"
-    f"Storages:\n"
-    f"{chr(10).join(storages) if storages else 'Could not detect'}"
-        )
-        self.wm.direct_write("device_spec.txt", device_specs_str)
+        # Network Info
+        network_info = {
+            "interfaces": self.get_network_interfaces(),
+            "hostname": platform.node()
+        }
+        self.wm.direct_write("network_info.json", json.dumps(network_info, indent=2))
+
+        # OS Info
+        os_info = {
+            "system": platform.system(),
+            "release": platform.release(),
+            "version": platform.version(),
+            "machine": platform.machine(),
+            "hostname": platform.node(),
+            "country": self.get_country_code()
+        }
+        # Add distribution info for Linux
+        if platform.system() == "Linux":
+            try:
+                import distro
+                os_info["distribution"] = {
+                    "name": distro.name(),
+                    "version": distro.version(),
+                    "codename": distro.codename()
+                }
+            except ImportError:
+                # Fallback if distro package not available
+                try:
+                    with open("/etc/os-release") as f:
+                        os_release = {}
+                        for line in f:
+                            if "=" in line:
+                                key, value = line.strip().split("=", 1)
+                                os_release[key] = value.strip('"')
+                        os_info["distribution"] = {
+                            "name": os_release.get("NAME", ""),
+                            "version": os_release.get("VERSION_ID", ""),
+                            "codename": os_release.get("VERSION_CODENAME", "")
+                        }
+                except Exception:
+                    pass
+        self.wm.direct_write("os_info.json", json.dumps(os_info, indent=2))

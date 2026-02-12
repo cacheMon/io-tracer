@@ -39,4 +39,4 @@ Files on virtual/pseudo filesystems are automatically excluded by skipping diffe
 
 When `--anonymous` is enabled, file paths are hashed using a deterministic hash function (12-character hash). Directory structure is preserved but individual path components are replaced with hashes. File extensions are kept for analysis purposes.
 
-**Output File:** `filesystem_snapshot/filesystem_snapshot_*.csv`
+**Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/filesystem_snapshot/filesystem_snapshot_*.csv`

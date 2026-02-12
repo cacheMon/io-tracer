@@ -12,8 +12,10 @@ This directory contains the complete documentation for IO Tracer's trace output,
 
 ## Output Directory Structure
 
+Traces are stored in object storage with the following prefix structure:
+
 ```
-result/linux_trace/<MACHINE_ID>/<YYYYMMDD_HHMMSS>/
+linux_trace_v3_test/{MACHINE_ID}/{YYYYMMDD_HHMMSS_mmm}/
 ├── fs/                    # VFS traces
 ├── ds/                    # Block device traces
 ├── cache/                 # Page cache events
@@ -23,7 +25,11 @@ result/linux_trace/<MACHINE_ID>/<YYYYMMDD_HHMMSS>/
 ├── nw_sockopt/            # Socket configuration events
 ├── nw_drop/               # Packet drops & retransmissions
 ├── pagefault/             # Page fault events
+├── io_uring/              # io_uring async I/O events
 ├── process/               # Process state snapshots
 ├── filesystem_snapshot/   # Filesystem metadata snapshots
-└── system_spec/           # System specification file
+└── system_spec/           # System specification files
 ```
+
+- `{MACHINE_ID}`: Uppercase machine identifier
+- `{YYYYMMDD_HHMMSS_mmm}`: Timestamp with millisecond precision

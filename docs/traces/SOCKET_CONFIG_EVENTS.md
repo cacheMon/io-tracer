@@ -65,4 +65,4 @@
 | `TCP_DEFER_ACCEPT` | Defer accept until data arrives (seconds) |
 | `TCP_CONGESTION` | Congestion control algorithm name |
 
-**Output File:** `nw_sockopt/nw_sockopt_*.csv`
+**Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/nw_sockopt/nw_sockopt_*.csv`
