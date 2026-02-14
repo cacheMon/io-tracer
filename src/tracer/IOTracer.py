@@ -762,11 +762,11 @@ class IOTracer:
             lost_cb=self._lost_cb
         )
 
-        self.b["cache_events"].open_perf_buffer(
-            self._print_event_cache, 
-            page_cnt=self.page_cnt, 
-            lost_cb=self._lost_cb
-        )
+        # self.b["cache_events"].open_perf_buffer(
+        #     self._print_event_cache, 
+        #     page_cnt=self.page_cnt, 
+        #     lost_cb=self._lost_cb
+        # )
 
         self.b["net_events"].open_perf_buffer(
             self._print_event_net,
