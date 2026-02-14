@@ -39,7 +39,7 @@ Each subdirectory contains CSV files that are automatically compressed to `.csv.
 ### CSV Header
 
 ```csv
-timestamp,operation,pid,command,filename,size,inode,flags,latency_ns,offset,tid
+timestamp,operation,pid,command,filename,size,inode,flags,offset,tid
 ```
 
 For operations captured and examples, see [VFS_EVENTS.md](traces/VFS_EVENTS.md).
@@ -55,7 +55,7 @@ For operations captured and examples, see [VFS_EVENTS.md](traces/VFS_EVENTS.md).
 ### CSV Header
 
 ```csv
-timestamp,pid,command,sector,operation,size,latency_ms,tid,cpu_id,ppid,dev,queue_time_ms
+timestamp,pid,command,sector,operation,size,latency_ms,tid,cpu_id,ppid,dev,queue_time_ms,cmd_flags,op_code
 ```
 
 For operations captured and examples, see [BLOCK_IO_EVENTS.md](traces/BLOCK_IO_EVENTS.md).
@@ -188,12 +188,12 @@ For CSV format and examples, see [IO_URING_EVENTS.md](traces/IO_URING_EVENTS.md)
 
 **Location:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/process/process_*.csv.gz`
 
-**Description:** Periodic snapshots of all running processes (captured hourly by default).
+**Description:** Periodic snapshots of all running processes (captured every 5 minutes by default).
 
 ### CSV Header
 
 ```csv
-timestamp,pid,ppid,name,state,uid,gid,num_threads,cpu_percent,memory_percent,cmdline
+timestamp,pid,name,cmdline,virtual_mem_kb,rss_kb,create_time,cpu_5s,cpu_2m,cpu_1h,status
 ```
 
 For field details and examples, see [PROCESS_SNAPSHOT.md](traces/PROCESS_SNAPSHOT.md).
