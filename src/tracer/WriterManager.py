@@ -75,6 +75,8 @@ class WriteManager:
         self.current_datetime = datetime.now()
 
         self.created_files = 0
+        self.last_status_log_time = time.time()
+        self.status_log_interval = 60  # Log status every 60 seconds
         self.output_dir = output_dir
         self.output_vfs_file = f"{self.output_dir}/fs/fs_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
         self.output_block_file = f"{self.output_dir}/ds/ds_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
@@ -203,6 +205,9 @@ class WriteManager:
         self.fs_snapshot_session_active = False
         self.fs_snapshot_parts_pending_upload = []  # Track parts to upload after completion
 
+        # Process snapshot session tracking
+        self.process_snapshot_session_active = False
+
     def _calculate_event_rate(self, event_type: str) -> float:
         """
         Calculate the event rate for a given event type.
@@ -286,6 +291,12 @@ class WriteManager:
             
             if not self._periodic_flush_active:
                 break
+            
+            # Log status periodically
+            status_elapsed = time.time() - self.last_status_log_time
+            if status_elapsed >= self.status_log_interval:
+                self._log_status()
+                self.last_status_log_time = time.time()
                 
             elapsed = time.time() - self._last_flush_time
             if elapsed >= flush_interval:
@@ -298,6 +309,56 @@ class WriteManager:
     def _reset_flush_timer(self):
         """Reset the periodic flush timer (called after manual flushes)."""
         self._last_flush_time = time.time()
+
+    def _log_status(self):
+        """Log current buffer sizes and snapshot progress."""
+        status_parts = []
+        
+        # Buffer sizes
+        buffer_info = []
+        if len(self.vfs_buffer) > 0:
+            buffer_info.append(f"VFS:{len(self.vfs_buffer)}")
+        if len(self.block_buffer) > 0:
+            buffer_info.append(f"Block:{len(self.block_buffer)}")
+        if len(self.cache_buffer) > 0:
+            buffer_info.append(f"Cache:{len(self.cache_buffer)}")
+        if len(self.network_buffer) > 0:
+            buffer_info.append(f"Net:{len(self.network_buffer)}")
+        if len(self.pagefault_buffer) > 0:
+            buffer_info.append(f"PgFault:{len(self.pagefault_buffer)}")
+        if len(self.conn_buffer) > 0:
+            buffer_info.append(f"Conn:{len(self.conn_buffer)}")
+        if len(self.epoll_buffer) > 0:
+            buffer_info.append(f"Epoll:{len(self.epoll_buffer)}")
+        if len(self.sockopt_buffer) > 0:
+            buffer_info.append(f"Sockopt:{len(self.sockopt_buffer)}")
+        if len(self.drop_buffer) > 0:
+            buffer_info.append(f"Drop:{len(self.drop_buffer)}")
+        if len(self.io_uring_buffer) > 0:
+            buffer_info.append(f"IO_Uring:{len(self.io_uring_buffer)}")
+        
+        if buffer_info:
+            status_parts.append(f"Buffers: {', '.join(buffer_info)}")
+        
+        # Snapshot status
+        snapshot_info = []
+        if self.fs_snapshot_session_active:
+            parts_written = self.fs_snapshot_part_number - 1
+            pending_events = len(self.fs_snap_buffer)
+            snapshot_info.append(f"FS Snapshot: part {parts_written} ({pending_events} events buffered)")
+        
+        if self.process_snapshot_session_active:
+            pending_events = len(self.process_buffer)
+            snapshot_info.append(f"Process Snapshot: active ({pending_events} events buffered)")
+        
+        if snapshot_info:
+            status_parts.append(f"Snapshots: {', '.join(snapshot_info)}")
+        
+        # Files created
+        status_parts.append(f"Files Created: {self.created_files}")
+        
+        if status_parts:
+            logger("info", f"Status - {' | '.join(status_parts)}", True)
 
     def set_cache_sampling(self, sample_rate: int):
         """
@@ -597,6 +658,10 @@ class WriteManager:
             # Increment part number for next flush
             self.fs_snapshot_part_number += 1
             
+            # Log snapshot progress
+            parts_written = self.fs_snapshot_part_number - 1
+            logger("info", f"FS Snapshot: part {parts_written} written ({len(self.fs_snap_buffer)} events remain in buffer)")
+            
             self._reset_flush_timer()
 
     def start_fs_snapshot_session(self):
@@ -664,7 +729,8 @@ class WriteManager:
             if self.automatic_upload:
                 num_parts = len(self.fs_snapshot_parts_pending_upload)
                 if num_parts > 0:
-                    self.created_files += 1
+                    # Count each part individually to match upload counter
+                    self.created_files += num_parts
                     logger('info', f"Files Created: {str(self.created_files)} (filesystem snapshot with {num_parts} parts)", True)
                 for part_file in self.fs_snapshot_parts_pending_upload:
                     if os.path.exists(part_file):
@@ -676,6 +742,11 @@ class WriteManager:
         
         # Reset session
         self.fs_snapshot_session_active = False
+
+    def start_process_snapshot_session(self):
+        """Mark the beginning of a process snapshot session."""
+        self.process_snapshot_session_active = True
+        logger("info", "Process Snapshot: session started")
 
     def flush_process_state_only(self):
         """Flush process state buffer to file."""
@@ -691,6 +762,10 @@ class WriteManager:
             self._process_handle.close()
             self._process_handle = open(self.output_process_file, 'a', buffering=8192)
             self._reset_flush_timer()
+            
+            # Mark process snapshot as complete
+            self.process_snapshot_session_active = False
+            logger("info", "Process Snapshot: completed and flushed")
 
     def flush_cache_only(self):
         """Flush cache buffer to file."""
@@ -848,8 +923,32 @@ class WriteManager:
         self.compress_log(self.output_block_file)
         self.compress_log(self.output_vfs_file)
         self.compress_log(self.output_cache_file)
-        self.compress_log(self.output_process_file)
-        self.compress_log(self.output_fs_snapshot_file)
+        
+        # Skip process snapshot if session is active (incomplete snapshot)
+        if not self.process_snapshot_session_active:
+            self.compress_log(self.output_process_file)
+        else:
+            logger("warning", "Skipping incomplete process snapshot upload (snapshot in progress)")
+            # Clear incomplete process snapshot buffer
+            self.process_buffer.clear()
+        
+        # Skip filesystem snapshot if session is active (incomplete snapshot)
+        if not self.fs_snapshot_session_active:
+            self.compress_log(self.output_fs_snapshot_file)
+        else:
+            logger("warning", "Skipping incomplete filesystem snapshot upload (snapshot in progress)")
+            # Delete incomplete snapshot part files from disk
+            for part_file in self.fs_snapshot_parts_pending_upload:
+                try:
+                    if os.path.exists(part_file):
+                        os.remove(part_file)
+                        logger("info", f"Removed incomplete snapshot part: {os.path.basename(part_file)}")
+                except Exception as e:
+                    logger("error", f"Failed to remove incomplete snapshot part {part_file}: {e}")
+            # Clear incomplete snapshot parts and buffer
+            self.fs_snapshot_parts_pending_upload.clear()
+            self.fs_snap_buffer.clear()
+        
         self.compress_log(self.output_network_file)
         self.compress_log(self.output_pagefault_file)
         self.compress_log(self.output_conn_file)
@@ -1063,13 +1162,13 @@ class WriteManager:
             if not os.path.exists(src):
                 return
             
-            self.created_files += 1
-            logger('info', f"Files Created: {str(self.created_files)}", True)
             with open(src, "rb") as f_in:
                 with gzip.open(dst, "wb") as f_out:
                     shutil.copyfileobj(f_in, f_out) # type: ignore
 
             if self.automatic_upload:
+                self.created_files += 1
+                logger('info', f"Files Created: {str(self.created_files)}", True)
                 self.upload_manager.append_object(dst)
             os.remove(src)
         except Exception as e:
@@ -1086,13 +1185,12 @@ class WriteManager:
             src = input_dir
             dst = input_dir.rstrip("/").rstrip("\\") + ".tar.gz"
 
-            self.created_files += 1
-            logger("info", f"Files Created: {self.created_files}", True)
-
             with tarfile.open(dst, "w:gz") as tar:
                 tar.add(src, arcname=os.path.basename(src))
 
             if self.automatic_upload:
+                self.created_files += 1
+                logger("info", f"Files Created: {self.created_files}", True)
                 self.upload_manager.append_object(dst)
 
             shutil.rmtree(src)

@@ -199,6 +199,9 @@ class ObjectStorageManager:
             try:
                 self.put_object(fp)
                 backoff = 1  # Reset backoff after success
+            except FileNotFoundError as e:
+                # File was already uploaded and deleted, don't requeue
+                logger("debug", f"File already uploaded: {str(e)}")
             except Exception as e:
                 logger("warn", f"Upload error: {str(e)}. Requeueing.")
                 self.file_queue.put(fp)

@@ -38,3 +38,16 @@
 | `idle` | Process is idle (kernel threads) |
 
 **Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/process/process_*.csv`
+
+## Incomplete Snapshot Handling
+
+If the tracer is stopped while a process snapshot is in progress:
+- The snapshot **will NOT be marked as complete**
+- The incomplete snapshot will **NOT** be uploaded to storage
+- The process snapshot buffer is cleared
+- A warning is logged: "Skipping incomplete process snapshot upload (snapshot in progress)"
+- This ensures only complete, valid process snapshots are preserved
+
+The system detects interruptions by checking the `running` flag during process iteration before flushing.
+
+Each complete process snapshot is written as a separate CSV file and uploaded normally.

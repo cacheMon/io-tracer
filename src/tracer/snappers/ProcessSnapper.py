@@ -76,9 +76,20 @@ class ProcessSnapper:
         Iterates through all running processes, collecting process
         information and CPU utilization data. Flushes immediately
         after completion to ensure one snapshot = one file.
+        
+        Returns:
+            bool: True if snapshot completed, False if interrupted
         """
+        # Mark snapshot session as active
+        self.wm.start_process_snapshot_session()
+        
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for proc in psutil.process_iter(['pid', 'name', 'memory_info','cmdline','create_time','status']):
+            # Check if stop was requested during iteration
+            if not self.running:
+                # Snapshot was interrupted - don't flush or mark complete
+                return False
+                
             try:
                 ts = timestamp
                 pid = proc.info['pid']
@@ -106,8 +117,13 @@ class ProcessSnapper:
                 # Log unexpected errors to avoid silently hiding issues in the snapshot loop.
                 logger.warning("Unexpected error while collecting process snapshot data", exc_info=True)
         
+        # Check one final time before flushing
+        if not self.running:
+            return False
+            
         # Flush immediately after snapshot completes to ensure one snapshot = one file
         self.wm.flush_process_state_only()
+        return True
 
     def process_snapshot(self):
         """
@@ -124,14 +140,16 @@ class ProcessSnapper:
             # Check if we should take a snapshot
             if last_snapshot_time is None:
                 # First snapshot - run immediately
-                self._take_snapshot()
-                last_snapshot_time = time.time()
+                completed = self._take_snapshot()
+                if completed:
+                    last_snapshot_time = time.time()
             else:
                 # Check if 5 minutes have passed since last snapshot
                 time_since_last_snapshot = current_time - last_snapshot_time
                 if time_since_last_snapshot >= 300:  # 300 seconds = 5 minutes
-                    self._take_snapshot()
-                    last_snapshot_time = time.time()
+                    completed = self._take_snapshot()
+                    if completed:
+                        last_snapshot_time = time.time()
                 else:
                     # Less than 5 minutes ago - sleep 1 minute
                     time.sleep(60)

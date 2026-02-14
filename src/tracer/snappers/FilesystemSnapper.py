@@ -74,6 +74,9 @@ class FilesystemSnapper:
         
         Args:
             max_depth: Maximum directory depth to traverse (default: 3)
+            
+        Returns:
+            bool: True if snapshot completed naturally, False if interrupted
         """
         # Capture snapshot timestamp once for all files in this snapshot
         snapshot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -129,11 +132,19 @@ class FilesystemSnapper:
             except Exception:
                 return
 
-        # logger("info", "Starting filesystem snapshot...")
+        logger("info", "Filesystem Snapshot: session started")
         scan_dir(self.root_path, 0)
-        self.wm.flush_fssnap_only()
-        self.wm.mark_fs_snapshot_complete()
-        # logger("info", "Filesystem snapshot completed.")
+        
+        # Only flush and mark complete if not interrupted
+        if not self.interrupt:
+            self.wm.flush_fssnap_only()
+            self.wm.mark_fs_snapshot_complete()
+            # logger("info", "Filesystem snapshot completed.")
+            return True
+        else:
+            # Snapshot was interrupted - don't mark as complete
+            # The incomplete snapshot handling in force_flush() will clean it up
+            return False
 
     def stop_snapper(self):
         """Signal the snapshot thread to stop."""
@@ -164,15 +175,18 @@ class FilesystemSnapper:
             # Check if we should take a snapshot
             if last_snapshot_time is None:
                 # First snapshot - run immediately
-                self.filesystem_snapshot()
-                last_snapshot_time = time.time()
+                completed = self.filesystem_snapshot()
+                if completed:
+                    last_snapshot_time = time.time()
             else:
                 # Check if one hour has passed since last snapshot
                 time_since_last_snapshot = current_time - last_snapshot_time
                 if time_since_last_snapshot >= 3600:  # 3600 seconds = 1 hour
                     # Reset visited inodes before new snapshot
                     self._visited_inodes.clear()
-                    self.filesystem_snapshot()
+                    completed = self.filesystem_snapshot()
+                    if completed:
+                        last_snapshot_time = time.time()
                     last_snapshot_time = time.time()
                 else:
                     # Less than one hour ago - sleep 1 minute

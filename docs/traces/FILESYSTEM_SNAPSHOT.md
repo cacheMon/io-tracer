@@ -66,3 +66,16 @@ To optimize memory usage during large filesystem scans, snapshots are automatica
 
 For detailed implementation information, see [Multi-Part Filesystem Snapshot Documentation](../MULTIPART_FILESYSTEM_SNAPSHOT.md).
 
+## Incomplete Snapshot Handling
+
+If the tracer is stopped while a filesystem snapshot is in progress:
+- The snapshot **will NOT be marked as complete**
+- The incomplete snapshot will **NOT** be uploaded to storage
+- All incomplete part files are deleted from disk
+- A warning is logged: "Skipping incomplete filesystem snapshot upload (snapshot in progress)"
+- This ensures only complete, valid filesystem snapshots are preserved
+
+The system detects interruptions by checking if the filesystem scan completed naturally before marking it as complete.
+
+Complete snapshots (with the `_complete_partsN` suffix) are always uploaded normally.
+
