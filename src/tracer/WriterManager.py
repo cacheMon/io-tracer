@@ -29,7 +29,7 @@ from datetime import datetime
 import tarfile
 
 from .ObjectStorageManager import ObjectStorageManager
-from ..utility.utils import logger, create_tar_gz
+from ..utility.utils import logger, create_tar_gz, capture_machine_id, compress_log
 import threading
 from collections import deque
 import gzip
@@ -195,6 +195,13 @@ class WriteManager:
         # Cache sampling configuration
         self.cache_sample_rate = 1  # Can be increased to reduce cache event volume
         self.cache_event_counter = 0
+
+        # Filesystem snapshot multi-part tracking
+        self.fs_snapshot_part_number = 1
+        self.fs_snapshot_timestamp = None
+        self.fs_snapshot_device_id = None
+        self.fs_snapshot_session_active = False
+        self.fs_snapshot_parts_pending_upload = []  # Track parts to upload after completion
 
     def _calculate_event_rate(self, event_type: str) -> float:
         """
@@ -537,19 +544,138 @@ class WriteManager:
             logger("error", f"Error writing device spec to {output_path}: {e}")
 
     def flush_fssnap_only(self):
-        """Flush filesystem snapshot buffer to file."""
+        """
+        Flush filesystem snapshot buffer to a multi-part file.
+        
+        Writes buffer to filesystem_snapshot_part####_TIMESTAMP_DEVICEID.csv,
+        compresses it with Zstandard, and increments the part counter.
+        """
         if self.fs_snap_buffer:
-            if self._fs_snap_handle is None:
-                self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
-            self.current_datetime = datetime.now()
-
+            # Initialize snapshot session if not already active
+            if not self.fs_snapshot_session_active:
+                self.start_fs_snapshot_session()
+            
+            # Generate part filename with zero-padded part number
+            part_str = f"{self.fs_snapshot_part_number:04d}"
+            part_filename = (
+                f"filesystem_snapshot_part{part_str}_"
+                f"{self.fs_snapshot_timestamp}_"
+                f"{self.fs_snapshot_device_id}.csv"
+            )
+            part_filepath = f"{self.output_dir}/filesystem_snapshot/{part_filename}"
+            
+            # Open file handle for this part if needed
+            if self._fs_snap_handle is None or self.output_fs_snapshot_file != part_filepath:
+                if self._fs_snap_handle is not None:
+                    self._fs_snap_handle.close()
+                self._fs_snap_handle = open(part_filepath, 'a', buffering=8192)
+                self.output_fs_snapshot_file = part_filepath
+            
+            # Write buffer to file
             self._write_buffer_to_file(self.fs_snap_buffer, self._fs_snap_handle, "Filesystem Snapshot")
-            self.compress_log(self.output_fs_snapshot_file)
-            self.output_fs_snapshot_file = f"{self.output_dir}/filesystem_snapshot/filesystem_snapshot_{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}.csv"
-
+            
+            # Close handle before compression
             self._fs_snap_handle.close()
-            self._fs_snap_handle = open(self.output_fs_snapshot_file, 'a', buffering=8192)
+            self._fs_snap_handle = None
+            
+            # Compress with gzip
+            if os.path.exists(part_filepath):
+                # Don't log or count each part - we'll log when snapshot is complete
+                with open(part_filepath, "rb") as f_in:
+                    with gzip.open(part_filepath + ".gz", "wb") as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                
+                os.remove(part_filepath)
+                compressed_file = part_filepath + ".gz"
+                
+                # Store for later upload (after snapshot completion and final part rename)
+                if self.automatic_upload:
+                    self.fs_snapshot_parts_pending_upload.append(compressed_file)
+            else:
+                logger("warning", f"Snapshot file not found for compression: {part_filepath}")
+            
+            # Increment part number for next flush
+            self.fs_snapshot_part_number += 1
+            
             self._reset_flush_timer()
+
+    def start_fs_snapshot_session(self):
+        """
+        Initialize a new filesystem snapshot session.
+        
+        Sets up timestamp, device ID, and resets part counter for a new
+        multi-part filesystem snapshot.
+        """
+        self.fs_snapshot_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.fs_snapshot_device_id = capture_machine_id().upper()
+        self.fs_snapshot_part_number = 1
+        self.fs_snapshot_session_active = True
+        self.fs_snapshot_parts_pending_upload.clear()  # Clear any previous session's pending uploads
+        
+    def mark_fs_snapshot_complete(self):
+        """
+        Mark the filesystem snapshot as complete.
+        
+        Renames the last part file to include '_complete_partsN' suffix
+        indicating this is the final part and the total number of parts.
+        """
+        if not self.fs_snapshot_session_active:
+            return
+        
+        total_parts = self.fs_snapshot_part_number - 1  # -1 because we increment after each flush
+        
+        if total_parts < 1:
+            # No parts were written
+            self.fs_snapshot_session_active = False
+            return
+        
+        # Find the last part file (compressed)
+        last_part_str = f"{total_parts:04d}"
+        old_filename = (
+            f"filesystem_snapshot_part{last_part_str}_"
+            f"{self.fs_snapshot_timestamp}_"
+            f"{self.fs_snapshot_device_id}.csv.gz"
+        )
+        old_filepath = f"{self.output_dir}/filesystem_snapshot/{old_filename}"
+        
+        # Construct new filename with completion marker
+        new_filename = (
+            f"filesystem_snapshot_part{last_part_str}_"
+            f"{self.fs_snapshot_timestamp}_"
+            f"{self.fs_snapshot_device_id}_complete_parts{total_parts}.csv.gz"
+        )
+        new_filepath = f"{self.output_dir}/filesystem_snapshot/{new_filename}"
+        
+        # Rename the file (only if it still exists locally)
+        try:
+            if os.path.exists(old_filepath):
+                os.rename(old_filepath, new_filepath)
+                logger("info", f"Filesystem snapshot complete: {total_parts} parts written")
+                
+                # Update the pending upload list with the new filename
+                if self.automatic_upload and old_filepath in self.fs_snapshot_parts_pending_upload:
+                    self.fs_snapshot_parts_pending_upload.remove(old_filepath)
+                    self.fs_snapshot_parts_pending_upload.append(new_filepath)
+            else:
+                # File doesn't exist (may have been already processed)
+                logger("info", f"Filesystem snapshot complete: {total_parts} parts written")
+                
+            # Upload all parts now that snapshot is complete
+            if self.automatic_upload:
+                num_parts = len(self.fs_snapshot_parts_pending_upload)
+                if num_parts > 0:
+                    self.created_files += 1
+                    logger('info', f"Files Created: {str(self.created_files)} (filesystem snapshot with {num_parts} parts)", True)
+                for part_file in self.fs_snapshot_parts_pending_upload:
+                    if os.path.exists(part_file):
+                        self.upload_manager.append_object(part_file)
+                self.fs_snapshot_parts_pending_upload.clear()
+                
+        except Exception as e:
+            logger("error", f"Failed to process final snapshot part: {e}")
+        
+        # Reset session
+        self.fs_snapshot_session_active = False
 
     def flush_process_state_only(self):
         """Flush process state buffer to file."""
@@ -932,6 +1058,11 @@ class WriteManager:
         try:
             src = input_file
             dst = input_file + ".gz"
+            
+            # Check if file exists (may already be compressed for multi-part files)
+            if not os.path.exists(src):
+                return
+            
             self.created_files += 1
             logger('info', f"Files Created: {str(self.created_files)}", True)
             with open(src, "rb") as f_in:

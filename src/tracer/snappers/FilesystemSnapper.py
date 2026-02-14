@@ -63,7 +63,6 @@ class FilesystemSnapper:
         self.interrupt = False
         self.wm = wm
         self._visited_inodes = set()
-        self._root_dev = os.stat(self.root_path).st_dev
 
     def filesystem_snapshot(self, max_depth: int = 3):
         """
@@ -87,9 +86,6 @@ class FilesystemSnapper:
             try:
                 st = os.stat(path, follow_symlinks=False)
             except Exception:
-                return
-
-            if st.st_dev != self._root_dev:
                 return
 
             key = (st.st_dev, st.st_ino)
@@ -136,6 +132,7 @@ class FilesystemSnapper:
         # logger("info", "Starting filesystem snapshot...")
         scan_dir(self.root_path, 0)
         self.wm.flush_fssnap_only()
+        self.wm.mark_fs_snapshot_complete()
         # logger("info", "Filesystem snapshot completed.")
 
     def stop_snapper(self):

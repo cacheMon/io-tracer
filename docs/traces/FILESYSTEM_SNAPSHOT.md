@@ -39,4 +39,30 @@ Files on virtual/pseudo filesystems are automatically excluded by skipping diffe
 
 When `--anonymous` is enabled, file paths are hashed using a deterministic hash function (12-character hash). Directory structure is preserved but individual path components are replaced with hashes. File extensions are kept for analysis purposes.
 
-**Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/filesystem_snapshot/filesystem_snapshot_*.csv`
+**Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/filesystem_snapshot/filesystem_snapshot_part####_TIMESTAMP_DEVICEID*.csv.gz`
+
+## Multi-Part Files
+
+To optimize memory usage during large filesystem scans, snapshots are automatically split into multiple compressed parts:
+
+**File Naming:** `filesystem_snapshot_part####_TIMESTAMP_DEVICEID.csv.gz`
+
+- Part numbers are zero-padded (e.g., `part0001`, `part0002`, ...)
+- Each part is compressed with gzip immediately after writing
+- TIMESTAMP format: `YYYYMMDD_HHMMSS`
+- DEVICEID: Uppercase machine identifier
+
+**Completion Marker:** The final part is renamed to indicate completion:
+
+- Format: `filesystem_snapshot_part####_TIMESTAMP_DEVICEID_complete_partsN.csv.gz`
+- The `_complete_partsN` suffix indicates this is the last part, where N is the total number of parts
+- Example: `filesystem_snapshot_part0003_20260214_120000_ABC123_complete_parts3.csv.gz` means 3 parts total and this is the final one
+
+**Reading Multi-Part Snapshots:**
+1. Locate all parts with matching TIMESTAMP and DEVICEID
+2. Sort parts by part number
+3. Verify the last part has the `_complete_partsN` suffix
+4. Decompress and concatenate all parts in order
+
+For detailed implementation information, see [Multi-Part Filesystem Snapshot Documentation](../MULTIPART_FILESYSTEM_SNAPSHOT.md).
+
