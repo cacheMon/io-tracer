@@ -875,15 +875,15 @@ class IOTracer:
                 logger("warning", "net_drop_events buffer not available")
 
         # Page fault events for mmap I/O tracking
-        try:
-            self.b["pagefault_events"].open_perf_buffer(
-                self._print_event_pagefault,
-                page_cnt=self.page_cnt,
-                lost_cb=self._lost_cb
-            )
-        except KeyError:
-            if self.verbose:
-                logger("warning", "pagefault_events buffer not available")
+        # try:
+        #     self.b["pagefault_events"].open_perf_buffer(
+        #         self._print_event_pagefault,
+        #         page_cnt=self.page_cnt,
+        #         lost_cb=self._lost_cb
+        #     )
+        # except KeyError:
+        #     if self.verbose:
+        #         logger("warning", "pagefault_events buffer not available")
 
         # io_uring events for async I/O tracking
         try:

@@ -207,11 +207,11 @@ class KernelProbeTracker:
                 logger("warning", "splice probe not available on this kernel version")
             
             # Page fault probe for mmap I/O tracking
-            if BPF.get_kprobe_functions(b'filemap_fault'):
-                self.add_kprobe("filemap_fault", "trace_filemap_fault_entry")
-                logger("info", "Page fault tracing enabled via filemap_fault")
-            else:
-                logger("warning", "filemap_fault not available - mmap I/O tracking disabled")
+            # if BPF.get_kprobe_functions(b'filemap_fault'):
+            #     self.add_kprobe("filemap_fault", "trace_filemap_fault_entry")
+            #     logger("info", "Page fault tracing enabled via filemap_fault")
+            # else:
+            #     logger("warning", "filemap_fault not available - mmap I/O tracking disabled")
             
             # Direct I/O probe for bypass detection (return probe only - no latency tracking)
             if BPF.get_kprobe_functions(b'iomap_dio_rw'):
