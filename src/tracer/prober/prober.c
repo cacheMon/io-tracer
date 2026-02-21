@@ -906,9 +906,14 @@ static int get_file_path(struct file *file, char *buf, int size) {
  */
 static u64 get_file_inode_from_dentry(struct dentry *dentry) {
   u64 inode = 0;
-  if (dentry && dentry->d_inode) {
-    inode = dentry->d_inode->i_ino;
-  }
+  if (!dentry)
+    return 0;
+  // dentry may be a scalar (loaded via bpf_probe_read_kernel), so all
+  // further dereferences must go through bpf_probe_read_kernel.
+  struct inode *d_inode = NULL;
+  bpf_probe_read_kernel(&d_inode, sizeof(d_inode), &dentry->d_inode);
+  if (d_inode)
+    bpf_probe_read_kernel(&inode, sizeof(inode), &d_inode->i_ino);
   return inode;
 }
 
@@ -929,13 +934,15 @@ static int get_file_path_from_dentry(struct dentry *dentry, char *buf,
     return 0;
   }
 
-  const unsigned char *name_ptr;
+  // dentry may be a scalar (loaded via bpf_probe_read_kernel), so all
+  // further dereferences must go through bpf_probe_read_kernel.
+  const unsigned char *name_ptr = NULL;
   bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &dentry->d_name.name);
 
   if (name_ptr) {
     bpf_probe_read_kernel_str(buf, size, name_ptr);
   } else {
-    buf[0] = '\0';  // Empty string - fixed from broken memcpy
+    buf[0] = '\0';
   }
 
   return 0;
@@ -1117,10 +1124,31 @@ int trace_vfs_open(struct pt_regs *ctx, const struct path *path,
   data.ts = bpf_ktime_get_ns();
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = OP_OPEN;
-  data.inode = get_file_inode(file);
   data.size = 0;
-  get_file_path(file, data.filename, sizeof(data.filename));
   bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
+
+  // At vfs_open() entry, file->f_path.dentry is not yet initialized.
+  // Use the `path` argument which is already fully resolved.
+  // All further dereferences must go through bpf_probe_read_kernel because
+  // after reading path->dentry the verifier types the result as 'scalar',
+  // and direct -> dereferences on scalars are rejected.
+  struct dentry *path_dentry = NULL;
+  bpf_probe_read_kernel(&path_dentry, sizeof(path_dentry), &path->dentry);
+  if (path_dentry) {
+    // Filename: path_dentry->d_name.name
+    const unsigned char *name_ptr = NULL;
+    bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr),
+                          &path_dentry->d_name.name);
+    if (name_ptr) {
+      bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
+    }
+    // Inode: path_dentry->d_inode->i_ino
+    struct inode *d_inode = NULL;
+    bpf_probe_read_kernel(&d_inode, sizeof(d_inode), &path_dentry->d_inode);
+    if (d_inode) {
+      bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &d_inode->i_ino);
+    }
+  }
 
   events.perf_submit(ctx, &data, sizeof(data));
 
@@ -1364,19 +1392,28 @@ int trace_vfs_getattr(struct pt_regs *ctx, const struct path *path,
     return 0;
   }
 
-  if (!path || !path->dentry) {
-    return 0;
-  }
-
   struct data_t data = {};
   data.pid = pid;
   data.ts = bpf_ktime_get_ns();
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = OP_GETATTR;
-  data.inode = get_file_inode_from_dentry(path->dentry);
   data.size = 0;
-  get_file_path_from_dentry(path->dentry, data.filename, sizeof(data.filename));
   data.flags = 0;
+
+  struct dentry *path_dentry = NULL;
+  bpf_probe_read_kernel(&path_dentry, sizeof(path_dentry), &path->dentry);
+  if (path_dentry) {
+    const unsigned char *name_ptr = NULL;
+    bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &path_dentry->d_name.name);
+    if (name_ptr) {
+      bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
+    }
+    struct inode *d_inode = NULL;
+    bpf_probe_read_kernel(&d_inode, sizeof(d_inode), &path_dentry->d_inode);
+    if (d_inode) {
+      bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &d_inode->i_ino);
+    }
+  }
 
   events.perf_submit(ctx, &data, sizeof(data));
 
@@ -1384,17 +1421,17 @@ int trace_vfs_getattr(struct pt_regs *ctx, const struct path *path,
 }
 
 /**
- * @brief Trace vfs_setattr() - File attribute modifications
+ * @brief Trace notify_change() - File attribute modifications
  *
  * Captures chmod(), chown(), utimes() and similar operations.
+ * Attached to notify_change() which has the signature:
+ *   int notify_change(struct mnt_idmap *, struct dentry *, struct iattr *, struct inode **)
+ * so dentry is the SECOND argument (PT_REGS_PARM2).
  *
- * @param ctx     BPF context
- * @param dentry  Dentry being modified
- * @param attr    New attributes to set
- * @return        0
+ * @param ctx  BPF context
+ * @return     0
  */
-int trace_vfs_setattr(struct pt_regs *ctx, struct dentry *dentry,
-                      struct iattr *attr) {
+int trace_vfs_setattr(struct pt_regs *ctx) {
   u64 pid_tgid = bpf_get_current_pid_tgid();
   u32 pid = pid_tgid >> 32;
 
@@ -1404,6 +1441,8 @@ int trace_vfs_setattr(struct pt_regs *ctx, struct dentry *dentry,
     return 0;
   }
 
+  /* notify_change: arg1 = mnt_idmap*, arg2 = dentry*, arg3 = iattr* */
+  struct dentry *dentry = (struct dentry *)PT_REGS_PARM2(ctx);
   if (!dentry) {
     return 0;
   }
@@ -1413,10 +1452,19 @@ int trace_vfs_setattr(struct pt_regs *ctx, struct dentry *dentry,
   data.ts = bpf_ktime_get_ns();
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = OP_SETATTR;
-  data.inode = get_file_inode_from_dentry(dentry);
   data.size = 0;
-  get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
   data.flags = 0;
+
+  const unsigned char *name_ptr = NULL;
+  bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &dentry->d_name.name);
+  if (name_ptr) {
+    bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
+  }
+  struct inode *d_inode = NULL;
+  bpf_probe_read_kernel(&d_inode, sizeof(d_inode), &dentry->d_inode);
+  if (d_inode) {
+    bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &d_inode->i_ino);
+  }
 
   events.perf_submit(ctx, &data, sizeof(data));
 
@@ -1500,8 +1548,13 @@ int trace_readdir(struct pt_regs *ctx, struct file *file,
  * @param dentry  Dentry being unlinked
  * @return        0
  */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+int trace_vfs_unlink(struct pt_regs *ctx, void *idmap, struct inode *dir,
+                     struct dentry *dentry) {
+#else
 int trace_vfs_unlink(struct pt_regs *ctx, struct inode *dir,
                      struct dentry *dentry) {
+#endif
   u64 pid_tgid = bpf_get_current_pid_tgid();
   u32 pid = pid_tgid >> 32;
 
@@ -1516,16 +1569,21 @@ int trace_vfs_unlink(struct pt_regs *ctx, struct inode *dir,
   data.ts = bpf_ktime_get_ns();
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = OP_UNLINK;
-
-  if (dentry && dentry->d_inode) {
-    bpf_probe_read_kernel(&data.inode, sizeof(data.inode),
-                          &dentry->d_inode->i_ino);
-  }
-
-  get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
-
   data.size = 0;
   data.flags = 0;
+
+  if (dentry) {
+    const unsigned char *name_ptr = NULL;
+    bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &dentry->d_name.name);
+    if (name_ptr) {
+      bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
+    }
+    struct inode *d_inode = NULL;
+    bpf_probe_read_kernel(&d_inode, sizeof(d_inode), &dentry->d_inode);
+    if (d_inode) {
+      bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &d_inode->i_ino);
+    }
+  }
 
   events.perf_submit(ctx, &data, sizeof(data));
   return 0;
@@ -1540,7 +1598,11 @@ int trace_vfs_unlink(struct pt_regs *ctx, struct inode *dir,
  * @param path  Path being truncated
  * @return      0
  */
-int trace_vfs_truncate(struct pt_regs *ctx, const struct path *path) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+int trace_vfs_truncate(struct pt_regs *ctx, void *idmap, struct dentry *dentry) {
+#else
+int trace_vfs_truncate(struct pt_regs *ctx, struct dentry *dentry) {
+#endif
   u64 pid_tgid = bpf_get_current_pid_tgid();
   u32 pid = pid_tgid >> 32;
 
@@ -1555,18 +1617,21 @@ int trace_vfs_truncate(struct pt_regs *ctx, const struct path *path) {
   data.ts = bpf_ktime_get_ns();
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = OP_TRUNCATE;
-
-  if (path && path->dentry && path->dentry->d_inode) {
-    bpf_probe_read_kernel(&data.inode, sizeof(data.inode),
-                          &path->dentry->d_inode->i_ino);
-  }
-
-  if (path && path->dentry) {
-    get_file_path_from_dentry(path->dentry, data.filename, sizeof(data.filename));
-  }
-
   data.size = 0;
   data.flags = 0;
+
+  if (dentry) {
+    const unsigned char *name_ptr = NULL;
+    bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &dentry->d_name.name);
+    if (name_ptr) {
+      bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
+    }
+    struct inode *d_inode = NULL;
+    bpf_probe_read_kernel(&d_inode, sizeof(d_inode), &dentry->d_inode);
+    if (d_inode) {
+      bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &d_inode->i_ino);
+    }
+  }
 
   events.perf_submit(ctx, &data, sizeof(data));
   return 0;
@@ -1688,8 +1753,13 @@ int trace_vfs_rename(struct pt_regs *ctx, struct renamedata_bpf *rd) {
  * @param mode    Permission mode (e.g., 0755)
  * @return        0
  */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+int trace_vfs_mkdir(struct pt_regs *ctx, void *idmap, struct inode *dir,
+                    struct dentry *dentry, umode_t mode) {
+#else
 int trace_vfs_mkdir(struct pt_regs *ctx, struct inode *dir,
                     struct dentry *dentry, umode_t mode) {
+#endif
   u64 pid_tgid = bpf_get_current_pid_tgid();
   u32 pid = pid_tgid >> 32;
 
@@ -1708,10 +1778,19 @@ int trace_vfs_mkdir(struct pt_regs *ctx, struct inode *dir,
   data.ts = bpf_ktime_get_ns();
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = OP_MKDIR;
-  data.inode = get_file_inode_from_dentry(dentry);
   data.size = 0;
-  get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
   data.flags = mode;
+
+  const unsigned char *name_ptr = NULL;
+  bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &dentry->d_name.name);
+  if (name_ptr) {
+    bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
+  }
+  struct inode *d_inode = NULL;
+  bpf_probe_read_kernel(&d_inode, sizeof(d_inode), &dentry->d_inode);
+  if (d_inode) {
+    bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &d_inode->i_ino);
+  }
 
   events.perf_submit(ctx, &data, sizeof(data));
   return 0;
@@ -1727,8 +1806,13 @@ int trace_vfs_mkdir(struct pt_regs *ctx, struct inode *dir,
  * @param dentry  Directory being removed
  * @return        0
  */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+int trace_vfs_rmdir(struct pt_regs *ctx, void *idmap, struct inode *dir,
+                    struct dentry *dentry) {
+#else
 int trace_vfs_rmdir(struct pt_regs *ctx, struct inode *dir,
                     struct dentry *dentry) {
+#endif
   u64 pid_tgid = bpf_get_current_pid_tgid();
   u32 pid = pid_tgid >> 32;
 
@@ -1747,10 +1831,19 @@ int trace_vfs_rmdir(struct pt_regs *ctx, struct inode *dir,
   data.ts = bpf_ktime_get_ns();
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = OP_RMDIR;
-  data.inode = get_file_inode_from_dentry(dentry);
   data.size = 0;
-  get_file_path_from_dentry(dentry, data.filename, sizeof(data.filename));
   data.flags = 0;
+
+  const unsigned char *name_ptr = NULL;
+  bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &dentry->d_name.name);
+  if (name_ptr) {
+    bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
+  }
+  struct inode *d_inode = NULL;
+  bpf_probe_read_kernel(&d_inode, sizeof(d_inode), &dentry->d_inode);
+  if (d_inode) {
+    bpf_probe_read_kernel(&data.inode, sizeof(data.inode), &d_inode->i_ino);
+  }
 
   events.perf_submit(ctx, &data, sizeof(data));
   return 0;

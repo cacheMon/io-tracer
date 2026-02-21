@@ -163,6 +163,8 @@ class IOTracer:
             filename = event.filename.decode()
             if self.anonymous:
                 filename = hash_filename_in_path(Path(filename))
+            if op_name in ['MKDIR', 'RMDIR', 'CHDIR', 'READDIR'] and filename and not filename.endswith('/'):
+                filename += '/'
         except UnicodeDecodeError:
             filename = ""
         
