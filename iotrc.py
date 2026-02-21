@@ -35,12 +35,27 @@ Examples:
 """
 
 import argparse
+import resource
 
 from src.tracer.IOTracer import IOTracer
 from src.utility.utils import capture_machine_id, get_reward_code, is_reward_unlocked
 
 
+def maximize_fd_limit():
+    """Attempt to maximize the file descriptor open limit."""
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        target = 1048576
+        if hard != resource.RLIM_INFINITY:
+            target = min(target, hard)
+        # Sudo often drops the soft limit to 1024. Elevate it back up.
+        resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
+    maximize_fd_limit()
     app_version = "vRelease"
     parser = argparse.ArgumentParser(description='Trace IO syscalls')
     parser.add_argument('-o', '--output', type=str, default="./result", help='Output Directory for logging')

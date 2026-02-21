@@ -136,8 +136,16 @@ class IOTracer:
             sys.exit(1)
 
         try:
+            # Check if cmd_flags exists in block_rq_complete tracepoint
+            cflags = ["-Wno-duplicate-decl-specifier", "-Wno-macro-redefined", "-mllvm", "-bpf-stack-size=4096"]
+            tp_format = "/sys/kernel/debug/tracing/events/block/block_rq_complete/format"
+            if os.path.exists(tp_format):
+                with open(tp_format, "r") as f:
+                    if "cmd_flags" in f.read():
+                        cflags.append("-DHAS_CMD_FLAGS")
+
             # Initialize BPF with the provided source file
-            self.b = BPF(src_file=bpf_file.encode(), cflags=["-Wno-duplicate-decl-specifier", "-Wno-macro-redefined", "-mllvm", "-bpf-stack-size=4096"])
+            self.b = BPF(src_file=bpf_file.encode(), cflags=cflags)
             self.probe_tracker = KernelProbeTracker(self.b)
         except Exception as e:
             logger("error", f"failed to initialize BPF: {e}")

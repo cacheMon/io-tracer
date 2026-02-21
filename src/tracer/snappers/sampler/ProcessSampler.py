@@ -93,26 +93,31 @@ class ProcessSampler:
         """
         while self.running:
             t = time.time()
-            for proc in psutil.process_iter(attrs=('pid', 'create_time', 'cpu_times')):
-                info = proc.info
-                try:
-                    pid = info['pid']
-                    create_time = float(info['create_time'])
-                    cpu_times = info.get('cpu_times')
-                    if cpu_times is None:
+            try:
+                for proc in psutil.process_iter(attrs=('pid', 'create_time', 'cpu_times')):
+                    info = proc.info
+                    try:
+                        pid = info['pid']
+                        create_time = float(info['create_time'])
+                        cpu_times = info.get('cpu_times')
+                        if cpu_times is None:
+                            continue
+                        proc_cpu = (getattr(cpu_times, 'user', 0.0) + getattr(cpu_times, 'system', 0.0))
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
                         continue
-                    proc_cpu = (getattr(cpu_times, 'user', 0.0) + getattr(cpu_times, 'system', 0.0))
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
 
-                key = (pid, create_time)
-                with self.lock:
-                    dq = self.history.get(key)
-                    if dq is None:
-                        maxlen = int(self.max_interval / self.sample_interval) + 3
-                        dq = deque(maxlen=maxlen)
-                        self.history[key] = dq
-                    dq.append((t, proc_cpu))
+                    key = (pid, create_time)
+                    with self.lock:
+                        dq = self.history.get(key)
+                        if dq is None:
+                            maxlen = int(self.max_interval / self.sample_interval) + 3
+                            dq = deque(maxlen=maxlen)
+                            self.history[key] = dq
+                        dq.append((t, proc_cpu))
+                        
+            except Exception as e:
+                print(f"[ProcessSampler] Error in sampling loop: {e}")
+                pass
 
             # Clean up old entries
             cutoff = time.time() - self.max_interval
