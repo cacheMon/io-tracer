@@ -2841,6 +2841,7 @@ int trace_truncate_pages(struct pt_regs *ctx, struct address_space *mapping,
  *
  * Captures explicit cache drops (e.g., POSIX_FADV_DONTNEED).
  */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)
 int trace_cache_drop_folio(struct pt_regs *ctx, struct address_space *mapping,
                            struct folio *folio) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
@@ -2880,6 +2881,7 @@ int trace_cache_drop_folio(struct pt_regs *ctx, struct address_space *mapping,
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /**
  * @brief Cache drop probe - page version (kernel < 5.17)
