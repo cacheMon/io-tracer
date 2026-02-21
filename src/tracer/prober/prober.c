@@ -2158,8 +2158,7 @@ TRACEPOINT_PROBE(block, block_rq_complete) {
   event.latency_ns = latency;
   event.queue_time_ns = queue_time;  // New: queue time
   
-  // cmd_flags field was removed from block_rq_complete tracepoint in kernel 5.17+
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
+#ifdef HAS_CMD_FLAGS
   event.cmd_flags = args->cmd_flags; // Capture REQ_* command flags
   // Extract raw operation code from cmd_flags (lower 8 bits contain REQ_OP_*)
   event.op_code = args->cmd_flags & 0xFF;
@@ -2208,6 +2207,7 @@ static int get_filename(struct dentry *dentry, char *buf) {
  * folio_mark_accessed() is called when a cached page is accessed.
  * Indicates data was served from cache without disk I/O.
  */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)
 int trace_folio_mark_accessed(struct pt_regs *ctx, struct folio *folio) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
 
@@ -2242,6 +2242,7 @@ int trace_folio_mark_accessed(struct pt_regs *ctx, struct folio *folio) {
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /**
  * @brief Cache hit probe - page version (kernel < 5.17)
@@ -2291,6 +2292,7 @@ int trace_hit(struct pt_regs *ctx, struct page *page) {
  * filemap_add_folio() adds a new page to cache after disk read.
  * This indicates a cache miss that required actual disk I/O.
  */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)
 int trace_filemap_add_folio(struct pt_regs *ctx, struct address_space *mapping,
                             struct folio *folio, pgoff_t index, gfp_t gfp) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
@@ -2320,6 +2322,7 @@ int trace_filemap_add_folio(struct pt_regs *ctx, struct address_space *mapping,
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /**
  * @brief Cache miss probe - page version (kernel < 5.17)
@@ -2404,6 +2407,7 @@ int trace_account_page_dirtied(struct pt_regs *ctx, struct page *page,
  *
  * folio_mark_dirty() marks a folio as modified in newer kernels.
  */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)
 int trace_folio_mark_dirty(struct pt_regs *ctx, struct folio *folio) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
 
@@ -2437,6 +2441,7 @@ int trace_folio_mark_dirty(struct pt_regs *ctx, struct folio *folio) {
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /**
  * @brief Writeback start probe - page version (kernel < 5.17)
@@ -2484,6 +2489,7 @@ int trace_clear_page_dirty_for_io(struct pt_regs *ctx, struct page *page) {
  *
  * folio_clear_dirty_for_io() starts writeback in newer kernels.
  */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)
 int trace_folio_clear_dirty_for_io(struct pt_regs *ctx, struct folio *folio) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
 
@@ -2517,6 +2523,7 @@ int trace_folio_clear_dirty_for_io(struct pt_regs *ctx, struct folio *folio) {
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /**
  * @brief Writeback completion probe - page version (kernel < 5.17)
@@ -2564,6 +2571,7 @@ int trace_test_clear_page_writeback(struct pt_regs *ctx, struct page *page) {
  *
  * folio_end_writeback() signals writeback completion.
  */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)
 int trace_folio_end_writeback(struct pt_regs *ctx, struct folio *folio) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
 
@@ -2597,6 +2605,7 @@ int trace_folio_end_writeback(struct pt_regs *ctx, struct folio *folio) {
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /**
  * @brief Cache eviction probe - folio version (kernel >= 5.17)
@@ -2604,6 +2613,7 @@ int trace_folio_end_writeback(struct pt_regs *ctx, struct folio *folio) {
  * filemap_remove_folio() evicts pages from cache under memory pressure.
  * Process name "kswapd*" indicates background reclaim, others direct reclaim.
  */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)
 int trace_filemap_remove_folio(struct pt_regs *ctx, struct folio *folio) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
 
@@ -2656,6 +2666,7 @@ int trace_filemap_remove_folio(struct pt_regs *ctx, struct folio *folio) {
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /**
  * @brief Cache eviction probe - page version (kernel < 5.17)
