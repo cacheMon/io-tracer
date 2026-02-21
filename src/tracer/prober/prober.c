@@ -2934,6 +2934,7 @@ int trace_cache_drop_page(struct pt_regs *ctx, struct page *page) {
  * Captures kernel readahead (prefetch) operations that speculatively
  * load pages into cache. count field contains pages being prefetched.
  */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)
 int trace_do_page_cache_readahead(struct pt_regs *ctx, struct address_space *mapping,
                                    struct file *file, pgoff_t index, unsigned long nr_pages) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
@@ -2964,6 +2965,7 @@ int trace_do_page_cache_readahead(struct pt_regs *ctx, struct address_space *map
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /**
  * @brief Cache reclaim probe - memory pressure tracking
