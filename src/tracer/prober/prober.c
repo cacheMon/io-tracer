@@ -2970,6 +2970,7 @@ int trace_do_page_cache_readahead(struct pt_regs *ctx, struct address_space *map
  * kswapd = background reclaim, other processes = direct reclaim.
  * Direct reclaim indicates memory pressure affecting performance.
  */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)
 int trace_shrink_folio_list(struct pt_regs *ctx) {
   u32 pid = bpf_get_current_pid_tgid() >> 32;
 
@@ -2999,6 +3000,7 @@ int trace_shrink_folio_list(struct pt_regs *ctx) {
   cache_events.perf_submit(ctx, &data, sizeof(data));
   return 0;
 }
+#endif
 
 /* ============================================================================
  * PAGE FAULT TRACING
