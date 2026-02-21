@@ -144,6 +144,11 @@ class IOTracer:
             print("Your device are incompatible with this version of IO Tracer. Please notify us at io-tracer@googlegroups.com")
             sys.exit(1)
 
+    def _should_filter_process(self, comm: str) -> bool:
+        """Helper to filter out I/O unrelated system processes."""
+        prefixes = ("swapper/", "ksoftirqd/", "irq/", "migration/", "stopper/")
+        return comm.startswith(prefixes)
+
     def _print_event(self, cpu, data, size):        
         """
         Callback for processing file system VFS events from the perf buffer.
@@ -174,6 +179,9 @@ class IOTracer:
             comm = event.comm.decode()
         except UnicodeDecodeError:
             comm = "[decode_error]"
+            
+        if self._should_filter_process(comm):
+            return
             
         inode_val = event.inode if event.inode != 0 else ""
         
@@ -219,6 +227,9 @@ class IOTracer:
         except UnicodeDecodeError:
             comm = "[decode_error]"
             
+        if self._should_filter_process(comm):
+            return
+            
         inode_old = event.inode_old if event.inode_old != 0 else ""
         inode_new = event.inode_new if event.inode_new != 0 else ""
         
@@ -247,6 +258,9 @@ class IOTracer:
         timestamp = datetime.today()
         pid = event.pid
         comm = event.comm.decode('utf-8', errors='replace')
+        
+        if self._should_filter_process(comm):
+            return
         
         event_types = {
             0: "HIT",
@@ -292,6 +306,10 @@ class IOTracer:
         pid = event.pid
         tid = event.tid
         comm = event.comm.decode('utf-8', errors='replace')
+        
+        if self._should_filter_process(comm):
+            return
+            
         sector = event.sector
         ops_str = event.op.decode('utf-8', errors='replace')
         ops_str = self.flag_mapper.format_block_ops(ops_str)
@@ -349,6 +367,10 @@ class IOTracer:
         ts = datetime.today()
         pid = e.pid
         comm = e.comm.decode("utf-8", errors="replace").strip("\x00")
+        
+        if self._should_filter_process(comm):
+            return
+            
         size_bytes = e.size_bytes
         ty = FlagMapper.format_direction(e.dir)
         proto = FlagMapper.format_proto(e.proto)
@@ -396,6 +418,10 @@ class IOTracer:
         e = self.b["net_conn_events"].event(data)
         ts = datetime.today()
         comm = e.comm.decode("utf-8", errors="replace").strip("\x00")
+        
+        if self._should_filter_process(comm):
+            return
+            
         event_type = FlagMapper.format_conn_event(e.event_type)
         domain = FlagMapper.format_domain(e.domain) if e.domain else ""
         sock_type = FlagMapper.format_sock_type(e.sock_type) if e.sock_type else ""
@@ -450,6 +476,10 @@ class IOTracer:
         e = self.b["net_epoll_events"].event(data)
         ts = datetime.today()
         comm = e.comm.decode("utf-8", errors="replace").strip("\x00")
+        
+        if self._should_filter_process(comm):
+            return
+            
         event_type = FlagMapper.format_epoll_event_type(e.event_type)
         epoll_fd = str(e.epoll_fd) if e.epoll_fd else ""
         target_fd = str(e.target_fd) if e.target_fd else ""
@@ -487,6 +517,10 @@ class IOTracer:
         e = self.b["net_sockopt_events"].event(data)
         ts = datetime.today()
         comm = e.comm.decode("utf-8", errors="replace").strip("\x00")
+        
+        if self._should_filter_process(comm):
+            return
+            
         event_type = FlagMapper.format_sockopt_event(e.event_type)
         option_name = FlagMapper.format_sockopt(e.level, e.optname)
         level = FlagMapper.sockopt_level_map.get(e.level, str(e.level))
@@ -513,6 +547,10 @@ class IOTracer:
         e = self.b["net_drop_events"].event(data)
         ts = datetime.today()
         comm = e.comm.decode("utf-8", errors="replace").strip("\x00")
+        
+        if self._should_filter_process(comm):
+            return
+            
         event_type = FlagMapper.format_drop_event(e.event_type)
         proto = FlagMapper.format_proto(e.proto) if e.proto else ""
         ipver = str(e.ipver) if e.ipver else ""
@@ -564,6 +602,10 @@ class IOTracer:
         pid = event.pid
         tid = event.tid
         comm = event.comm.decode('utf-8', errors='replace')
+        
+        if self._should_filter_process(comm):
+            return
+            
         address = hex(event.address) if event.address else ""
         inode = event.inode if event.inode != 0 else ""
         offset = event.offset if event.offset != 0 else ""
@@ -593,6 +635,10 @@ class IOTracer:
         ts = datetime.today()
         
         comm = e.comm.decode("utf-8", errors="replace").strip("\x00")
+        
+        if self._should_filter_process(comm):
+            return
+            
         event_type = self.flag_mapper.format_io_uring_event_type(e.event_type)
         opcode = self.flag_mapper.format_io_uring_opcode(e.opcode) if e.opcode else ""
         enter_flags = self.flag_mapper.format_io_uring_enter_flags(e.enter_flags) if e.enter_flags else ""
