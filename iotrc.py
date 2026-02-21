@@ -35,7 +35,9 @@ Examples:
 """
 
 import argparse
+import os
 import resource
+import sys
 
 from src.tracer.IOTracer import IOTracer
 from src.utility.utils import capture_machine_id, get_reward_code, is_reward_unlocked
@@ -55,6 +57,10 @@ def maximize_fd_limit():
 
 
 if __name__ == "__main__":
+    if os.geteuid() != 0:
+        print("Error: IO Tracer must be run with sudo or as root.")
+        sys.exit(1)
+        
     maximize_fd_limit()
     app_version = "vRelease"
     parser = argparse.ArgumentParser(description='Trace IO syscalls')
