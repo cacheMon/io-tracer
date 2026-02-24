@@ -25,6 +25,23 @@
 
 > **Note:** Command Flags (field 13) and Operation Code (field 14) are only available on Linux kernel versions < 5.17. The `cmd_flags` field was removed from the `block_rq_complete` tracepoint in kernel 5.17+. On newer kernels (including 5.17, 6.x), these fields will always be empty. Use the Operation field (field 5) and RWBS flags to distinguish I/O types on newer kernels.
 
+## Latency Measurement
+
+I/O latency is tracked across the block layer request lifecycle using kernel tracepoints. The BPF program calculates two distinct types of latency to differentiate software queueing overhead from actual hardware processing time:
+
+1. **Device Latency (Field 7)**:
+   - **Calculation**: Time from `issue` to `completion` (`completion_time - issue_time`).
+   - **Tracepoints**: `block_rq_issue` (records start time) and `block_rq_complete` (calculates final latency).
+   - **Meaning**: Represents the time the request spent being processed by the device driver and the physical storage hardware.
+
+2. **Queue/Scheduler Latency (Field 12)**:
+   - **Calculation**: Time from `insert` to `issue` (`issue_time - insert_time`).
+   - **Tracepoints**: `block_rq_insert` (records insert time) and `block_rq_complete` (calculates final queue latency based on issue time).
+   - **Meaning**: Represents the time the request spent queued up in the OS scheduler waiting to be dispatched to the device.
+
+**Key Matching Mechanism**: 
+To accurately match corresponding `insert`, `issue`, and `complete` events for a single request, the tracer uses a composite key consisting of the block device number and starting sector (`(dev << 32) ^ sector`). CPU IDs are intentionally excluded from the correlation key, as an I/O request may be issued on one CPU but completed via an interrupt handled by a different CPU.
+
 ## Operation Types
 
 Derived from the block layer `rwbs` string and normalized. When the rwbs string contains multiple flags (e.g., "WS", "RM"), the operation field contains pipe-separated values (e.g., "write|sync", "read|meta"):
