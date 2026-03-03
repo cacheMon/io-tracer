@@ -64,7 +64,7 @@ class FilesystemSnapper:
         self.wm = wm
         self._visited_inodes = set()
 
-    def filesystem_snapshot(self, max_depth: int = 3):
+    def filesystem_snapshot(self, max_depth: int = None):
         """
         Perform a filesystem snapshot by walking the directory tree.
         
@@ -73,17 +73,19 @@ class FilesystemSnapper:
         inodes to avoid duplicates.
         
         Args:
-            max_depth: Maximum directory depth to traverse (default: 3)
+            max_depth: Maximum directory depth to traverse (default: None = unlimited)
             
         Returns:
             bool: True if snapshot completed naturally, False if interrupted
         """
         # Capture snapshot timestamp once for all files in this snapshot
         snapshot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
+        count = 0
         def scan_dir(path: str, depth: int = 0):
             """Inner function for recursive directory scanning."""
-            time.sleep(0.02) 
+            nonlocal count
+            if random.random() < 0.3:
+                time.sleep(0.02)
             if self.interrupt or (max_depth is not None and depth > max_depth):
                 return
             try:
@@ -102,7 +104,7 @@ class FilesystemSnapper:
                         if self.interrupt:
                             return
                         try:
-                            if entry.is_file(follow_symlinks=False):
+                            if entry.is_file(follow_symlinks=False) or entry.is_symlink():
                                 if self.anonymous:
                                     est = entry.stat(follow_symlinks=False)  
                                     size = est.st_size
@@ -116,6 +118,7 @@ class FilesystemSnapper:
                                     hashed_path = hash_filename_in_path(Path(hashed_path))
                                     out = format_csv_row(snapshot_timestamp, hashed_path, size, ctime, mtime, atime)
                                     self.wm.append_fs_snap_log(out)
+                                    count += 1  
                                 else:
                                     est = entry.stat(follow_symlinks=False)
                                     size = est.st_size
@@ -125,6 +128,7 @@ class FilesystemSnapper:
                                     atime = datetime.fromtimestamp(est.st_atime)
                                     out = format_csv_row(snapshot_timestamp, hashed_path_str, size, ctime, mtime, atime)
                                     self.wm.append_fs_snap_log(out)
+                                    count += 1     
                             elif entry.is_dir(follow_symlinks=False):
                                 scan_dir(entry.path, depth + 1)
                         except Exception:
@@ -134,7 +138,7 @@ class FilesystemSnapper:
 
         logger("info", "Filesystem Snapshot: session started")
         scan_dir(self.root_path, 0)
-        
+        print(f"Filesystem Snapshot: {count} files captured")
         # Only flush and mark complete if not interrupted
         if not self.interrupt:
             self.wm.flush_fssnap_only()
