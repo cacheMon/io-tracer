@@ -863,7 +863,50 @@ static bool is_regular_file(struct file *file) {
     is_virtual = false;
   }
 
-  return is_reg && !is_virtual;
+  return !is_virtual && is_reg;
+}
+
+static bool is_regular_file_from_path(const struct path *path) {
+  struct dentry *d = NULL;
+  bpf_probe_read_kernel(&d, sizeof(d), &path->dentry);
+  if (!d) return false;
+
+  struct inode *inode = NULL;
+  bpf_probe_read_kernel(&inode, sizeof(inode), &d->d_inode);
+  if (!inode) return false;
+
+  umode_t mode = 0;
+  bpf_probe_read_kernel(&mode, sizeof(mode), &inode->i_mode);
+  if (!S_ISREG(mode)) return false;
+
+  struct super_block *sb = NULL;
+  bpf_probe_read_kernel(&sb, sizeof(sb), &d->d_sb);
+  if (!sb) return false;
+
+  unsigned long magic = 0;
+  bpf_probe_read_kernel(&magic, sizeof(magic), &sb->s_magic);
+
+  switch (magic) {
+  case PROC_SUPER_MAGIC:
+  case SYSFS_MAGIC:
+  case TMPFS_MAGIC:
+  case SOCKFS_MAGIC:
+  case DEBUGFS_MAGIC:
+  case DEVPTS_SUPER_MAGIC:
+  case DEVTMPFS_MAGIC:
+  case PIPEFS_MAGIC:
+  case CGROUP_SUPER_MAGIC:
+  case SELINUX_MAGIC:
+  case FUTEXFS_SUPER_MAGIC:
+  case INOTIFYFS_SUPER_MAGIC:
+  case XENFS_SUPER_MAGIC:
+  case RPCAUTH_GSSMAGIC:
+  case TRACEFS_MAGIC:
+  case 0x19800202:
+    return false;
+  default:
+    return true;
+  }
 }
 
 /**
@@ -1177,6 +1220,10 @@ int trace_vfs_open(struct pt_regs *ctx, const struct path *path,
   u32 config_key = 0;
   u32 *tracer_pid = tracer_config.lookup(&config_key);
   if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  if (!is_regular_file_from_path(path)) {
     return 0;
   }
 

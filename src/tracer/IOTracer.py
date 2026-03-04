@@ -229,7 +229,6 @@ class IOTracer:
         
         output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, inode_val, flags_val, offset_val, tid_val)
         self.writer.append_fs_log(output)
-        print(output)
         
     def _print_event_dual(self, cpu, data, size):
         """
