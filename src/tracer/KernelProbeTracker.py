@@ -165,7 +165,25 @@ class KernelProbeTracker:
             # VFS (Virtual File System) probes
             self.add_kprobe("vfs_read", "trace_vfs_read")
             self.add_kprobe("vfs_write", "trace_vfs_write")
+            # Capture the user-provided filename before the kernel resolves it.
+            # Must be registered BEFORE vfs_open so the path is staged in time.
+            # Uses the same fallback chain as the kretprobe.
+            if BPF.get_kprobe_functions(b'do_sys_openat2'):
+                self.add_kprobe("do_sys_openat2", "trace_do_sys_openat2_entry")
+            elif BPF.get_kprobe_functions(b'__x64_sys_openat'):
+                self.add_kprobe("__x64_sys_openat", "trace_do_sys_openat2_entry")
+            else:
+                self.add_kprobe("sys_openat", "trace_do_sys_openat2_entry")
             self.add_kprobe("vfs_open", "trace_vfs_open")
+            # kretprobe to complete the staged OPEN event with the real fd.
+            # do_sys_openat2 is the primary target (kernel 5.6+); fall back to
+            # the arch-specific wrapper or the old sys_openat on older kernels.
+            if BPF.get_kprobe_functions(b'do_sys_openat2'):
+                self.add_kretprobe("do_sys_openat2", "trace_sys_openat_ret")
+            elif BPF.get_kprobe_functions(b'__x64_sys_openat'):
+                self.add_kretprobe("__x64_sys_openat", "trace_sys_openat_ret")
+            else:
+                self.add_kretprobe("sys_openat", "trace_sys_openat_ret")
             self.add_kprobe("vfs_fsync", "trace_vfs_fsync")
             self.add_kprobe("ksys_sync", "trace_ksys_sync")
             self.add_kprobe("vfs_fsync_range", "trace_vfs_fsync_range")

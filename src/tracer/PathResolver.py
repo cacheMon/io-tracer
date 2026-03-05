@@ -12,6 +12,7 @@ The resolver maintains two caches:
 
 Example:
     resolver = PathResolver(cache_timeout=10)
+    path = resolver.resolve_open_path(pid=1234, inode=12345, filename="file.txt")
     path = resolver.resolve_path(inode=12345, pid=1234, filename="unknown")
 """
 
@@ -104,6 +105,87 @@ class PathResolver:
         except:
             return {}
     
+    def resolve_by_fd(self, pid: int, fd: int, inode: int = 0, filename: str = "") -> str:
+        """
+        Resolve the full path from a known file descriptor.
+
+        A single ``os.readlink`` on ``/proc/<pid>/fd/<fd>`` — O(1), no scanning.
+        This is the preferred method when the fd is available (i.e., for OPEN events
+        captured via the openat kretprobe).
+
+        On success the result is stored in ``inode_to_path`` so that subsequent
+        READ/WRITE events on the same inode benefit without re-reading /proc.
+
+        Args:
+            pid:      Process ID that owns the file descriptor
+            fd:       File descriptor number
+            inode:    Inode number (optional) — used only to populate the cache
+            filename: Basename fallback from eBPF if resolution fails
+
+        Returns:
+            str: Absolute path, or ``filename`` if resolution fails
+        """
+        if not pid or fd < 0:
+            return filename
+
+        try:
+            target = os.readlink(f"/proc/{pid}/fd/{fd}")
+            # Ignore pseudo-file FDs — they have no meaningful path
+            if (target.startswith("pipe:") or
+                    target.startswith("socket:") or
+                    target.startswith("anon_inode:")):
+                return filename
+            # Populate inode cache so later READ/WRITE events are free
+            if inode:
+                self.inode_to_path[inode] = target
+            return target
+        except OSError:
+            return filename
+
+    def resolve_open_path(self, pid: int, inode: int, filename: str = "") -> str:
+        """
+        Resolve the full path for a freshly-opened file descriptor.
+
+        Scans /proc/<pid>/fd/ immediately (no cache) and matches by inode.
+        This is the preferred method for OPEN events because the file
+        descriptor is guaranteed to still be alive at event time.
+
+        Falls back to the basename from the eBPF event if resolution fails.
+
+        Args:
+            pid:      Process ID that opened the file
+            inode:    Inode number captured by eBPF
+            filename: Basename fallback from eBPF (may be empty)
+
+        Returns:
+            str: Full resolved path, or ``filename`` if resolution fails
+        """
+        if not pid or not inode:
+            return filename
+
+        fd_dir = f"/proc/{pid}/fd"
+        try:
+            for fd in os.listdir(fd_dir):
+                link = os.path.join(fd_dir, fd)
+                try:
+                    target = os.readlink(link)
+                    # Skip pipes, sockets, anon inodes - they have no real path
+                    if (target.startswith("pipe:") or
+                            target.startswith("socket:") or
+                            target.startswith("anon_inode:")):
+                        continue
+                    stat_info = os.stat(link)
+                    if stat_info.st_ino == inode:
+                        # Populate the cache so later events benefit too
+                        self.inode_to_path[inode] = target
+                        return target
+                except OSError:
+                    continue
+        except OSError:
+            pass
+
+        return filename
+
     def resolve_path(self, inode: int, pid: int | None = None, filename: str | None = None) -> str:
         """
         Resolve the full path for an inode.

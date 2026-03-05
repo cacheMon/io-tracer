@@ -3,9 +3,11 @@
 **Description:** Captures file system operations at the VFS layer, intercepting all file access operations regardless of the underlying filesystem.
 
 **Kernel Probes Attached:**
+- `do_sys_openat2` (entry) — Captures the user-provided filename string before kernel resolution
+- `do_sys_openat2` (return) — Captures the allocated file descriptor after a successful open
+- `vfs_open` — File open operations (inode and flags)
 - `vfs_read` — File read operations
 - `vfs_write` — File write operations
-- `vfs_open` — File open operations
 - `vfs_fsync` / `vfs_fsync_range` — File sync operations
 - `vfs_unlink` — File deletion operations
 - `vfs_getattr` — File attribute queries
@@ -20,7 +22,64 @@
 - `vfs_fallocate` — File space pre-allocation operations
 - `do_sendfile` / `__do_sendfile` — Efficient file-to-file transfer operations
 
-## Data Captured
+## Filename Resolution
+
+The `filename` field contains the best available path for the file at event time. Full absolute paths are resolved entirely inside the kernel at probe time before the process can exit, so even output from short-lived processes (e.g. `cat`, `ls`) contains correct paths.
+
+### Resolution Pipeline
+
+Resolution is attempted in priority order for each event type:
+
+```
+OPEN events
+───────────
+①  do_sys_openat2 kprobe (entry)
+   └─ bpf_probe_read_user_str(filename_arg)
+      → full path if the caller passed an absolute path  (e.g. /etc/ld.so.cache)
+      → relative path or basename if caller used a relative path
+
+②  vfs_open kprobe (using result from ①)
+   ├─ if staged path starts with '/'  →  use it as filename, cache inode→path
+   └─ else  →  fall back to d_name (basename from dentry)
+
+③  do_sys_openat2 kretprobe (return)
+   └─ inserts real fd into the event, cleans up staging maps; emits to perf
+
+Non-OPEN events  (READ, WRITE, CLOSE, MMAP, etc.)
+──────────────────────────────────────────────────
+④  inode_to_path cache  (populated by ① during OPEN events)
+   ├─ cache hit  →  full absolute path
+   └─ cache miss →  basename from d_name (the dentry short name)
+```
+
+### File Descriptor Field
+
+For `OPEN` events the `fd` column (last column) contains the allocated file descriptor number returned by the `openat` syscall. This is guaranteed to match the fd seen by userspace. For all other event types this field is `0`.
+
+### Caveats
+
+#### Relative paths remain relative
+If a process opens a file with a relative path (e.g. `openat(AT_FDCWD, "data/output.txt", ...)`) the captured string is `data/output.txt`, not the absolute path. This is common for application-level file opens. Library and system file opens (by the dynamic linker etc.) always use absolute paths and are always fully resolved.
+
+#### Kernel-internal and exec-path opens bypass the syscall entry probe
+Opens triggered by the kernel itself (e.g. during `execve` loading the ELF interpreter, or kernel module loading) do not go through `do_sys_openat2`. For these, only the `d_name` basename is available in the filename field.
+
+#### Inode cache is process-lifetime scoped
+The `inode → path` cache populated by OPEN events is held in memory for the tracer session. It covers any file that was opened while the tracer was running. Files opened before the tracer started will only have basenames for non-OPEN events unless an OPEN event for that inode is also captured.
+
+#### Hard links
+A single inode can have multiple paths. The cache stores whichever absolute path was seen first. For files with multiple hard links, the filename may not match the specific link name used by the accessing process.
+
+#### Inode reuse after deletion
+If a file is deleted and a new file is created with the same inode number, the cache may return the old path for new events. This is uncommon during a single trace session but can occur in high-churn workloads. The `inode` field can be used to detect this.
+
+#### Path length truncation
+Filenames are capped at **256 bytes** (`FILENAME_MAX_LEN` in `prober.c`). Paths longer than 255 characters are silently truncated at the buffer boundary. Deeply nested paths (e.g. inside Docker layer directories) may be affected.
+
+#### On-disk path vs. mount namespace path
+The path captured is relative to the mount namespace of the probed process. In container environments this may differ from the host path for the same file.
+
+
 
 | # | Field | Type | Description |
 |---|-------|------|-------------|

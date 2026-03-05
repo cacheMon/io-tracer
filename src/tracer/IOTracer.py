@@ -200,6 +200,33 @@ class IOTracer:
         tid_val = event.tid if hasattr(event, 'tid') and event.tid != 0 else ""
         flags_val = self.flag_mapper.format_fs_flags(event.flags) if event.flags else ""
         
+        # Path resolution strategy:
+        # - OPEN events: bpf_d_path() in the kernel already wrote the full path
+        #   into filename. Populate the inode cache so READ/WRITE on the same
+        #   inode get the path for free. If bpf_d_path fell back to basename
+        #   (no leading '/'), try fd-based userspace resolution as a backup.
+        # - All other events: check the inode cache populated by OPEN events.
+        if not self.anonymous and event.inode != 0:
+            if op_name == 'OPEN':
+                if filename and filename.startswith('/'):
+                    # Kernel gave us the full path — just cache it
+                    self.path_resolver.inode_to_path[event.inode] = filename
+                else:
+                    # bpf_d_path fell back to basename; try userspace fd resolution
+                    fd = event.fd if hasattr(event, 'fd') and event.fd else 0
+                    if fd:
+                        filename = self.path_resolver.resolve_by_fd(
+                            pid=event.pid, fd=fd, inode=event.inode, filename=filename
+                        )
+                    else:
+                        filename = self.path_resolver.resolve_open_path(
+                            pid=event.pid, inode=event.inode, filename=filename
+                        )
+            else:
+                cached = self.path_resolver.inode_to_path.get(event.inode)
+                if cached:
+                    filename = cached
+        
         output = format_csv_row(timestamp, op_name, event.pid, comm, filename, size_val, inode_val, flags_val, offset_val, tid_val)
         self.writer.append_fs_log(output)
         

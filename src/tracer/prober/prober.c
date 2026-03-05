@@ -204,7 +204,7 @@ struct data_t {
   u32 flags;                      /**< File flags (O_RDONLY, O_SYNC, etc.) */
   enum op_type op;                /**< Operation type from op_type enum */
   /* Enhanced fields for I/O correlation and analysis */
-  u32 fd;                         /**< File descriptor (0 if unavailable in kernel) */
+  u32 fd;                         /**< File descriptor. Populated for OPEN events via the openat kretprobe; 0 for all other event types. */
   u64 offset;                     /**< File offset for read/write operations */
   u32 tid;                        /**< Thread ID for multi-threaded correlation */
 };
@@ -684,6 +684,23 @@ BPF_HASH(io_uring_enter_ctx, u64, u64);  /**< io_uring_enter start timestamp */
 /* Per-CPU buffer for large structs that exceed 512-byte stack limit */
 BPF_PERCPU_ARRAY(dual_data_buffer, struct data_dual_t, 1);
 
+/**
+ * @brief Stores the user-provided path string from do_sys_openat2 entry.
+ *
+ * Keyed by pid_tgid. Written by trace_do_sys_openat2_entry and consumed
+ * by trace_vfs_open to provide the full absolute path (as given by the
+ * caller) in place of the d_name basename.
+ */
+struct open_path_t {
+  char path[FILENAME_MAX_LEN]; /**< User-space path string from openat args */
+};
+
+/* Staged path from trace_do_sys_openat2_entry, consumed by trace_vfs_open */
+BPF_HASH(open_path_staging, u64, struct open_path_t, 4096);
+
+/* Staged event data from trace_vfs_open, completed by trace_sys_openat_ret */
+BPF_HASH(open_staging, u64, struct data_t, 4096);
+
 /* ============================================================================
  * PERF OUTPUT BUFFERS
  * ============================================================================
@@ -846,7 +863,50 @@ static bool is_regular_file(struct file *file) {
     is_virtual = false;
   }
 
-  return is_reg && !is_virtual;
+  return !is_virtual && is_reg;
+}
+
+static bool is_regular_file_from_path(const struct path *path) {
+  struct dentry *d = NULL;
+  bpf_probe_read_kernel(&d, sizeof(d), &path->dentry);
+  if (!d) return false;
+
+  struct inode *inode = NULL;
+  bpf_probe_read_kernel(&inode, sizeof(inode), &d->d_inode);
+  if (!inode) return false;
+
+  umode_t mode = 0;
+  bpf_probe_read_kernel(&mode, sizeof(mode), &inode->i_mode);
+  if (!S_ISREG(mode)) return false;
+
+  struct super_block *sb = NULL;
+  bpf_probe_read_kernel(&sb, sizeof(sb), &d->d_sb);
+  if (!sb) return false;
+
+  unsigned long magic = 0;
+  bpf_probe_read_kernel(&magic, sizeof(magic), &sb->s_magic);
+
+  switch (magic) {
+  case PROC_SUPER_MAGIC:
+  case SYSFS_MAGIC:
+  case TMPFS_MAGIC:
+  case SOCKFS_MAGIC:
+  case DEBUGFS_MAGIC:
+  case DEVPTS_SUPER_MAGIC:
+  case DEVTMPFS_MAGIC:
+  case PIPEFS_MAGIC:
+  case CGROUP_SUPER_MAGIC:
+  case SELINUX_MAGIC:
+  case FUTEXFS_SUPER_MAGIC:
+  case INOTIFYFS_SUPER_MAGIC:
+  case XENFS_SUPER_MAGIC:
+  case RPCAUTH_GSSMAGIC:
+  case TRACEFS_MAGIC:
+  case 0x19800202:
+    return false;
+  default:
+    return true;
+  }
 }
 
 /**
@@ -1104,6 +1164,54 @@ int trace_vfs_write(struct pt_regs *ctx, struct file *file,
  * @param file  Newly allocated file structure
  * @return      0
  */
+/**
+ * @brief Kprobe on do_sys_openat2 entry — captures the user-provided path.
+ *
+ * Reads the filename string from the second syscall argument with
+ * bpf_probe_read_user_str before the path is resolved by the kernel. This
+ * gives us the exact string the caller passed (often an absolute path like
+ * "/etc/ld.so.cache") keyed by pid_tgid so that trace_vfs_open can use it.
+ *
+ * do_sys_openat2 signature: long do_sys_openat2(int dfd, const char __user *filename, ...)
+ *
+ * @param ctx  BPF context (PT_REGS_PARM2 = user filename pointer)
+ * @return     0
+ */
+int trace_do_sys_openat2_entry(struct pt_regs *ctx) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  const char __user *user_path = (const char __user *)PT_REGS_PARM2(ctx);
+  if (!user_path) {
+    return 0;
+  }
+
+  struct open_path_t staged = {};
+  bpf_probe_read_user_str(staged.path, sizeof(staged.path), user_path);
+  open_path_staging.update(&pid_tgid, &staged);
+  return 0;
+}
+
+/**
+ * @brief Trace vfs_open()
+ *
+ * Stages a partial data_t for the OPEN event. Uses the absolute path captured
+ * by trace_do_sys_openat2_entry when available (most library/file opens), or
+ * falls back to the d_name basename from the dentry.
+ *
+ * Does not filter by file type to catch all opens.
+ *
+ * @param ctx   BPF context
+ * @param path  Path being opened
+ * @param file  Newly allocated file structure
+ * @return      0
+ */
 int trace_vfs_open(struct pt_regs *ctx, const struct path *path,
                    struct file *file) {
   u64 pid_tgid = bpf_get_current_pid_tgid();
@@ -1115,34 +1223,44 @@ int trace_vfs_open(struct pt_regs *ctx, const struct path *path,
     return 0;
   }
 
-  // if (!is_regular_file(file)) {
-  //     return 0;
-  // }
+  if (!is_regular_file_from_path(path)) {
+    return 0;
+  }
 
   struct data_t data = {};
   data.pid = pid;
+  data.tid = (u32)pid_tgid;
   data.ts = bpf_ktime_get_ns();
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = OP_OPEN;
   data.size = 0;
   bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
 
-  // At vfs_open() entry, file->f_path.dentry is not yet initialized.
-  // Use the `path` argument which is already fully resolved.
-  // All further dereferences must go through bpf_probe_read_kernel because
-  // after reading path->dentry the verifier types the result as 'scalar',
-  // and direct -> dereferences on scalars are rejected.
+  // Prefer the full path captured from the syscall entry (trace_do_sys_openat2_entry).
+  // This is the string the caller passed — for library loads and most file opens
+  // this is already an absolute path (e.g. /etc/ld.so.cache, /lib/x86_64-linux-gnu/libc.so.6).
+  // Fall back to d_name (basename) for opens that don't come through openat
+  // (e.g. exec paths, kernel-internal opens).
+  struct open_path_t *staged_path = open_path_staging.lookup(&pid_tgid);
+  if (staged_path && staged_path->path[0] == '/') {
+    bpf_probe_read_kernel(data.filename, sizeof(data.filename), staged_path->path);
+  } else {
+    // Fallback: read d_name (basename) from the dentry
+    struct dentry *path_dentry = NULL;
+    bpf_probe_read_kernel(&path_dentry, sizeof(path_dentry), &path->dentry);
+    if (path_dentry) {
+      const unsigned char *name_ptr = NULL;
+      bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr), &path_dentry->d_name.name);
+      if (name_ptr) {
+        bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
+      }
+    }
+  }
+
+  // Inode: path->dentry->d_inode->i_ino
   struct dentry *path_dentry = NULL;
   bpf_probe_read_kernel(&path_dentry, sizeof(path_dentry), &path->dentry);
   if (path_dentry) {
-    // Filename: path_dentry->d_name.name
-    const unsigned char *name_ptr = NULL;
-    bpf_probe_read_kernel(&name_ptr, sizeof(name_ptr),
-                          &path_dentry->d_name.name);
-    if (name_ptr) {
-      bpf_probe_read_kernel_str(data.filename, sizeof(data.filename), name_ptr);
-    }
-    // Inode: path_dentry->d_inode->i_ino
     struct inode *d_inode = NULL;
     bpf_probe_read_kernel(&d_inode, sizeof(d_inode), &path_dentry->d_inode);
     if (d_inode) {
@@ -1150,8 +1268,50 @@ int trace_vfs_open(struct pt_regs *ctx, const struct path *path,
     }
   }
 
-  events.perf_submit(ctx, &data, sizeof(data));
+  // Stage the event — the fd is not yet allocated at vfs_open() time.
+  // trace_sys_openat_ret (kretprobe on the openat syscall) will pick this
+  // up, insert the real fd from the return value, and submit to perf.
+  open_staging.update(&pid_tgid, &data);
 
+  return 0;
+}
+
+/**
+ * @brief Kretprobe on openat syscall — completes the staged OPEN event.
+ *
+ * Retrieves the partial data_t staged by trace_vfs_open, inserts the
+ * file descriptor from PT_REGS_RC (the syscall return value), and submits
+ * the completed event to the perf buffer.
+ *
+ * Attached to do_sys_openat2 (primary, kernel 5.6+) with fallback to
+ * __x64_sys_openat / sys_openat in KernelProbeTracker.
+ *
+ * Failed opens (negative return) are silently discarded.
+ *
+ * @param ctx  BPF context (return value accessible via PT_REGS_RC)
+ * @return     0
+ */
+int trace_sys_openat_ret(struct pt_regs *ctx) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+
+  struct data_t *staged = open_staging.lookup(&pid_tgid);
+  if (!staged) {
+    open_path_staging.delete(&pid_tgid);
+    return 0;  // no staged open for this thread (e.g. exec path)
+  }
+
+  long fd = PT_REGS_RC(ctx);
+  if (fd < 0) {
+    // Open failed — discard the staged event cleanly
+    open_staging.delete(&pid_tgid);
+    open_path_staging.delete(&pid_tgid);
+    return 0;
+  }
+
+  staged->fd = (u32)fd;
+  events.perf_submit(ctx, staged, sizeof(*staged));
+  open_staging.delete(&pid_tgid);
+  open_path_staging.delete(&pid_tgid);
   return 0;
 }
 
