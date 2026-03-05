@@ -371,26 +371,29 @@ class FlagMapper:
         """
         prot = flags & 0xFFFF
         map_flags = (flags >> 16) & 0xFFFF
-        
-        # Decode protection flags
-        prot_result = []
+        prot_str = self.format_mmap_prot_flags(prot)
+        map_str = self.format_mmap_map_flags(map_flags)
+        return f"{prot_str},{map_str}"
+
+    def format_mmap_prot_flags(self, prot):
+        """Format mmap PROT_* bits as a pipe-separated string."""
         if prot == 0:
-            prot_result.append("PROT_NONE")
-        else:
-            for flag, name in self.mmap_prot_flags.items():
-                if flag != 0 and prot & flag:
-                    prot_result.append(name)
-        
-        # Decode mapping flags
-        map_result = []
+            return "PROT_NONE"
+        result = []
+        for flag, name in self.mmap_prot_flags.items():
+            if flag != 0 and (prot & flag):
+                result.append(name)
+        return "|".join(result) if result else f"UNKNOWN_PROT({prot})"
+
+    def format_mmap_map_flags(self, map_flags):
+        """Format mmap MAP_* bits as a pipe-separated string."""
+        if map_flags == 0:
+            return "NO_MAP"
+        result = []
         for flag, name in self.mmap_map_flags.items():
             if map_flags & flag:
-                map_result.append(name)
-        
-        prot_str = "|".join(prot_result) if prot_result else "NO_PROT"
-        map_str = "|".join(map_result) if map_result else "NO_MAP"
-        
-        return f"{prot_str},{map_str}"
+                result.append(name)
+        return "|".join(result) if result else f"UNKNOWN_MAP({map_flags})"
 
     def decode_fallocate_flags(self, flags):
         """

@@ -90,9 +90,11 @@ The path captured is relative to the mount namespace of the probed process. In c
 | 5 | Filename | `string` | File path; for dual-path operations (RENAME, LINK) formatted as `old_path -> new_path` |
 | 6 | Size | `u64` | I/O size in bytes (`0` for non-I/O operations) |
 | 7 | Inode | `u64` | File inode number; empty if `0` |
-| 8 | Flags | `string` | Operation-specific flags (see tables below); empty if none |
+| 8 | Flags | `string` | Operation-specific flags for non-MMAP operations (see tables below); empty if none |
 | 9 | Offset | `u64` | File offset for positioned I/O; empty if `0` |
 | 10 | TID | `u32` | Thread ID for multi-threaded correlation; empty if `0` |
+| 11 | mmap_prot | `string` | MMAP protection flags (`PROT_*`, pipe-separated); empty for non-MMAP operations |
+| 12 | mmap_flags | `string` | MMAP mapping flags (`MAP_*`, pipe-separated); empty for non-MMAP operations |
 
 ## Operation Types
 
@@ -156,7 +158,11 @@ Displayed for `OPEN` operations. Multiple flags are combined with `|` (pipe):
 
 ## Mmap Flags
 
-Displayed for `MMAP` operations. Protection and mapping flags are comma-separated (`prot,map`), each internally pipe-separated:
+Displayed for `MMAP` operations using dedicated columns:
+- `mmap_prot`: protection flags (`PROT_*`)
+- `mmap_flags`: mapping flags (`MAP_*`)
+
+The generic `flags` column is not used for `MMAP` events.
 
 ### Protection Flags
 

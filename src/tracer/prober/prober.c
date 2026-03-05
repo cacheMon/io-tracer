@@ -207,6 +207,8 @@ struct data_t {
   u32 fd;                         /**< File descriptor. Populated for OPEN events via the openat kretprobe; 0 for all other event types. */
   u64 offset;                     /**< File offset for read/write operations */
   u32 tid;                        /**< Thread ID for multi-threaded correlation */
+  u32 mmap_prot;                  /**< mmap protection flags (PROT_*) for MMAP events */
+  u32 mmap_flags;                 /**< mmap mapping flags (MAP_*) for MMAP events */
 };
 
 /**
@@ -1453,8 +1455,8 @@ int trace_fput(struct pt_regs *ctx, struct file *file) {
 /**
  * @brief Trace mmap file mappings
  *
- * Captures memory-mapped file regions. Protection and flags are combined
- * in the flags field (prot in low 16 bits, flags in high 16 bits).
+ * Captures memory-mapped file regions. mmap protection and mapping flags
+ * are stored in dedicated fields (mmap_prot and mmap_flags).
  *
  * @param ctx   BPF context
  * @param file  File being mapped (NULL for anonymous mappings)
@@ -1487,7 +1489,8 @@ int trace_mmap(struct pt_regs *ctx, struct file *file, unsigned long addr,
   data.inode = get_file_inode(file);
   data.size = len;
   get_file_path(file, data.filename, sizeof(data.filename));
-  data.flags = (u32)prot | ((u32)flags << 16);
+  data.mmap_prot = (u32)prot;
+  data.mmap_flags = (u32)flags;
 
   events.perf_submit(ctx, &data, sizeof(data));
 
