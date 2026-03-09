@@ -193,6 +193,16 @@ class KernelProbeTracker:
             self.add_kprobe("do_mmap", "trace_mmap_entry")
             self.add_kretprobe("do_mmap", "trace_mmap_ret")
             self.add_kprobe("__vm_munmap", "trace_munmap")
+
+            # mremap probes — kernel may export the arch wrapper or the generic symbol
+            if BPF.get_kprobe_functions(b'__x64_sys_mremap'):
+                self.add_kprobe("__x64_sys_mremap", "trace_mremap_entry")
+                self.add_kretprobe("__x64_sys_mremap", "trace_mremap_ret")
+            elif BPF.get_kprobe_functions(b'sys_mremap'):
+                self.add_kprobe("sys_mremap", "trace_mremap_entry")
+                self.add_kretprobe("sys_mremap", "trace_mremap_ret")
+            else:
+                logger("warning", "mremap probe not available on this kernel version")
             
             # File attribute probes
             self.add_kprobe("vfs_getattr", "trace_vfs_getattr")

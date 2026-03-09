@@ -124,6 +124,7 @@ class IOTracer:
         self.is_uncompressed    = is_uncompressed
         self.path_resolver      = PathResolver()
         self.mmap_regions       = {}
+        self.cmdline_cache      = {}  # pid -> cmdline, populated on first successful read
 
         if cache_sample_rate > 1:
             self.writer.set_cache_sampling(cache_sample_rate)
@@ -249,13 +250,40 @@ class IOTracer:
                 resolved_filename = self._resolve_munmap_filename(event.pid, raw_address, size_val)
                 if resolved_filename:
                     filename = resolved_filename
-        
+
+        # Resolve cmdline before any cache eviction so PROCESS_EXIT and
+        # post-exit CLOSE events still get the cached value.
+        cmdline = self._read_cmdline_cached(event.pid)
+
+        # Handle vm lifecycle events that update the region cache only
+        if op_name == "MREMAP":
+            old_addr_val = event.old_addr if hasattr(event, 'old_addr') else 0
+            old_size_val = event.old_size if hasattr(event, 'old_size') else 0
+            resolved_filename = self._handle_mremap(
+                event.pid, old_addr_val, old_size_val, raw_address, size_val
+            )
+            if resolved_filename:
+                filename = resolved_filename
+            old_addr_str = f"0x{old_addr_val:x}" if old_addr_val else ""
+        elif op_name in ("PROCESS_EXEC", "PROCESS_EXIT"):
+            if op_name == "PROCESS_EXEC":
+                # execve() replaces the address space; evict stale mmap regions
+                # AND the old cmdline (argv changes after exec).
+                self._handle_process_exec(event.pid)
+                if cmdline and not filename:
+                    # Use argv[0] as the filename if eBPF didn't populate it
+                    filename = cmdline.split(" ")[0]
+            else:
+                # EXIT: only clear mmap regions. Keep cmdline in cache so that
+                # CLOSE events buffered after PROCESS_EXIT can still resolve it.
+                self.mmap_regions.pop(event.pid, None)
+
         output = format_csv_row(
             timestamp, op_name, event.pid, comm, filename, size_val, inode_val,
-            flags_val, offset_val, tid_val, mmap_prot_val, mmap_flags_val, address_val
+            flags_val, offset_val, tid_val, mmap_prot_val, mmap_flags_val,
+            address_val, cmdline
         )
-        if op_name == "MMAP" or op_name == "MUNMAP":
-            print(output)
+        print(output)
         self.writer.append_fs_log(output)
 
     def _track_mmap_region(self, pid: int, start: int, length: int, filename: str) -> None:
@@ -337,8 +365,120 @@ class IOTracer:
 
         if not regions:
             self.mmap_regions.pop(pid, None)
-        
-        
+
+    def _handle_mremap(
+        self, pid: int, old_addr: int, old_len: int, new_addr: int, new_len: int
+    ) -> str:
+        """
+        Update the mmap_regions cache when an mremap() succeeds.
+
+        Handles three cases:
+        - Move: old_addr != new_addr → remove old region, insert new one
+        - Resize in place: old_addr == new_addr → update region end
+        - Unknown region: ignore silently (mapping predates the tracer)
+
+        Returns:
+            str: filename of the affected region, or "" if not found
+        """
+        regions = self.mmap_regions.get(pid)
+        if not regions:
+            return ""
+
+        match_start = self._find_region_start(regions, old_addr)
+        if match_start is None:
+            return ""
+
+        region = regions[match_start]
+        filename = region.get("filename", "")
+
+        if new_addr == old_addr:
+            # Case 2 — resize in place
+            region["end"] = new_addr + new_len
+        else:
+            # Case 1 — mapping moved to a new address
+            del regions[match_start]
+            regions[new_addr] = {
+                "end": new_addr + new_len,
+                "filename": filename,
+            }
+
+        if not regions:
+            self.mmap_regions.pop(pid, None)
+
+        return filename
+
+    def _read_cmdline(self, pid: int, max_len: int = 512) -> str:
+        """
+        Read the command line of a process from /proc/<pid>/cmdline.
+
+        /proc/<pid>/cmdline contains the argv array with each argument
+        separated by a null byte. We replace null bytes with spaces to
+        produce a human-readable command line string.
+
+        Long command lines (e.g. shell glob expansions, fd listings) are
+        truncated to `max_len` characters with a trailing "..." so CSV rows
+        stay bounded in size.
+
+        Returns:
+            str: Space-joined argument string (≤ max_len chars), or "" if
+                 the process has already exited or the file is unreadable.
+        """
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                raw = f.read()
+            if not raw:
+                return ""
+            # argv elements are separated by \x00; strip trailing \x00 before joining
+            result = raw.rstrip(b"\x00").replace(b"\x00", b" ").decode("utf-8", errors="replace")
+            if len(result) > max_len:
+                result = result[:max_len] + "..."
+            return result
+        except Exception:
+            return ""
+
+    def _read_cmdline_cached(self, pid: int) -> str:
+        """
+        Return the cmdline for a PID, using a cache to survive process exit.
+
+        eBPF events for short-lived processes arrive in the userspace perf
+        buffer *after* the process has already exited, making /proc/<pid>/cmdline
+        unreadable. The first successful read is stored in self.cmdline_cache so
+        that all subsequent events for the same PID can recover the cmdline even
+        after the process is gone. The cache entry is evicted on PROCESS_EXIT.
+
+        Returns:
+            str: Cached or freshly-read cmdline, or "" if never successfully read.
+        """
+        cached = self.cmdline_cache.get(pid)
+        if cached is not None:
+            return cached
+        result = self._read_cmdline(pid)
+        if result:
+            self.cmdline_cache[pid] = result
+        return result
+
+    def _handle_process_exec(self, pid: int) -> None:
+        """
+        Clear the mmap_regions and cmdline caches for a PID on exec.
+
+        execve() replaces the entire virtual address space, so all tracked
+        mappings are immediately stale. The cmdline also changes (new argv),
+        so flush the cache entry so the next read picks up the new cmdline.
+        """
+        self.mmap_regions.pop(pid, None)
+        self.cmdline_cache.pop(pid, None)
+
+    def _handle_process_exit(self, pid: int) -> None:
+        """
+        Clear the mmap_regions cache for a PID on exit.
+
+        mmap regions are released, but the cmdline cache is intentionally
+        kept so that CLOSE events arriving in the perf buffer after
+        PROCESS_EXIT can still resolve the cmdline. The cache entry will be
+        evicted if the PID is reused and a PROCESS_EXEC arrives for it.
+        """
+        self.mmap_regions.pop(pid, None)
+
     def _print_event_dual(self, cpu, data, size):
         """
         Callback for processing dual-path filesystem events from the perf buffer.
@@ -388,7 +528,6 @@ class IOTracer:
             timestamp, op_name, event.pid, comm, dual_filename, 0, inode_val,
             flags_val, "", "", "", ""
         )
-
         self.writer.append_fs_log(output)
     
     def _print_event_cache(self, cpu, data, size):       
