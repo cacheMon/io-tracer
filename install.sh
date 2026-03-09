@@ -18,6 +18,9 @@ fi
 
 INSTALL_DIR="$REAL_HOME/io-tracer"
 REPO_URL="https://github.com/cacheMon/io-tracer.git"
+RAW_URL="https://raw.githubusercontent.com/cacheMon/io-tracer/main/iotrc.py"
+BIN_NAME="iotrc"
+BIN_DIR="/usr/local/bin"
 
 print_banner() {
     echo -e "${BLUE}"
@@ -146,6 +149,13 @@ clone_repo() {
     fi
 }
 
+install_bin() {
+    log_info "Installing $BIN_NAME to $BIN_DIR..."
+    curl -fsSL "$RAW_URL" -o "$BIN_DIR/$BIN_NAME"
+    chmod +x "$BIN_DIR/$BIN_NAME"
+    log_success "Installed binary: $BIN_DIR/$BIN_NAME"
+}
+
 install_dependencies() {
     case "$DISTRO" in
         ubuntu|linuxmint|pop)
@@ -196,16 +206,16 @@ print_success() {
     echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo "Installation directory: $INSTALL_DIR"
+    echo "Binary:                 $BIN_DIR/$BIN_NAME"
     echo ""
     echo "To run IO-Tracer:"
-    echo "  cd $INSTALL_DIR"
-    echo "  sudo python3 iotrc.py"
+    echo "  sudo $BIN_NAME"
     echo ""
     echo "To install as a systemd service:"
     echo "  sudo bash $INSTALL_DIR/scripts/install_service.sh install"
     echo ""
     echo "For more options, run:"
-    echo "  sudo python3 $INSTALL_DIR/iotrc.py --help"
+    echo "  sudo $BIN_NAME --help"
     echo ""
 }
 
@@ -223,6 +233,8 @@ main() {
     
     clone_repo
     log_success "Repository cloned"
+
+    install_bin
     
     print_success
 }
