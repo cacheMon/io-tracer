@@ -88,3 +88,15 @@ Options:
   restart      Restart the service
   logs         View live service logs
 ```
+
+## Uninstall
+
+Run the uninstaller from your local repo:
+
+```bash
+sudo bash ~/io-tracer/uninstall.sh
+```
+
+This will:
+- Remove the `iotrc` binary from `/usr/local/bin`
+- Optionally delete the cloned repo at `~/io-tracer` (you'll be prompted)

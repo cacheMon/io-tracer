@@ -150,10 +150,28 @@ clone_repo() {
 }
 
 install_bin() {
-    log_info "Installing $BIN_NAME to $BIN_DIR..."
-    curl -fsSL "$RAW_URL" -o "$BIN_DIR/$BIN_NAME"
-    chmod +x "$BIN_DIR/$BIN_NAME"
-    log_success "Installed binary: $BIN_DIR/$BIN_NAME"
+    if [ -f "$BIN_DIR/$BIN_NAME" ]; then
+        log_info "Existing $BIN_NAME found — upgrading..."
+        cp "$BIN_DIR/$BIN_NAME" "$BIN_DIR/$BIN_NAME.bak"
+        if curl -fsSL "$RAW_URL" -o "$BIN_DIR/$BIN_NAME"; then
+            chmod +x "$BIN_DIR/$BIN_NAME"
+            rm -f "$BIN_DIR/$BIN_NAME.bak"
+            log_success "Upgraded $BIN_NAME at $BIN_DIR/$BIN_NAME"
+        else
+            log_error "Download failed — restoring previous version"
+            mv "$BIN_DIR/$BIN_NAME.bak" "$BIN_DIR/$BIN_NAME"
+            exit 1
+        fi
+    else
+        log_info "Installing $BIN_NAME to $BIN_DIR..."
+        if curl -fsSL "$RAW_URL" -o "$BIN_DIR/$BIN_NAME"; then
+            chmod +x "$BIN_DIR/$BIN_NAME"
+            log_success "Installed binary: $BIN_DIR/$BIN_NAME"
+        else
+            log_error "Failed to download $BIN_NAME"
+            exit 1
+        fi
+    fi
 }
 
 install_dependencies() {
@@ -216,6 +234,9 @@ print_success() {
     echo ""
     echo "For more options, run:"
     echo "  sudo $BIN_NAME --help"
+    echo ""
+    echo "To uninstall:"
+    echo "  sudo bash $INSTALL_DIR/uninstall.sh"
     echo ""
 }
 
