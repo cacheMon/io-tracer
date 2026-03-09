@@ -198,11 +198,12 @@ class IOTracer:
         # Enhanced fields
         offset_val = event.offset if hasattr(event, 'offset') and event.offset != 0 else ""
         tid_val = event.tid if hasattr(event, 'tid') and event.tid != 0 else ""
-        flags_val = self.flag_mapper.format_fs_flags(event.flags) if event.flags else ""
+        flags_val = self.flag_mapper.format_vfs_flags(op_name, event.flags)
         mmap_prot_val = ""
         mmap_flags_val = ""
 
         if op_name == "MMAP":
+            flags_val = ""
             raw_mmap_prot = event.mmap_prot if hasattr(event, 'mmap_prot') else 0
             raw_mmap_flags = event.mmap_flags if hasattr(event, 'mmap_flags') else 0
             mmap_prot_val = self.flag_mapper.format_mmap_prot_flags(raw_mmap_prot)
@@ -285,8 +286,12 @@ class IOTracer:
         # Use inode_old for the inode column
         inode_val = f"{inode_old}" if inode_old else ""
         
-        output = format_csv_row(timestamp, op_name, event.pid, comm, dual_filename, 0, inode_val)
-        
+        flags_val = self.flag_mapper.format_vfs_flags(op_name, event.flags)
+        output = format_csv_row(
+            timestamp, op_name, event.pid, comm, dual_filename, 0, inode_val,
+            flags_val, "", "", "", ""
+        )
+
         self.writer.append_fs_log(output)
     
     def _print_event_cache(self, cpu, data, size):       

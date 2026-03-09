@@ -213,6 +213,14 @@ class FlagMapper:
             0x40: "FALLOC_FL_UNSHARE_RANGE"
         }
 
+        # splice/vmsplice flags
+        self.splice_flags = {
+            0x01: "SPLICE_F_MOVE",
+            0x02: "SPLICE_F_NONBLOCK",
+            0x04: "SPLICE_F_MORE",
+            0x08: "SPLICE_F_GIFT"
+        }
+
         # io_uring event types
         self.io_uring_event_types = {
             0: "ENTER",
@@ -574,6 +582,52 @@ class FlagMapper:
             str: The behavior name (e.g., "MADV_DONTNEED") or "UNKNOWN_BEHAVIOR(X)" if unknown.
         """
         return self.madvise_flags.get(flags, f"UNKNOWN_BEHAVIOR({flags})")
+
+    def format_splice_flags(self, flags):
+        """
+        Format splice/vmsplice flags to a human-readable string.
+
+        Args:
+            flags: Integer representing SPLICE_F_* bits.
+
+        Returns:
+            str: Pipe-separated list of flag names or "NO_FLAGS" if none set.
+        """
+        result = []
+        for flag, name in self.splice_flags.items():
+            if flags & flag:
+                result.append(name)
+        return "|".join(result) if result else "NO_FLAGS"
+
+    def format_vfs_flags(self, op_name, flags):
+        """
+        Format VFS flags according to the operation type.
+
+        Args:
+            op_name: VFS operation name (e.g., "OPEN", "FALLOCATE")
+            flags: Integer flag value captured from the kernel
+
+        Returns:
+            str: Human-readable flags, or an empty string when the operation
+                 does not define flag semantics for the current value.
+        """
+        if op_name == "OPEN":
+            return self.format_fs_flags(flags)
+        if op_name == "FALLOCATE":
+            return self.decode_fallocate_flags(flags)
+        if op_name == "SPLICE":
+            return self.format_splice_flags(flags)
+        if op_name == "VMSPLICE":
+            return self.format_splice_flags(flags)
+        if op_name == "MSYNC":
+            return self.format_msync_flags(flags)
+        if op_name == "MADVISE":
+            return self.format_madvise_flags(flags)
+
+        if flags == 0:
+            return ""
+
+        return str(flags)
 
     # =====================================================================
     # Network flag mappings (Phase 0.4 + Phase 3.4)

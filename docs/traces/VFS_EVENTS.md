@@ -61,6 +61,14 @@ For `OPEN` events the `fd` column (last column) contains the allocated file desc
 #### Relative paths remain relative
 If a process opens a file with a relative path (e.g. `openat(AT_FDCWD, "data/output.txt", ...)`) the captured string is `data/output.txt`, not the absolute path. This is common for application-level file opens. Library and system file opens (by the dynamic linker etc.) always use absolute paths and are always fully resolved.
 
+#### Empty `flags` is normal for some non-`MMAP` events
+The `flags` column may be empty even for non-`MMAP` operations. This is expected for several reasons:
+
+- Some probes intentionally emit `flags = 0` (for example `GETATTR`, `SETATTR`, `UNLINK`, `TRUNCATE`, `SYNC`, `RMDIR`, `SENDFILE`), so the CSV `flags` field is blank.
+- Dual-path operations (`RENAME`, `LINK`, `SYMLINK`) are emitted via the dual-event path. They now keep the full CSV column layout, but most current probes still emit `flags = 0`, so the field is usually blank.
+
+So an empty `flags` field does not necessarily mean missing instrumentation; it can also mean the operation does not define a printable flag value for that event.
+
 #### Kernel-internal and exec-path opens bypass the syscall entry probe
 Opens triggered by the kernel itself (e.g. during `execve` loading the ELF interpreter, or kernel module loading) do not go through `do_sys_openat2`. For these, only the `d_name` basename is available in the filename field.
 
@@ -90,7 +98,7 @@ The path captured is relative to the mount namespace of the probed process. In c
 | 5 | Filename | `string` | File path; for dual-path operations (RENAME, LINK) formatted as `old_path -> new_path` |
 | 6 | Size | `u64` | I/O size in bytes (`0` for non-I/O operations) |
 | 7 | Inode | `u64` | File inode number; empty if `0` |
-| 8 | Flags | `string` | Operation-specific flags for non-MMAP operations (see tables below); empty if none |
+| 8 | Flags | `string` | Operation-specific flags for non-MMAP operations (see tables below); empty when the operation has no defined flag value to render |
 | 9 | Offset | `u64` | File offset for positioned I/O; empty if `0` |
 | 10 | TID | `u32` | Thread ID for multi-threaded correlation; empty if `0` |
 | 11 | mmap_prot | `string` | MMAP protection flags (`PROT_*`, pipe-separated); empty for non-MMAP operations |
