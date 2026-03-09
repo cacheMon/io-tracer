@@ -242,6 +242,7 @@ class IOTracer:
         )
         self.writer.append_fs_log(output)
         
+        
     def _print_event_dual(self, cpu, data, size):
         """
         Callback for processing dual-path filesystem events from the perf buffer.

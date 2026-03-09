@@ -221,6 +221,33 @@ class FlagMapper:
             0x08: "SPLICE_F_GIFT"
         }
 
+        # mkdir/chmod-style mode bits
+        self.mode_type_bits = {
+            0o040000: "S_IFDIR",
+            0o100000: "S_IFREG",
+            0o120000: "S_IFLNK",
+            0o020000: "S_IFCHR",
+            0o060000: "S_IFBLK",
+            0o010000: "S_IFIFO",
+            0o140000: "S_IFSOCK",
+        }
+        self.mode_special_bits = {
+            0o4000: "S_ISUID",
+            0o2000: "S_ISGID",
+            0o1000: "S_ISVTX",
+        }
+        self.mode_permission_bits = {
+            0o0400: "S_IRUSR",
+            0o0200: "S_IWUSR",
+            0o0100: "S_IXUSR",
+            0o0040: "S_IRGRP",
+            0o0020: "S_IWGRP",
+            0o0010: "S_IXGRP",
+            0o0004: "S_IROTH",
+            0o0002: "S_IWOTH",
+            0o0001: "S_IXOTH",
+        }
+
         # io_uring event types
         self.io_uring_event_types = {
             0: "ENTER",
@@ -599,6 +626,36 @@ class FlagMapper:
                 result.append(name)
         return "|".join(result) if result else "NO_FLAGS"
 
+    def format_mode_flags(self, mode):
+        """
+        Format inode mode bits to a human-readable string.
+
+        Args:
+            mode: Integer mode value containing type, special, and permission bits.
+
+        Returns:
+            str: Pipe-separated symbolic mode bits, or an octal fallback if none match.
+        """
+        result = []
+
+        mode_type = mode & 0o170000
+        type_name = self.mode_type_bits.get(mode_type)
+        if type_name:
+            result.append(type_name)
+
+        for flag, name in self.mode_special_bits.items():
+            if mode & flag:
+                result.append(name)
+
+        for flag, name in self.mode_permission_bits.items():
+            if mode & flag:
+                result.append(name)
+
+        if result:
+            return "|".join(result)
+
+        return f"MODE({oct(mode)})"
+
     def format_vfs_flags(self, op_name, flags):
         """
         Format VFS flags according to the operation type.
@@ -611,8 +668,10 @@ class FlagMapper:
             str: Human-readable flags, or an empty string when the operation
                  does not define flag semantics for the current value.
         """
-        if op_name == "OPEN":
+        if op_name in {"OPEN", "READ", "WRITE", "CLOSE", "FSYNC", "READDIR"}:
             return self.format_fs_flags(flags)
+        if op_name == "MKDIR":
+            return self.format_mode_flags(flags)
         if op_name == "FALLOCATE":
             return self.decode_fallocate_flags(flags)
         if op_name == "SPLICE":

@@ -64,8 +64,26 @@ If a process opens a file with a relative path (e.g. `openat(AT_FDCWD, "data/out
 #### Empty `flags` is normal for some non-`MMAP` events
 The `flags` column may be empty even for non-`MMAP` operations. This is expected for several reasons:
 
-- Some probes intentionally emit `flags = 0` (for example `GETATTR`, `SETATTR`, `UNLINK`, `TRUNCATE`, `SYNC`, `RMDIR`, `SENDFILE`), so the CSV `flags` field is blank.
-- Dual-path operations (`RENAME`, `LINK`, `SYMLINK`) are emitted via the dual-event path. They now keep the full CSV column layout, but most current probes still emit `flags = 0`, so the field is usually blank.
+- Some probes intentionally emit `flags = 0`, so the CSV `flags` field is blank.
+- Some probes do not assign `flags`, so the zero-initialized default is emitted as blank.
+- Dual-path operations (`RENAME`, `LINK`, `SYMLINK`) are emitted via the dual-event path and currently emit `flags = 0`.
+
+Operations that currently have no rendered `flags` value:
+
+- `MUNMAP`
+- `GETATTR`
+- `SETATTR`
+- `CHDIR`
+- `UNLINK`
+- `TRUNCATE`
+- `SYNC`
+- `RENAME`
+- `RMDIR`
+- `LINK`
+- `SYMLINK`
+- `SENDFILE`
+- `DIO_READ`
+- `DIO_WRITE`
 
 So an empty `flags` field does not necessarily mean missing instrumentation; it can also mean the operation does not define a printable flag value for that event.
 
@@ -137,6 +155,32 @@ The path captured is relative to the mount namespace of the probed process. In c
 | 27 | `DIO_WRITE` | Direct I/O path | Direct I/O write (bypasses page cache) |
 
 **Dual-Path Operations:** `RENAME`, `LINK`, and `SYMLINK` include both source and destination values in the filename field, formatted as `old_path -> new_path`. For `SYMLINK`, this is `target -> link`.
+
+## Flags Coverage
+
+The tracer currently uses the `flags`-related columns as follows:
+
+- `OPEN`: file open flags are rendered in the generic `flags` column.
+- `READ`: file handle flags are rendered in the generic `flags` column using the same `O_*` decoding as `OPEN`.
+- `WRITE`: file handle flags are rendered in the generic `flags` column using the same `O_*` decoding as `OPEN`.
+- `CLOSE`: file handle flags are rendered in the generic `flags` column using the same `O_*` decoding as `OPEN`.
+- `FSYNC`: file handle flags are rendered in the generic `flags` column using the same `O_*` decoding as `OPEN`.
+- `READDIR`: directory file handle flags are rendered in the generic `flags` column using the same `O_*` decoding as `OPEN`.
+- `MMAP`: protection and mapping flags are rendered in `mmap_prot` and `mmap_flags`; the generic `flags` column is unused.
+- `MKDIR`: mode bits are rendered in the generic `flags` column as `S_*` names.
+- `FALLOCATE`: `FALLOC_FL_*` mode bits are rendered in the generic `flags` column.
+- `SPLICE`: `SPLICE_F_*` bits are rendered in the generic `flags` column.
+- `VMSPLICE`: `SPLICE_F_*` bits are rendered in the generic `flags` column when emitted.
+- `MSYNC`: `MS_*` bits are rendered in the generic `flags` column.
+- `MADVISE`: `MADV_*` behavior values are rendered in the generic `flags` column.
+
+For `READ`, `WRITE`, `CLOSE`, `FSYNC`, and `READDIR`, the decoded flag set comes from the kernel file object's `file->f_flags`, so the same `O_*` names used by `OPEN` may appear there.
+
+For `MKDIR`, the decoded value comes from the `mode` argument and may include:
+
+- File type bits such as `S_IFDIR`
+- Permission bits such as `S_IRUSR`, `S_IWUSR`, `S_IXUSR`, `S_IRGRP`, `S_IXGRP`, `S_IROTH`, `S_IXOTH`
+- Special mode bits such as `S_ISUID`, `S_ISGID`, `S_ISVTX`
 
 ## File Open Flags
 
