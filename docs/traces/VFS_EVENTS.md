@@ -95,7 +95,7 @@ The path captured is relative to the mount namespace of the probed process. In c
 | 2 | Operation | `string` | VFS operation type (see table below) |
 | 3 | PID | `u32` | Process ID |
 | 4 | Command | `string` | Process name (max 16 characters) |
-| 5 | Filename | `string` | File path; for dual-path operations (RENAME, LINK) formatted as `old_path -> new_path` |
+| 5 | Filename | `string` | File path; for dual-path operations (`RENAME`, `LINK`, `SYMLINK`) formatted as `old_path -> new_path` |
 | 6 | Size | `u64` | I/O size in bytes (`0` for non-I/O operations) |
 | 7 | Inode | `u64` | File inode number; empty if `0` |
 | 8 | Flags | `string` | Operation-specific flags for non-MMAP operations (see tables below); empty when the operation has no defined flag value to render |
@@ -126,7 +126,7 @@ The path captured is relative to the mount namespace of the probed process. In c
 | 16 | `MKDIR` | `vfs_mkdir()` | Create a directory |
 | 17 | `RMDIR` | `vfs_rmdir()` | Remove an empty directory |
 | 18 | `LINK` | `vfs_link()` | Create a hard link (dual-path: `existing -> link`) |
-| 19 | `SYMLINK` | `vfs_symlink()` | Create a symbolic link |
+| 19 | `SYMLINK` | `vfs_symlink()` | Create a symbolic link (dual-path: `target -> link`) |
 | 20 | `FALLOCATE` | `vfs_fallocate()` | Pre-allocate file space |
 | 21 | `SENDFILE` | `do_sendfile()` | Zero-copy file-to-socket transfer |
 | 22 | `SPLICE` | `splice()` | Zero-copy pipe transfer |
@@ -136,7 +136,7 @@ The path captured is relative to the mount namespace of the probed process. In c
 | 26 | `DIO_READ` | Direct I/O path | Direct I/O read (bypasses page cache) |
 | 27 | `DIO_WRITE` | Direct I/O path | Direct I/O write (bypasses page cache) |
 
-**Dual-Path Operations:** `RENAME` and `LINK` operations include both source and destination paths in the filename field, formatted as `old_path -> new_path`.
+**Dual-Path Operations:** `RENAME`, `LINK`, and `SYMLINK` include both source and destination values in the filename field, formatted as `old_path -> new_path`. For `SYMLINK`, this is `target -> link`.
 
 ## File Open Flags
 
