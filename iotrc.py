@@ -10,7 +10,6 @@ Usage:
     python iotrc.py [OPTIONS]
 
 Options:
-    -o, --output DIRECTORY    Output directory for logging (default: ./result)
     -v, --verbose             Print verbose output
     -a, --anonimize           Enable anonymization of process and file names
     --dev                     Developer mode with extra logs and checks
@@ -20,9 +19,6 @@ Options:
 Examples:
     # Run with default settings
     python iotrc.py
-
-    # Run with verbose output and custom output directory
-    python iotrc.py -v -o /tmp/traces
 
     # Run in developer mode
     python iotrc.py --dev
@@ -38,6 +34,7 @@ import argparse
 import os
 import resource
 import sys
+import tempfile
 
 from src.tracer.IOTracer import IOTracer
 from src.utility.utils import capture_machine_id, get_reward_code, is_reward_unlocked
@@ -64,7 +61,6 @@ if __name__ == "__main__":
     maximize_fd_limit()
     app_version = "vRelease"
     parser = argparse.ArgumentParser(description='Trace IO syscalls')
-    parser.add_argument('-o', '--output', type=str, default="./result", help='Output Directory for logging')
     parser.add_argument('-v', '--verbose', action='store_true', help='Print verbose output')
     parser.add_argument('-a', '--anonimize', action='store_true', help='Enable anonymization of process and file names')
     parser.add_argument('--dev', action='store_true', help='Developer mode with extra logs and checks')
@@ -72,7 +68,7 @@ if __name__ == "__main__":
     parser.add_argument('--reward', action='store_true', help='Show your reward code (unlocked after uploading traces)')
 
     parse_args = parser.parse_args()
-    output_dir = parse_args.output.strip()
+    output_dir = tempfile.gettempdir()
     
     # Handle --computer-id flag: print machine ID and exit
     if parse_args.computer_id:
