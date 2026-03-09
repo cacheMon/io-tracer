@@ -53,6 +53,22 @@ check_root() {
     fi
 }
 
+check_python() {
+    if ! command -v python3 &> /dev/null; then
+        log_error "python3 is not installed. Please install Python 3.6+ and re-run."
+        exit 1
+    fi
+
+    PY_VERSION=$(python3 -c 'import sys; print("%d%02d" % sys.version_info[:2])')
+    if [ "$PY_VERSION" -lt 306 ]; then
+        PY_LABEL=$(python3 --version 2>&1)
+        log_error "Python 3.6+ is required (found $PY_LABEL)"
+        exit 1
+    fi
+
+    log_success "Python $(python3 --version 2>&1 | awk '{print $2}') detected"
+}
+
 detect_distro() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
@@ -243,6 +259,7 @@ print_success() {
 main() {
     print_banner
     check_root
+    check_python
     detect_distro
     
     log_info "Starting IO-Tracer installation..."
