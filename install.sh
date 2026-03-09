@@ -166,28 +166,19 @@ clone_repo() {
 }
 
 install_bin() {
-    if [ -f "$BIN_DIR/$BIN_NAME" ]; then
-        log_info "Existing $BIN_NAME found — upgrading..."
-        cp "$BIN_DIR/$BIN_NAME" "$BIN_DIR/$BIN_NAME.bak"
-        if curl -fsSL "$RAW_URL" -o "$BIN_DIR/$BIN_NAME"; then
-            chmod +x "$BIN_DIR/$BIN_NAME"
-            rm -f "$BIN_DIR/$BIN_NAME.bak"
-            log_success "Upgraded $BIN_NAME at $BIN_DIR/$BIN_NAME"
-        else
-            log_error "Download failed — restoring previous version"
-            mv "$BIN_DIR/$BIN_NAME.bak" "$BIN_DIR/$BIN_NAME"
-            exit 1
-        fi
-    else
-        log_info "Installing $BIN_NAME to $BIN_DIR..."
-        if curl -fsSL "$RAW_URL" -o "$BIN_DIR/$BIN_NAME"; then
-            chmod +x "$BIN_DIR/$BIN_NAME"
-            log_success "Installed binary: $BIN_DIR/$BIN_NAME"
-        else
-            log_error "Failed to download $BIN_NAME"
-            exit 1
-        fi
-    fi
+    log_info "Installing $BIN_NAME wrapper to $BIN_DIR..."
+
+    # Write a wrapper script so that iotrc.py is always executed from inside
+    # the repo directory. This is required because iotrc.py uses package-relative
+    # imports (from src.tracer.IOTracer import ...) which only resolve when
+    # Python's working directory is the repo root.
+    cat > "$BIN_DIR/$BIN_NAME" << EOF
+#!/bin/bash
+exec python3 "$INSTALL_DIR/iotrc.py" "\$@"
+EOF
+
+    chmod +x "$BIN_DIR/$BIN_NAME"
+    log_success "Installed wrapper: $BIN_DIR/$BIN_NAME -> $INSTALL_DIR/iotrc.py"
 }
 
 install_dependencies() {
