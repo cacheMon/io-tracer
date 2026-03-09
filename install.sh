@@ -18,6 +18,9 @@ fi
 
 INSTALL_DIR="$REAL_HOME/io-tracer"
 REPO_URL="https://github.com/cacheMon/io-tracer.git"
+RAW_URL="https://raw.githubusercontent.com/cacheMon/io-tracer-linux/main/iotrc.py"
+BIN_NAME="iotrc"
+BIN_DIR="/usr/local/bin"
 
 print_banner() {
     echo -e "${BLUE}"
@@ -48,6 +51,22 @@ check_root() {
         log_error "This script must be run as root (use sudo)"
         exit 1
     fi
+}
+
+check_python() {
+    if ! command -v python3 &> /dev/null; then
+        log_error "python3 is not installed. Please install Python 3.6+ and re-run."
+        exit 1
+    fi
+
+    PY_VERSION=$(python3 -c 'import sys; print("%d%02d" % sys.version_info[:2])')
+    if [ "$PY_VERSION" -lt 306 ]; then
+        PY_LABEL=$(python3 --version 2>&1)
+        log_error "Python 3.6+ is required (found $PY_LABEL)"
+        exit 1
+    fi
+
+    log_success "Python $(python3 --version 2>&1 | awk '{print $2}') detected"
 }
 
 detect_distro() {
@@ -146,6 +165,22 @@ clone_repo() {
     fi
 }
 
+install_bin() {
+    log_info "Installing $BIN_NAME wrapper to $BIN_DIR..."
+
+    # Write a wrapper script so that iotrc.py is always executed from inside
+    # the repo directory. This is required because iotrc.py uses package-relative
+    # imports (from src.tracer.IOTracer import ...) which only resolve when
+    # Python's working directory is the repo root.
+    cat > "$BIN_DIR/$BIN_NAME" << EOF
+#!/bin/bash
+exec python3 "$INSTALL_DIR/iotrc.py" "\$@"
+EOF
+
+    chmod +x "$BIN_DIR/$BIN_NAME"
+    log_success "Installed wrapper: $BIN_DIR/$BIN_NAME -> $INSTALL_DIR/iotrc.py"
+}
+
 install_dependencies() {
     case "$DISTRO" in
         ubuntu|linuxmint|pop)
@@ -196,22 +231,26 @@ print_success() {
     echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo "Installation directory: $INSTALL_DIR"
+    echo "Binary:                 $BIN_DIR/$BIN_NAME"
     echo ""
     echo "To run IO-Tracer:"
-    echo "  cd $INSTALL_DIR"
-    echo "  sudo python3 iotrc.py"
+    echo "  sudo $BIN_NAME"
     echo ""
     echo "To install as a systemd service:"
     echo "  sudo bash $INSTALL_DIR/scripts/install_service.sh install"
     echo ""
     echo "For more options, run:"
-    echo "  sudo python3 $INSTALL_DIR/iotrc.py --help"
+    echo "  sudo $BIN_NAME --help"
+    echo ""
+    echo "To uninstall:"
+    echo "  sudo bash $INSTALL_DIR/uninstall.sh"
     echo ""
 }
 
 main() {
     print_banner
     check_root
+    check_python
     detect_distro
     
     log_info "Starting IO-Tracer installation..."
@@ -223,6 +262,8 @@ main() {
     
     clone_repo
     log_success "Repository cloned"
+
+    install_bin
     
     print_success
 }

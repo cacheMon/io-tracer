@@ -53,20 +53,17 @@ sudo apt install python3-pytest
 
 ## Usage
 ```
-usage: iotrc.py [-h] [-o OUTPUT] [-v VERBOSE] [-a] [-l] [--dev] [--computer-id]
+usage: sudo iotrc [-h] [-v] [-a] [--dev] [--computer-id] [--reward]
 
 Trace IO syscalls
 
 options:
-  -h, --help            show this help message and exit
-  -o OUTPUT, --output OUTPUT
-                        Output Directory for logging
-  -v VERBOSE, --verbose VERBOSE
-                        Print verbose output
-  -a, --anonimize       Enable anonymization of process and file names
-  -l, --local-only      Disable automatic upload of logs, save the trace locally
-  --dev                 Developer mode with extra logs and checks
-  --computer-id         Print this machine ID and exit
+  -h, --help       show this help message and exit
+  -v, --verbose    Print verbose output
+  -a, --anonimize  Enable anonymization of process and file names
+  --dev            Developer mode with extra logs and checks
+  --computer-id    Print this machine ID and exit
+  --reward         Show your reward code (unlocked after uploading traces)
 ```
 
 ## Trace Types
@@ -88,3 +85,15 @@ Options:
   restart      Restart the service
   logs         View live service logs
 ```
+
+## Uninstall
+
+Run the uninstaller from your local repo:
+
+```bash
+sudo bash ~/io-tracer/uninstall.sh
+```
+
+This will:
+- Remove the `iotrc` binary from `/usr/local/bin`
+- Optionally delete the cloned repo at `~/io-tracer` (you'll be prompted)
