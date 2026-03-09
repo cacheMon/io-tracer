@@ -201,6 +201,7 @@ struct data_t {
   char filename[FILENAME_MAX_LEN]; /**< Filename from dentry (basename only) */
   u64 inode;                      /**< Inode number for file identification */
   u64 size;                       /**< Operation size in bytes (read/write length) */
+  u64 address;                    /**< Mapping address for MMAP/MUNMAP events */
   u32 flags;                      /**< File flags (O_RDONLY, O_SYNC, etc.) */
   enum op_type op;                /**< Operation type from op_type enum */
   /* Enhanced fields for I/O correlation and analysis */
@@ -702,6 +703,9 @@ BPF_HASH(open_path_staging, u64, struct open_path_t, 4096);
 
 /* Staged event data from trace_vfs_open, completed by trace_sys_openat_ret */
 BPF_HASH(open_staging, u64, struct data_t, 4096);
+
+/* Staged MMAP event from do_mmap entry, completed by the do_mmap kretprobe. */
+BPF_HASH(mmap_staging, u64, struct data_t, 4096);
 
 /* ============================================================================
  * PERF OUTPUT BUFFERS
@@ -1466,8 +1470,9 @@ int trace_fput(struct pt_regs *ctx, struct file *file) {
  * @param flags Mapping flags (MAP_SHARED, MAP_PRIVATE, etc.)
  * @return      0
  */
-int trace_mmap(struct pt_regs *ctx, struct file *file, unsigned long addr,
-               unsigned long len, unsigned long prot, unsigned long flags) {
+int trace_mmap_entry(struct pt_regs *ctx, struct file *file, unsigned long addr,
+                     unsigned long len, unsigned long prot,
+                     unsigned long flags) {
   u64 pid_tgid = bpf_get_current_pid_tgid();
   u32 pid = pid_tgid >> 32;
 
@@ -1491,9 +1496,27 @@ int trace_mmap(struct pt_regs *ctx, struct file *file, unsigned long addr,
   get_file_path(file, data.filename, sizeof(data.filename));
   data.mmap_prot = (u32)prot;
   data.mmap_flags = (u32)flags;
+  mmap_staging.update(&pid_tgid, &data);
 
-  events.perf_submit(ctx, &data, sizeof(data));
+  return 0;
+}
 
+int trace_mmap_ret(struct pt_regs *ctx) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  struct data_t *staged = mmap_staging.lookup(&pid_tgid);
+  if (!staged) {
+    return 0;
+  }
+
+  long ret = PT_REGS_RC(ctx);
+  if (ret < 0) {
+    mmap_staging.delete(&pid_tgid);
+    return 0;
+  }
+
+  staged->address = (u64)ret;
+  events.perf_submit(ctx, staged, sizeof(*staged));
+  mmap_staging.delete(&pid_tgid);
   return 0;
 }
 
@@ -1524,6 +1547,7 @@ int trace_munmap(struct pt_regs *ctx, unsigned long addr, size_t len) {
   data.op = OP_MUNMAP;
   data.inode = 0;
   data.size = len;
+  data.address = addr;
   data.flags = 0;
 
   events.perf_submit(ctx, &data, sizeof(data));

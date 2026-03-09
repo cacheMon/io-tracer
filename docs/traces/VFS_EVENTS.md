@@ -50,11 +50,55 @@ Non-OPEN events  (READ, WRITE, CLOSE, MMAP, etc.)
 ④  inode_to_path cache  (populated by ① during OPEN events)
    ├─ cache hit  →  full absolute path
    └─ cache miss →  basename from d_name (the dentry short name)
+
+MMAP/MUNMAP post-processing
+───────────────────────────
+⑤  userspace mmap region cache  (populated by MMAP events)
+   ├─ key: PID + mapping start address
+   ├─ value: mapping end address + filename
+   └─ used by MUNMAP to recover the filename for the unmapped region
+
+`MMAP` stores the actual mapping start returned by `do_mmap` (via kretprobe), not
+the caller's requested hint address. This is required for joining later
+`MUNMAP` events for non-`MAP_FIXED` mappings.
 ```
 
 ### File Descriptor Field
 
 For `OPEN` events the `fd` column (last column) contains the allocated file descriptor number returned by the `openat` syscall. This is guaranteed to match the fd seen by userspace. For all other event types this field is `0`.
+
+### MUNMAP Filename Resolution Implementation
+
+`MUNMAP` does not expose a `struct file *` or inode in the probed kernel path, so the tracer cannot resolve its filename directly in eBPF. The implementation therefore uses a two-stage join across `MMAP` and `MUNMAP` events:
+
+1. `do_mmap` kprobe (`trace_mmap_entry`) captures file-backed mapping metadata:
+   - `PID`
+   - `filename`
+   - `inode`
+   - `length`
+   - `mmap_prot`
+   - `mmap_flags`
+2. That partial event is stored in the BPF `mmap_staging` map, keyed by `pid_tgid`.
+3. `do_mmap` kretprobe (`trace_mmap_ret`) reads the actual return value from `do_mmap`.
+   - On success, the return value is the real mapping start address.
+   - On failure, the staged entry is discarded.
+4. Userspace receives the completed `MMAP` event and stores it in `IOTracer.mmap_regions`, keyed by:
+   - `PID`
+   - mapping start address
+5. The cached value stores:
+   - mapping end address
+   - resolved filename
+6. When `__vm_munmap` fires, the kernel event only carries:
+   - `PID`
+   - unmapped start address
+   - unmapped length
+7. Userspace looks up the tracked region whose address range contains the unmapped start address and copies that region's filename into the `MUNMAP` CSV row.
+8. After a match, the cached region is updated:
+   - full unmap: remove the region
+   - prefix/suffix unmap: shrink the region
+   - middle unmap: split the region into two tracked regions
+
+This is why the `address` column matters for both `MMAP` and `MUNMAP`: it is the join key that lets userspace recover filenames for unmap events.
 
 ### Caveats
 
@@ -93,6 +137,9 @@ Opens triggered by the kernel itself (e.g. during `execve` loading the ELF inter
 #### Inode cache is process-lifetime scoped
 The `inode → path` cache populated by OPEN events is held in memory for the tracer session. It covers any file that was opened while the tracer was running. Files opened before the tracer started will only have basenames for non-OPEN events unless an OPEN event for that inode is also captured.
 
+#### MUNMAP filename recovery is best-effort
+`MUNMAP` does not provide file context in the kernel probe. The tracer recovers the filename in userspace by matching the `PID` and unmapped address against previously seen `MMAP` regions. This works for exact unmaps and partial unmaps of tracked regions, but it cannot recover filenames for mappings that existed before tracing started or for missed `MMAP` events.
+
 #### Hard links
 A single inode can have multiple paths. The cache stores whichever absolute path was seen first. For files with multiple hard links, the filename may not match the specific link name used by the accessing process.
 
@@ -121,6 +168,7 @@ The path captured is relative to the mount namespace of the probed process. In c
 | 10 | TID | `u32` | Thread ID for multi-threaded correlation; empty if `0` |
 | 11 | mmap_prot | `string` | MMAP protection flags (`PROT_*`, pipe-separated); empty for non-MMAP operations |
 | 12 | mmap_flags | `string` | MMAP mapping flags (`MAP_*`, pipe-separated); empty for non-MMAP operations |
+| 13 | address | `string` | Mapping start address as hex (`0x...`) for `MMAP` and `MUNMAP`; empty for other operations |
 
 ## Operation Types
 

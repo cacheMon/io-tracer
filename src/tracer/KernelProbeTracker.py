@@ -190,7 +190,8 @@ class KernelProbeTracker:
             self.add_kprobe("__fput", "trace_fput")
             
             # Memory mapping probes
-            self.add_kprobe("do_mmap", "trace_mmap")
+            self.add_kprobe("do_mmap", "trace_mmap_entry")
+            self.add_kretprobe("do_mmap", "trace_mmap_ret")
             self.add_kprobe("__vm_munmap", "trace_munmap")
             
             # File attribute probes

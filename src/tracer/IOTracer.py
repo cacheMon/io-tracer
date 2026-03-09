@@ -23,6 +23,7 @@ import os
 from bcc import BPF
 import time
 import sys
+from bisect import bisect_right
 from pathlib import Path
 from datetime import datetime
 import socket
@@ -122,6 +123,7 @@ class IOTracer:
         self.anonymous          = anonymous
         self.is_uncompressed    = is_uncompressed
         self.path_resolver      = PathResolver()
+        self.mmap_regions       = {}
 
         if cache_sample_rate > 1:
             self.writer.set_cache_sampling(cache_sample_rate)
@@ -194,6 +196,10 @@ class IOTracer:
         inode_val = event.inode if event.inode != 0 else ""
         
         size_val = event.size if event.size is not None else 0
+        address_val = ""
+        raw_address = event.address if hasattr(event, 'address') else 0
+        if raw_address:
+            address_val = f"0x{raw_address:x}"
         
         # Enhanced fields
         offset_val = event.offset if hasattr(event, 'offset') and event.offset != 0 else ""
@@ -235,12 +241,102 @@ class IOTracer:
                 cached = self.path_resolver.inode_to_path.get(event.inode)
                 if cached:
                     filename = cached
+
+        if raw_address:
+            if op_name == "MMAP":
+                self._track_mmap_region(event.pid, raw_address, size_val, filename)
+            elif op_name == "MUNMAP":
+                resolved_filename = self._resolve_munmap_filename(event.pid, raw_address, size_val)
+                if resolved_filename:
+                    filename = resolved_filename
         
         output = format_csv_row(
             timestamp, op_name, event.pid, comm, filename, size_val, inode_val,
-            flags_val, offset_val, tid_val, mmap_prot_val, mmap_flags_val
+            flags_val, offset_val, tid_val, mmap_prot_val, mmap_flags_val, address_val
         )
+        if op_name == "MMAP" or op_name == "MUNMAP":
+            print(output)
         self.writer.append_fs_log(output)
+
+    def _track_mmap_region(self, pid: int, start: int, length: int, filename: str) -> None:
+        """Track file-backed mappings so later munmap events can recover filenames."""
+        if not start or length <= 0:
+            return
+
+        end = start + length
+        regions = self.mmap_regions.setdefault(pid, {})
+        regions[start] = {
+            "end": end,
+            "filename": filename,
+        }
+
+    def _resolve_munmap_filename(self, pid: int, start: int, length: int) -> str:
+        """Resolve munmap filename from the best matching tracked mmap region."""
+        regions = self.mmap_regions.get(pid)
+        if not regions:
+            return ""
+
+        match_start = self._find_region_start(regions, start)
+        if match_start is None:
+            return ""
+
+        region = regions.get(match_start)
+        if not region:
+            return ""
+
+        filename = region.get("filename", "")
+        self._apply_munmap_to_region(pid, match_start, start, length)
+        return filename
+
+    def _find_region_start(self, regions: dict, address: int) -> int | None:
+        """Find the tracked region that contains the given address."""
+        if address in regions:
+            return address
+
+        starts = sorted(regions)
+        index = bisect_right(starts, address) - 1
+        if index < 0:
+            return None
+
+        candidate_start = starts[index]
+        candidate = regions[candidate_start]
+        if address < candidate["end"]:
+            return candidate_start
+        return None
+
+    def _apply_munmap_to_region(self, pid: int, region_start: int, unmap_start: int, length: int) -> None:
+        """Shrink, split, or remove a tracked mmap region after munmap."""
+        regions = self.mmap_regions.get(pid)
+        if not regions or length <= 0:
+            return
+
+        region = regions.get(region_start)
+        if not region:
+            return
+
+        region_end = region["end"]
+        unmap_end = unmap_start + length
+
+        if unmap_end <= region_start or unmap_start >= region_end:
+            return
+
+        filename = region["filename"]
+        del regions[region_start]
+
+        if region_start < unmap_start:
+            regions[region_start] = {
+                "end": unmap_start,
+                "filename": filename,
+            }
+
+        if unmap_end < region_end:
+            regions[unmap_end] = {
+                "end": region_end,
+                "filename": filename,
+            }
+
+        if not regions:
+            self.mmap_regions.pop(pid, None)
         
         
     def _print_event_dual(self, cpu, data, size):
