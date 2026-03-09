@@ -178,7 +178,11 @@ enum op_type {
   OP_MSYNC,         /**< msync() - Sync memory-mapped region */
   OP_MADVISE,       /**< madvise() - Memory usage advice to kernel */
   OP_DIO_READ,      /**< Direct I/O read (bypassing page cache) */
-  OP_DIO_WRITE      /**< Direct I/O write (bypassing page cache) */
+  OP_DIO_WRITE,     /**< Direct I/O write (bypassing page cache) */
+  /* VM lifecycle events */
+  OP_MREMAP,        /**< mremap() - Remap/move/resize a memory region */
+  OP_PROCESS_EXEC,  /**< sched_process_exec - Process executed new image (address space wiped) */
+  OP_PROCESS_EXIT   /**< sched_process_exit - Process terminated */
 };
 
 /* ============================================================================
@@ -210,6 +214,8 @@ struct data_t {
   u32 tid;                        /**< Thread ID for multi-threaded correlation */
   u32 mmap_prot;                  /**< mmap protection flags (PROT_*) for MMAP events */
   u32 mmap_flags;                 /**< mmap mapping flags (MAP_*) for MMAP events */
+  u64 old_addr;                   /**< mremap: old mapping start address (0 for other ops) */
+  u64 old_size;                   /**< mremap: old mapping length (0 for other ops) */
 };
 
 /**
@@ -246,6 +252,19 @@ struct renamedata_bpf {
   struct inode *new_dir;
   struct dentry *new_dentry;
   /* remaining fields not needed */
+};
+
+/**
+ * @brief Staging struct for sys_mremap arguments
+ *
+ * Saved by the kprobe entry and consumed by the kretprobe so the
+ * return probe can emit an event containing both old and new addresses.
+ */
+struct mremap_args {
+  u64 old_addr;  /**< Old mapping start address */
+  u64 old_len;   /**< Old mapping length */
+  u64 new_len;   /**< Requested new length */
+  u64 flags;     /**< mremap flags (MREMAP_MAYMOVE, etc.) */
 };
 
 /**
@@ -706,6 +725,9 @@ BPF_HASH(open_staging, u64, struct data_t, 4096);
 
 /* Staged MMAP event from do_mmap entry, completed by the do_mmap kretprobe. */
 BPF_HASH(mmap_staging, u64, struct data_t, 4096);
+
+/* Staged mremap args from sys_mremap entry, consumed by the kretprobe. */
+BPF_HASH(mremap_staging, u64, struct mremap_args, 4096);
 
 /* ============================================================================
  * PERF OUTPUT BUFFERS
@@ -1552,6 +1574,141 @@ int trace_munmap(struct pt_regs *ctx, unsigned long addr, size_t len) {
 
   events.perf_submit(ctx, &data, sizeof(data));
 
+  return 0;
+}
+
+/* ============================================================================
+ * MREMAP PROBES
+ * ============================================================================
+ * mremap() can move a mapping to a new address and/or resize it. We need
+ * both the old address (entry probe) and the new address (return value) to
+ * correctly update the userspace mmap_regions cache.
+ */
+
+/**
+ * @brief kprobe entry for sys_mremap - save arguments in staging map
+ *
+ * @param ctx  BPF context
+ * @return     0
+ */
+int trace_mremap_entry(struct pt_regs *ctx) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  struct mremap_args args = {};
+  args.old_addr = (u64)PT_REGS_PARM1(ctx);
+  args.old_len  = (u64)PT_REGS_PARM2(ctx);
+  args.new_len  = (u64)PT_REGS_PARM3(ctx);
+  args.flags    = (u64)PT_REGS_PARM4(ctx);
+
+  mremap_staging.update(&pid_tgid, &args);
+  return 0;
+}
+
+/**
+ * @brief kretprobe return for sys_mremap - emit event with old + new addresses
+ *
+ * On success the kernel returns the new mapping address. On failure it returns
+ * a negative errno value. Failed calls are discarded.
+ *
+ * @param ctx  BPF context (return value accessible via PT_REGS_RC)
+ * @return     0
+ */
+int trace_mremap_ret(struct pt_regs *ctx) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+
+  struct mremap_args *staged = mremap_staging.lookup(&pid_tgid);
+  if (!staged) {
+    return 0;
+  }
+
+  long ret = PT_REGS_RC(ctx);
+  if (ret < 0) {
+    mremap_staging.delete(&pid_tgid);
+    return 0;
+  }
+
+  u32 pid = pid_tgid >> 32;
+
+  struct data_t data = {};
+  data.pid      = pid;
+  data.ts       = bpf_ktime_get_ns();
+  data.op       = OP_MREMAP;
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.old_addr = staged->old_addr;
+  data.old_size = staged->old_len;
+  data.address  = (u64)ret;          /* new_addr returned by the kernel */
+  data.size     = staged->new_len;
+  data.flags    = (u32)staged->flags;
+
+  events.perf_submit(ctx, &data, sizeof(data));
+  mremap_staging.delete(&pid_tgid);
+  return 0;
+}
+
+/* ============================================================================
+ * PROCESS LIFECYCLE TRACEPOINTS
+ * ============================================================================
+ * execve() replaces the entire address space, so any mmap_regions tracked
+ * for that PID are stale. On exit, all mappings are released. These
+ * tracepoints let userspace clean up the region cache immediately.
+ */
+
+/**
+ * @brief sched_process_exec tracepoint - new executable loaded
+ *
+ * execve() destroys the entire virtual address space of the calling process.
+ * Signal userspace to clear all mmap_regions entries for this PID.
+ */
+TRACEPOINT_PROBE(sched, sched_process_exec) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  struct data_t data = {};
+  data.pid = pid;
+  data.ts  = bpf_ktime_get_ns();
+  data.op  = OP_PROCESS_EXEC;
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+
+  events.perf_submit(args, &data, sizeof(data));
+  return 0;
+}
+
+/**
+ * @brief sched_process_exit tracepoint - process is terminating
+ *
+ * All virtual memory regions are freed. Signal userspace to clear all
+ * mmap_regions entries for this PID.
+ */
+TRACEPOINT_PROBE(sched, sched_process_exit) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  struct data_t data = {};
+  data.pid = pid;
+  data.ts  = bpf_ktime_get_ns();
+  data.op  = OP_PROCESS_EXIT;
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+
+  events.perf_submit(args, &data, sizeof(data));
   return 0;
 }
 

@@ -143,7 +143,11 @@ class FlagMapper:
             24: "MSYNC",
             25: "MADVISE",
             26: "DIO_READ",
-            27: "DIO_WRITE"
+            27: "DIO_WRITE",
+            # VM lifecycle events
+            28: "MREMAP",
+            29: "PROCESS_EXEC",
+            30: "PROCESS_EXIT",
         }
 
         # msync flags
@@ -219,6 +223,13 @@ class FlagMapper:
             0x02: "SPLICE_F_NONBLOCK",
             0x04: "SPLICE_F_MORE",
             0x08: "SPLICE_F_GIFT"
+        }
+
+        # mremap flags (from linux/mm.h)
+        self.mremap_flags = {
+            0x1: "MREMAP_MAYMOVE",
+            0x2: "MREMAP_FIXED",
+            0x4: "MREMAP_DONTUNMAP",
         }
 
         # mkdir/chmod-style mode bits
@@ -626,6 +637,23 @@ class FlagMapper:
                 result.append(name)
         return "|".join(result) if result else "NO_FLAGS"
 
+    def format_mremap_flags(self, flags):
+        """
+        Format mremap flags to a human-readable string.
+
+        Args:
+            flags: Integer representing MREMAP_* bits.
+
+        Returns:
+            str: Pipe-separated list of flag names (e.g., "MREMAP_MAYMOVE")
+                 or "NO_FLAGS" if none set.
+        """
+        result = []
+        for flag, name in self.mremap_flags.items():
+            if flags & flag:
+                result.append(name)
+        return "|".join(result) if result else "NO_FLAGS"
+
     def format_mode_flags(self, mode):
         """
         Format inode mode bits to a human-readable string.
@@ -682,6 +710,8 @@ class FlagMapper:
             return self.format_msync_flags(flags)
         if op_name == "MADVISE":
             return self.format_madvise_flags(flags)
+        if op_name == "MREMAP":
+            return self.format_mremap_flags(flags)
 
         if flags == 0:
             return ""

@@ -169,6 +169,50 @@ The path captured is relative to the mount namespace of the probed process. In c
 | 11 | mmap_prot | `string` | MMAP protection flags (`PROT_*`, pipe-separated); empty for non-MMAP operations |
 | 12 | mmap_flags | `string` | MMAP mapping flags (`MAP_*`, pipe-separated); empty for non-MMAP operations |
 | 13 | address | `string` | Mapping start address as hex (`0x...`) for `MMAP` and `MUNMAP`; empty for other operations |
+| 14 | cmdline | `string` | Full command line (`argv` joined by spaces) of the process that triggered the event; empty if unresolvable (see below) |
+
+## `cmdline` Field
+
+The `cmdline` field is populated for **all** VFS operation types, not just process lifecycle events. It is read from `/proc/<pid>/cmdline` in userspace and provides the full argument vector (`argv[0] argv[1] …`) of the process that triggered the event.
+
+### Resolution Pipeline
+
+```
+For every VFS event:
+  ① Check per-PID cmdline cache (self.cmdline_cache)
+     └─ cache hit  →  return cached value immediately
+     └─ cache miss →  read /proc/<pid>/cmdline
+
+  ② /proc/<pid>/cmdline read
+     ├─ success  →  store in cache, return value
+     └─ failure  →  return "" (process already dead, cache never populated)
+```
+
+Cmdline is read **before** any process lifecycle handling (including `PROCESS_EXIT` cache eviction), so the `PROCESS_EXIT` row itself always carries the correct value when the cache was populated.
+
+### Cache Eviction Policy
+
+| Trigger | Eviction |
+|---------|----------|
+| `PROCESS_EXEC` | Evict — `execve()` replaces `argv`; next read picks up the new cmdline |
+| `PROCESS_EXIT` | **No eviction** — `CLOSE` events buffered after `PROCESS_EXIT` still resolve from cache |
+| PID reuse | Handled implicitly by the `PROCESS_EXEC` eviction on the new process |
+
+### Caveats
+
+#### Extremely short-lived processes
+If a process completes entirely within a single perf-buffer batch (spawned and exited before userspace drains the ring buffer), all its events may arrive after `/proc/<pid>/cmdline` is already gone and before any earlier event had a chance to populate the cache. The `cmdline` field will be empty for every event from that process.
+
+#### Long command lines are truncated
+`cmdline` is capped at **512 characters**. Command lines longer than this are truncated with a trailing `...`. This can affect processes launched with many arguments (e.g. shell glob expansions, `find` with long predicate chains).
+
+#### `argv[0]` as filename fallback for `PROCESS_EXEC`
+For `PROCESS_EXEC` events, if the `filename` field is empty (the eBPF probe did not capture a path), `argv[0]` from `cmdline` is used as the filename. This provides best-effort attribution of the executed binary when kernel-side resolution fails (e.g. kernel-internal `execve` calls that bypass `do_sys_openat2`).
+
+#### `comm` vs `cmdline`
+The `command` field (column 4) is the short process name captured in-kernel by eBPF (`task->comm`, max 16 chars). The `cmdline` field is the full argument vector read from `/proc` in userspace. For processes that use `prctl(PR_SET_NAME, ...)` to rename themselves, `comm` may differ from `argv[0]`.
+
+
 
 ## Operation Types
 
@@ -222,7 +266,8 @@ The tracer currently uses the `flags`-related columns as follows:
 - `MSYNC`: `MS_*` bits are rendered in the generic `flags` column.
 - `MADVISE`: `MADV_*` behavior values are rendered in the generic `flags` column.
 
-For `READ`, `WRITE`, `CLOSE`, `FSYNC`, and `READDIR`, the decoded flag set comes from the kernel file object's `file->f_flags`, so the same `O_*` names used by `OPEN` may appear there.
+
+For `READ`, `WRITE`, `CLOSE`, `FSYNC`, and `READDIR`, the decoded flag set is derived from the open file description's `file->f_flags` field in the kernel. These are the flags originally supplied to `open()` and therefore use the same `O_*` names as OPEN events.
 
 For `MKDIR`, the decoded value comes from the `mode` argument and may include:
 
