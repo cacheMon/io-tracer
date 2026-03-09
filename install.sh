@@ -17,9 +17,8 @@ else
 fi
 
 INSTALL_DIR="$REAL_HOME/io-tracer"
-# REPO_URL="https://github.com/cacheMon/io-tracer.git"
-REPO_URL="https://github.com/cacheMon/io-tracer-linux/tree/executable-bin"
-RAW_URL="https://raw.githubusercontent.com/cacheMon/io-tracer-linux/executable-bin/iotrc.py"
+REPO_URL="https://github.com/cacheMon/io-tracer.git"
+RAW_URL="https://raw.githubusercontent.com/cacheMon/io-tracer-linux/main/iotrc.py"
 BIN_NAME="iotrc"
 BIN_DIR="/usr/local/bin"
 
