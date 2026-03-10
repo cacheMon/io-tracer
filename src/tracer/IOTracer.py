@@ -265,6 +265,8 @@ class IOTracer:
             if resolved_filename:
                 filename = resolved_filename
             old_addr_str = f"0x{old_addr_val:x}" if old_addr_val else ""
+            if old_addr_str:
+                address_val = f"{old_addr_str} -> {address_val}"
         elif op_name in ("PROCESS_EXEC", "PROCESS_EXIT"):
             if op_name == "PROCESS_EXEC":
                 # execve() replaces the address space; evict stale mmap regions

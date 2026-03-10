@@ -128,6 +128,8 @@ Operations that currently have no rendered `flags` value:
 - `SENDFILE`
 - `DIO_READ`
 - `DIO_WRITE`
+- `PROCESS_EXEC`
+- `PROCESS_EXIT`
 
 So an empty `flags` field does not necessarily mean missing instrumentation; it can also mean the operation does not define a printable flag value for that event.
 
@@ -168,7 +170,7 @@ The path captured is relative to the mount namespace of the probed process. In c
 | 10 | TID | `u32` | Thread ID for multi-threaded correlation; empty if `0` |
 | 11 | mmap_prot | `string` | MMAP protection flags (`PROT_*`, pipe-separated); empty for non-MMAP operations |
 | 12 | mmap_flags | `string` | MMAP mapping flags (`MAP_*`, pipe-separated); empty for non-MMAP operations |
-| 13 | address | `string` | Mapping start address as hex (`0x...`) for `MMAP` and `MUNMAP`; empty for other operations |
+| 13 | address | `string` | Mapping start address as hex (`0x...`) for `MMAP` and `MUNMAP`; for `MREMAP` formatted as `old_address -> new_address`; empty for other operations |
 | 14 | cmdline | `string` | Full command line (`argv` joined by spaces) of the process that triggered the event; empty if unresolvable (see below) |
 
 ## `cmdline` Field
@@ -245,6 +247,9 @@ The `command` field (column 4) is the short process name captured in-kernel by e
 | 25 | `MADVISE` | `madvise()` | Provide memory usage advice to kernel |
 | 26 | `DIO_READ` | Direct I/O path | Direct I/O read (bypasses page cache) |
 | 27 | `DIO_WRITE` | Direct I/O path | Direct I/O write (bypasses page cache) |
+| 28 | `MREMAP` | `sys_mremap()` | Remap/move/resize a memory region |
+| 29 | `PROCESS_EXEC` | `sched_process_exec` | Process executed new image (address space wiped) |
+| 30 | `PROCESS_EXIT` | `sched_process_exit` | Process terminated |
 
 **Dual-Path Operations:** `RENAME`, `LINK`, and `SYMLINK` include both source and destination values in the filename field, formatted as `old_path -> new_path`. For `SYMLINK`, this is `target -> link`.
 
@@ -265,6 +270,7 @@ The tracer currently uses the `flags`-related columns as follows:
 - `VMSPLICE`: `SPLICE_F_*` bits are rendered in the generic `flags` column when emitted.
 - `MSYNC`: `MS_*` bits are rendered in the generic `flags` column.
 - `MADVISE`: `MADV_*` behavior values are rendered in the generic `flags` column.
+- `MREMAP`: `MREMAP_*` bits are rendered in the generic `flags` column.
 
 
 For `READ`, `WRITE`, `CLOSE`, `FSYNC`, and `READDIR`, the decoded flag set is derived from the open file description's `file->f_flags` field in the kernel. These are the flags originally supplied to `open()` and therefore use the same `O_*` names as OPEN events.
@@ -386,6 +392,16 @@ Displayed for `MADVISE` operations:
 | `MADV_PAGEOUT` | 21 | Hint to page out to swap |
 | `MADV_POPULATE_READ` | 22 | Populate (fault in) pages for reading |
 | `MADV_POPULATE_WRITE` | 23 | Populate (fault in) pages for writing |
+
+## Mremap Flags
+
+Displayed for `MREMAP` operations:
+
+| Flag | Hex | Description |
+|------|-----|-------------|
+| `MREMAP_MAYMOVE` | `0x1` | Allow mapping to be moved to a new address |
+| `MREMAP_FIXED` | `0x2` | Place mapping at exact address |
+| `MREMAP_DONTUNMAP` | `0x4` | Do not unmap the old mapping |
 
 ## Empty Filenames
 
