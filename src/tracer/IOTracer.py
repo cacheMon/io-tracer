@@ -285,7 +285,6 @@ class IOTracer:
             flags_val, offset_val, tid_val, mmap_prot_val, mmap_flags_val,
             address_val, cmdline
         )
-        print(output)
         self.writer.append_fs_log(output)
 
     def _track_mmap_region(self, pid: int, start: int, length: int, filename: str) -> None:
