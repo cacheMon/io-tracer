@@ -1900,6 +1900,7 @@ int trace_vfs_unlink(struct pt_regs *ctx, struct inode *dir,
                      struct dentry *dentry) {
 #endif
   u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 tid = (u32)pid_tgid;
   u32 pid = pid_tgid >> 32;
 
   u32 config_key = 0;
@@ -1910,6 +1911,7 @@ int trace_vfs_unlink(struct pt_regs *ctx, struct inode *dir,
 
   struct data_t data = {};
   data.pid = pid;
+  data.tid = tid;
   data.ts = bpf_ktime_get_ns();
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = OP_UNLINK;
