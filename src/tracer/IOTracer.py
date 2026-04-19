@@ -23,8 +23,6 @@ import os
 from bcc import BPF
 import time
 import sys
-import threading
-import itertools
 from bisect import bisect_right
 from pathlib import Path
 from datetime import datetime
@@ -32,7 +30,7 @@ import socket
 import struct
 
 from .ObjectStorageManager import ObjectStorageManager
-from ..utility.utils import capture_machine_id, format_csv_row, logger, hash_filename_in_path, inet6_from_event, simple_hash
+from ..utility.utils import capture_machine_id, format_csv_row, logger, hash_filename_in_path, inet6_from_event, simple_hash, run_with_spinner
 from .WriterManager import WriteManager
 from .FlagMapper import FlagMapper
 from .KernelProbeTracker import KernelProbeTracker
@@ -65,7 +63,7 @@ class IOTracer:
     """
     
     def __init__(
-            self, 
+            self,
             output_dir:         str,
             bpf_file:           str,
             automatic_upload:   bool,
@@ -76,7 +74,8 @@ class IOTracer:
             page_cnt:           int = 8,
             verbose:            bool = False,
             duration:           int | None = None,
-            cache_sample_rate:  int = 1
+            cache_sample_rate:  int = 1,
+            trace_bucket:       str | None = None,
         ):
         """
         Initialize the IOTracer.
@@ -103,8 +102,26 @@ class IOTracer:
 
         temp_version = version if not developer_mode else f"vdev"
         if developer_mode:
-            logger("warning", "Developer mode enabled: extra logs and checks are active.")
-        self.upload_manager     = ObjectStorageManager(temp_version)
+            _W = "\033[1;33m"  # bold yellow
+            _R = "\033[0m"     # reset
+            _banner = (
+                f"\n{_W}{'#' * 60}{_R}\n"
+                f"{_W}{'#':1}{'':2}⚠   D E V E L O P E R   M O D E   A C T I V E   ⚠{'':2}{'#':>1}{_R}\n"
+                f"{_W}{'#' * 60}{_R}\n"
+                f"{_W}  › Trace data tagged [vdev] — NOT for production use.{_R}\n"
+                f"{_W}  › Extra logs and internal checks are ON.{_R}\n"
+                f"{_W}  › Make sure you know what you are doing.{_R}\n"
+                f"{_W}{'#' * 60}{_R}\n"
+            )
+            print(_banner)
+            confirm = input(f"{_W}Continue? [y/N]:{_R} ").strip().lower()
+            if confirm != "y":
+                print("Aborted.")
+                raise SystemExit(0)
+        osm_kwargs = {"version": temp_version}
+        if trace_bucket is not None:
+            osm_kwargs["trace_bucket"] = trace_bucket
+        self.upload_manager     = ObjectStorageManager(**osm_kwargs)
         self.automatic_upload   = automatic_upload
 
         # Test connection for automatic upload
@@ -154,7 +171,7 @@ class IOTracer:
                 self.b = BPF(src_file=bpf_file.encode(), cflags=cflags)
                 self.probe_tracker = KernelProbeTracker(self.b, developer_mode)
 
-            self._run_with_spinner("Loading BPF program", _init_bpf)
+            run_with_spinner("Loading BPF program", _init_bpf)
         except Exception as e:
             logger("error", f"failed to initialize BPF: {e}")
             print("Your device are incompatible with this version of IO Tracer. Please notify us at io-tracer@googlegroups.com")
@@ -1015,66 +1032,17 @@ class IOTracer:
         )
         self.writer.append_io_uring_log(output)
 
-    def _run_with_spinner(self, label: str, fn):
-        done = threading.Event()
-        exc_box: list[BaseException | None] = [None]
-
-        _DARK_SALMON = "\033[38;2;233;150;122m"
-        _YELLOW      = "\033[38;2;255;215;0m"
-        _RESET       = "\033[0m"
-
-        def _spin():
-            frames = itertools.cycle(["|", "/", "-", "\\"])
-            while not done.is_set():
-                sys.stderr.write(f"\r{_DARK_SALMON}{label}...{_RESET} {_YELLOW}{next(frames)}{_RESET} ")
-                sys.stderr.flush()
-                time.sleep(0.1)
-
-        def _worker():
-            try:
-                fn()
-            except Exception as e:
-                exc_box[0] = e
-            finally:
-                done.set()
-
-        t_spin = threading.Thread(target=_spin, daemon=True)
-        t_work = threading.Thread(target=_worker, daemon=True)
-        t_spin.start()
-        t_work.start()
-        t_work.join()
-        t_spin.join()
-        _GREEN = "\033[38;2;0;200;100m"
-        sys.stderr.write(f"\r{_DARK_SALMON}{label}...{_RESET} {_GREEN}done{_RESET}\n")
-        sys.stderr.flush()
-        if exc_box[0]:
-            raise exc_box[0]
-
     def _cleanup(self, signum, frame):
-        """
-        Signal handler for graceful shutdown.
-        
-        Stops all tracing, flushes buffers, closes file handles,
-        and optionally cleans up for upload.
-        
-        Args:
-            signum: Signal number that triggered the handler
-            frame: Current stack frame
-        """
         self.running = False
-    
-        # Detach all kernel probes
         self.probe_tracker.detach_kprobes()
-        
-        logger("info", "Performing final flush...")
-        self.fs_snapper.stop_snapper()
-        self.process_snapper.stop_snapper()
-        self.writer.write_to_disk()
-        
-        self.writer.close_handles()
 
-        if self.verbose:
-            logger("CLEANUP", "Cleanup complete")
+        def _flush():
+            self.fs_snapper.stop_snapper()
+            self.process_snapper.stop_snapper()
+            self.writer.write_to_disk()
+            self.writer.close_handles()
+
+        run_with_spinner("Flushing trace data", _flush)
 
     def _lost_cb(self, lost):
         """
@@ -1101,7 +1069,7 @@ class IOTracer:
         The trace runs indefinitely if no duration is specified,
         or for the specified number of seconds otherwise.
         """
-        self._run_with_spinner("Attaching kernel probes", self.probe_tracker.attach_probes)
+        run_with_spinner("Attaching kernel probes", self.probe_tracker.attach_probes)
         if self.automatic_upload:
             self.upload_manager.start_worker()
 
@@ -1271,16 +1239,14 @@ class IOTracer:
             
             print()
             logger("info", "Trace stopped")
-            logger("info", "Please wait. Compressing trace output...")
 
-            self.writer.force_flush()
+            run_with_spinner("Compressing trace output", self.writer.force_flush)
 
             if self.automatic_upload:
-                self.upload_manager.stop_worker(False)
+                run_with_spinner("Uploading traces", lambda: self.upload_manager.stop_worker(False))
                 try:
                     os.removedirs(self.writer.output_dir)
                 except OSError:
                     pass
 
-            
             logger("info", "Cleanup complete. Exited successfully.")

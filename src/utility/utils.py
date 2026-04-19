@@ -20,6 +20,9 @@ Example:
 
 import csv
 import io
+import itertools
+import sys
+import threading
 from pathlib import Path
 import os
 import time
@@ -353,6 +356,44 @@ def get_current_tag() -> str:
         return tag.replace('.', '_')
     except subprocess.CalledProcessError:
         return "no_tags"
+
+def run_with_spinner(label: str, fn):
+    done = threading.Event()
+    exc_box: list[BaseException | None] = [None]
+    result_box: list = [None]
+
+    _DARK_SALMON = "\033[38;2;233;150;122m"
+    _YELLOW      = "\033[38;2;255;215;0m"
+    _RESET       = "\033[0m"
+
+    def _spin():
+        frames = itertools.cycle(["|", "/", "-", "\\"])
+        while not done.is_set():
+            sys.stderr.write(f"\r{_DARK_SALMON}{label}...{_RESET} {_YELLOW}{next(frames)}{_RESET} ")
+            sys.stderr.flush()
+            time.sleep(0.1)
+
+    def _worker():
+        try:
+            result_box[0] = fn()
+        except Exception as e:
+            exc_box[0] = e
+        finally:
+            done.set()
+
+    t_spin = threading.Thread(target=_spin, daemon=True)
+    t_work = threading.Thread(target=_worker, daemon=True)
+    t_spin.start()
+    t_work.start()
+    t_work.join()
+    t_spin.join()
+    _GREEN = "\033[38;2;0;200;100m"
+    sys.stderr.write(f"\r{_DARK_SALMON}{label}...{_RESET} {_GREEN}done{_RESET}\n")
+    sys.stderr.flush()
+    if exc_box[0]:
+        raise exc_box[0]
+    return result_box[0]
+
 
 def format_csv_row(*fields) -> str:
     """

@@ -8,20 +8,30 @@ systems using eBPF/BPF technology.
 
 Usage:
     python iotrc.py [OPTIONS]
+    python iotrc.py dev [DEV OPTIONS]
+
+Subcommands:
+    dev                       Run in developer mode with extra logs and checks
 
 Options:
     -v, --verbose             Print verbose output
     -a, --anonimize           Enable anonymization of process and file names
-    --dev                     Developer mode with extra logs and checks
     --computer-id             Print this machine ID and exit
     --reward                  Show your reward code (unlocked after uploading traces)
+    --no-upload               Disable automatic upload of traces
+
+Dev Options (only available with 'dev' subcommand):
+    --trace-bucket NAME       Override upload bucket name (default: linux_trace_v4_test)
 
 Examples:
     # Run with default settings
     python iotrc.py
 
     # Run in developer mode
-    python iotrc.py --dev
+    python iotrc.py dev
+
+    # Run in developer mode with custom bucket
+    python iotrc.py dev --trace-bucket my_bucket
 
     # Print machine ID
     python iotrc.py --computer-id
@@ -57,25 +67,32 @@ if __name__ == "__main__":
     if os.geteuid() != 0:
         print("Error: IO Tracer must be run with sudo or as root.")
         sys.exit(1)
-        
+
     maximize_fd_limit()
     app_version = "vRelease"
+
     parser = argparse.ArgumentParser(description='Trace IO syscalls')
     parser.add_argument('-v', '--verbose', action='store_true', help='Print verbose output')
     parser.add_argument('-a', '--anonimize', action='store_true', help='Enable anonymization of process and file names')
-    parser.add_argument('--dev', action='store_true', help='Developer mode with extra logs and checks')
     parser.add_argument('--computer-id', action='store_true', help='Print this machine ID and exit')
     parser.add_argument('--reward', action='store_true', help='Show your reward code (unlocked after uploading traces)')
     parser.add_argument('--no-upload', action='store_true', help='Disable automatic upload of traces (for testing)')
 
+    subparsers = parser.add_subparsers(dest='subcommand')
+    dev_parser = subparsers.add_parser('dev', help='Run in developer mode with extra logs and checks')
+    dev_parser.add_argument('-v', '--verbose', action='store_true', help='Print verbose output')
+    dev_parser.add_argument('-a', '--anonimize', action='store_true', help='Enable anonymization of process and file names')
+    dev_parser.add_argument('--no-upload', action='store_true', help='Disable automatic upload of traces (for testing)')
+    dev_parser.add_argument('--trace-bucket', type=str, default=None, help='Override upload bucket name (default: linux_trace_v4_test)')
+
     parse_args = parser.parse_args()
     output_dir = tempfile.gettempdir()
-    
+
     # Handle --computer-id flag: print machine ID and exit
     if parse_args.computer_id:
         print(f"Here is your computer ID: {capture_machine_id().upper()}")
         exit(0)
-    
+
     # Handle --reward flag: show reward code if available
     if parse_args.reward:
         reward_code = get_reward_code()
@@ -84,17 +101,23 @@ if __name__ == "__main__":
         else:
             print("Reward not yet unlocked. Upload at least one trace to complete your submission!")
         exit(0)
-    
+
+    developer_mode = parse_args.subcommand == 'dev'
+    verbose = parse_args.verbose
+    anonimize = parse_args.anonimize
+    no_upload = parse_args.no_upload
+    trace_bucket = parse_args.trace_bucket if developer_mode else None
 
     # Initialize and start the IO tracer
     tracer = IOTracer(
         output_dir=output_dir,
         bpf_file='./src/tracer/prober/prober.c',
         page_cnt=8,
-        verbose=parse_args.verbose,
-        anonymous=parse_args.anonimize,
-        automatic_upload=not parse_args.no_upload,
-        developer_mode=parse_args.dev,
+        verbose=verbose,
+        anonymous=anonimize,
+        automatic_upload=not no_upload,
+        developer_mode=developer_mode,
         version=app_version,
+        trace_bucket=trace_bucket,
     )
     tracer.trace()

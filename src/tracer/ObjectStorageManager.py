@@ -25,7 +25,7 @@ from pathlib import Path
 from queue import Queue, Empty
 import requests
 
-from src.utility.utils import capture_machine_id, logger, get_current_tag, unlock_reward
+from src.utility.utils import capture_machine_id, logger, get_current_tag, unlock_reward, run_with_spinner
 
 
 class ObjectStorageManager:
@@ -51,13 +51,14 @@ class ObjectStorageManager:
         _t: List of worker threads
     """
     
-    def __init__(self, version: str = "vdev"):
+    def __init__(self, version: str = "vdev", trace_bucket: str = "linux_trace_v4_test"):
         """
         Initialize the ObjectStorageManager.
-        
+
         Args:
             version: Application version string (default: "vdev")
-            
+            trace_bucket: Storage bucket/path prefix for uploads (default: "linux_trace_v4_test")
+
         Initializes the upload queue, counters, and prepares
         for automatic upload operations.
         """
@@ -70,30 +71,25 @@ class ObjectStorageManager:
         self.file_queue: Queue[str] = Queue()
         self.successful_upload = 0
         self.app_version = version
+        self.trace_bucket = trace_bucket
 
 
     def test_connection(self) -> bool:
         """
         Test connectivity to the backend storage server.
-        
-        Attempts to connect to the backend and verifies that the
-        connection is successful.
-        
+
         Returns:
             bool: True if connection successful, False otherwise
-            
-        Logs:
-            info: Connection test status
-            warn: If unable to reach server
         """
-        try:
-            logger("TEST CONNECTION", "testing....")
+        def _check():
             r = requests.get(f"{self.backend_url}/connection-test.txt", timeout=5)
-            if r.ok:
-                logger("TEST CONNECTION", "Connection to remote object storage established.")
-                return r.ok
-            else:
+            if not r.ok:
                 raise Exception("can't connect")
+            return True
+
+        try:
+            result = run_with_spinner("Testing connection", _check)
+            return result
         except Exception:
             logger("warn", "Unable to reach remote object storage server.")
             logger("info", "saving traces locally")
@@ -114,7 +110,7 @@ class ObjectStorageManager:
             RuntimeError: If the request fails
         """
         r = requests.post(
-            f"{self.backend_url}/linux_trace_v4_test/"
+            f"{self.backend_url}/{self.trace_bucket}/"
             f"{self.machine_id.upper()}/"
             f"{self.current_datetime.strftime('%Y%m%d_%H%M%S_%f')[:-3]}/"
             f"{file_type}/"
