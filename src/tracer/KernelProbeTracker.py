@@ -40,13 +40,14 @@ class KernelProbeTracker:
         b: Reference to the BPF instance
     """
     
-    def __init__(self, b: BPF):
+    def __init__(self, b: BPF, developer_mode: bool = False):
         """
         Initialize the KernelProbeTracker.
-        
+
         Args:
             b: BPF instance obtained from BCC library
-            
+            developer_mode: Enable verbose probe attachment logging
+
         Initializes empty lists for kprobes and kretprobes,
         stores the BPF reference, and configures the tracer PID
         for excluding the tracer process from traces.
@@ -54,6 +55,7 @@ class KernelProbeTracker:
         self.kprobes = []
         self.kretprobes = []
         self.b = b
+        self.developer_mode = developer_mode
 
         tracer_pid = os.getpid()
         config_key = ctypes.c_uint32(0) 
@@ -202,7 +204,8 @@ class KernelProbeTracker:
                 self.add_kprobe("sys_mremap", "trace_mremap_entry")
                 self.add_kretprobe("sys_mremap", "trace_mremap_ret")
             else:
-                logger("warning", "mremap probe not available on this kernel version")
+                if self.developer_mode:
+                    logger("warning", "mremap probe not available on this kernel version")
             
             # File attribute probes
             self.add_kprobe("vfs_getattr", "trace_vfs_getattr")
@@ -227,13 +230,15 @@ class KernelProbeTracker:
             elif BPF.get_kprobe_functions(b'__do_sendfile'):
                 self.add_kprobe("__do_sendfile", "trace_sendfile")
             else:
-                logger("warning", "sendfile probe not available on this kernel version")
-            
+                if self.developer_mode:
+                    logger("warning", "sendfile probe not available on this kernel version")
+
             # Splice probe for zero-copy transfers
             if BPF.get_kprobe_functions(b'do_splice'):
                 self.add_kprobe("do_splice", "trace_splice")
             else:
-                logger("warning", "splice probe not available on this kernel version")
+                if self.developer_mode:
+                    logger("warning", "splice probe not available on this kernel version")
             
             # Page fault probe for mmap I/O tracking
             # if BPF.get_kprobe_functions(b'filemap_fault'):
@@ -245,12 +250,15 @@ class KernelProbeTracker:
             # Direct I/O probe for bypass detection (return probe only - no latency tracking)
             if BPF.get_kprobe_functions(b'iomap_dio_rw'):
                 self.add_kretprobe("iomap_dio_rw", "trace_dio_return")
-                logger("info", "Direct I/O tracing enabled via iomap_dio_rw")
+                if self.developer_mode:
+                    logger("info", "Direct I/O tracing enabled via iomap_dio_rw")
             elif BPF.get_kprobe_functions(b'__blockdev_direct_IO'):
                 self.add_kretprobe("__blockdev_direct_IO", "trace_dio_return")
-                logger("info", "Direct I/O tracing enabled via __blockdev_direct_IO")
+                if self.developer_mode:
+                    logger("info", "Direct I/O tracing enabled via __blockdev_direct_IO")
             else:
-                logger("warning", "Direct I/O probe not available on this kernel version")
+                if self.developer_mode:
+                    logger("warning", "Direct I/O probe not available on this kernel version")
             
             # # Cache Miss probes - kernel version dependent
             # if BPF.get_kprobe_functions(b'filemap_add_folio'):
@@ -361,50 +369,64 @@ class KernelProbeTracker:
             # io_uring_enter syscall probe
             if BPF.get_kprobe_functions(b'__io_uring_enter'):
                 self.add_kprobe("__io_uring_enter", "trace_io_uring_enter")
-                logger("info", "io_uring tracing enabled via __io_uring_enter")
+                if self.developer_mode:
+                    logger("info", "io_uring tracing enabled via __io_uring_enter")
             elif BPF.get_kprobe_functions(b'__x64_sys_io_uring_enter'):
                 self.add_kprobe("__x64_sys_io_uring_enter", "trace_io_uring_enter")
-                logger("info", "io_uring tracing enabled via __x64_sys_io_uring_enter")
+                if self.developer_mode:
+                    logger("info", "io_uring tracing enabled via __x64_sys_io_uring_enter")
             elif BPF.get_kprobe_functions(b'__sys_io_uring_enter'):
                 self.add_kprobe("__sys_io_uring_enter", "trace_io_uring_enter")
-                logger("info", "io_uring tracing enabled via __sys_io_uring_enter")
+                if self.developer_mode:
+                    logger("info", "io_uring tracing enabled via __sys_io_uring_enter")
             else:
-                logger("warning", "io_uring_enter probe not available - ENTER events disabled")
-            
+                if self.developer_mode:
+                    logger("warning", "io_uring_enter probe not available - ENTER events disabled")
+
             # io_uring SQE submission probe (kprobe fallback for SUBMIT events)
             # Note: TRACEPOINT_PROBE(io_uring, io_uring_submit_sqe) in BPF is preferred
             if BPF.get_kprobe_functions(b'io_queue_sqe'):
                 self.add_kprobe("io_queue_sqe", "trace_io_uring_submit")
-                logger("info", "io_uring SQE submission tracing enabled via io_queue_sqe")
+                if self.developer_mode:
+                    logger("info", "io_uring SQE submission tracing enabled via io_queue_sqe")
             elif BPF.get_kprobe_functions(b'io_submit_sqe'):
                 self.add_kprobe("io_submit_sqe", "trace_io_uring_submit")
-                logger("info", "io_uring SQE submission tracing enabled via io_submit_sqe")
+                if self.developer_mode:
+                    logger("info", "io_uring SQE submission tracing enabled via io_submit_sqe")
             else:
-                logger("info", "io_uring kprobe submit fallback not found - using tracepoint only")
-            
+                if self.developer_mode:
+                    logger("info", "io_uring kprobe submit fallback not found - using tracepoint only")
+
             # io_uring completion probe (kprobe fallback for COMPLETE events)
             # Note: TRACEPOINT_PROBE(io_uring, io_uring_complete) in BPF is preferred
             if BPF.get_kprobe_functions(b'io_req_complete_post'):
                 self.add_kprobe("io_req_complete_post", "trace_io_uring_complete")
-                logger("info", "io_uring completion tracing enabled via io_req_complete_post")
+                if self.developer_mode:
+                    logger("info", "io_uring completion tracing enabled via io_req_complete_post")
             elif BPF.get_kprobe_functions(b'__io_req_complete'):
                 self.add_kprobe("__io_req_complete", "trace_io_uring_complete")
-                logger("info", "io_uring completion tracing enabled via __io_req_complete")
+                if self.developer_mode:
+                    logger("info", "io_uring completion tracing enabled via __io_req_complete")
             elif BPF.get_kprobe_functions(b'io_req_complete'):
                 self.add_kprobe("io_req_complete", "trace_io_uring_complete")
-                logger("info", "io_uring completion tracing enabled via io_req_complete")
+                if self.developer_mode:
+                    logger("info", "io_uring completion tracing enabled via io_req_complete")
             else:
-                logger("info", "io_uring kprobe complete fallback not found - using tracepoint only")
-            
+                if self.developer_mode:
+                    logger("info", "io_uring kprobe complete fallback not found - using tracepoint only")
+
             # io_uring async worker probe (io-wq)
             if BPF.get_kprobe_functions(b'io_wq_submit_work'):
                 self.add_kprobe("io_wq_submit_work", "trace_io_uring_worker")
-                logger("info", "io_uring worker tracing enabled via io_wq_submit_work")
+                if self.developer_mode:
+                    logger("info", "io_uring worker tracing enabled via io_wq_submit_work")
             elif BPF.get_kprobe_functions(b'io_worker_handle_work'):
                 self.add_kprobe("io_worker_handle_work", "trace_io_uring_worker")
-                logger("info", "io_uring worker tracing enabled via io_worker_handle_work")
+                if self.developer_mode:
+                    logger("info", "io_uring worker tracing enabled via io_worker_handle_work")
             else:
-                logger("warning", "io_uring worker probe not available - WORKER events disabled")
+                if self.developer_mode:
+                    logger("warning", "io_uring worker probe not available - WORKER events disabled")
 
             if not self.kprobes:
                 logger("error", "no kprobes attached successfully!")

@@ -149,7 +149,7 @@ class IOTracer:
 
             # Initialize BPF with the provided source file
             self.b = BPF(src_file=bpf_file.encode(), cflags=cflags)
-            self.probe_tracker = KernelProbeTracker(self.b)
+            self.probe_tracker = KernelProbeTracker(self.b, developer_mode)
         except Exception as e:
             logger("error", f"failed to initialize BPF: {e}")
             print("Your device are incompatible with this version of IO Tracer. Please notify us at io-tracer@googlegroups.com")
