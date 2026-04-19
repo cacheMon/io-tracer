@@ -23,6 +23,8 @@ import os
 from bcc import BPF
 import time
 import sys
+import threading
+import itertools
 from bisect import bisect_right
 from pathlib import Path
 from datetime import datetime
@@ -138,18 +140,21 @@ class IOTracer:
             logger("error", f"Invalid duration: {duration}. Duration must be a positive integer.")
             sys.exit(1)
 
-        try:
-            # Check if cmd_flags exists in block_rq_complete tracepoint
-            cflags = ["-Wno-duplicate-decl-specifier", "-Wno-macro-redefined", "-mllvm", "-bpf-stack-size=4096"]
-            tp_format = "/sys/kernel/debug/tracing/events/block/block_rq_complete/format"
-            if os.path.exists(tp_format):
-                with open(tp_format, "r") as f:
-                    if "cmd_flags" in f.read():
-                        cflags.append("-DHAS_CMD_FLAGS")
+        self.b: BPF
+        self.probe_tracker: KernelProbeTracker
 
-            # Initialize BPF with the provided source file
-            self.b = BPF(src_file=bpf_file.encode(), cflags=cflags)
-            self.probe_tracker = KernelProbeTracker(self.b, developer_mode)
+        try:
+            def _init_bpf():
+                cflags = ["-Wno-duplicate-decl-specifier", "-Wno-macro-redefined", "-mllvm", "-bpf-stack-size=4096"]
+                tp_format = "/sys/kernel/debug/tracing/events/block/block_rq_complete/format"
+                if os.path.exists(tp_format):
+                    with open(tp_format, "r") as f:
+                        if "cmd_flags" in f.read():
+                            cflags.append("-DHAS_CMD_FLAGS")
+                self.b = BPF(src_file=bpf_file.encode(), cflags=cflags)
+                self.probe_tracker = KernelProbeTracker(self.b, developer_mode)
+
+            self._run_with_spinner("Loading BPF program", _init_bpf)
         except Exception as e:
             logger("error", f"failed to initialize BPF: {e}")
             print("Your device are incompatible with this version of IO Tracer. Please notify us at io-tracer@googlegroups.com")
@@ -1010,6 +1015,41 @@ class IOTracer:
         )
         self.writer.append_io_uring_log(output)
 
+    def _run_with_spinner(self, label: str, fn):
+        done = threading.Event()
+        exc_box: list[BaseException | None] = [None]
+
+        _DARK_SALMON = "\033[38;2;233;150;122m"
+        _YELLOW      = "\033[38;2;255;215;0m"
+        _RESET       = "\033[0m"
+
+        def _spin():
+            frames = itertools.cycle(["|", "/", "-", "\\"])
+            while not done.is_set():
+                sys.stderr.write(f"\r{_DARK_SALMON}{label}...{_RESET} {_YELLOW}{next(frames)}{_RESET} ")
+                sys.stderr.flush()
+                time.sleep(0.1)
+
+        def _worker():
+            try:
+                fn()
+            except Exception as e:
+                exc_box[0] = e
+            finally:
+                done.set()
+
+        t_spin = threading.Thread(target=_spin, daemon=True)
+        t_work = threading.Thread(target=_worker, daemon=True)
+        t_spin.start()
+        t_work.start()
+        t_work.join()
+        t_spin.join()
+        _GREEN = "\033[38;2;0;200;100m"
+        sys.stderr.write(f"\r{_DARK_SALMON}{label}...{_RESET} {_GREEN}done{_RESET}\n")
+        sys.stderr.flush()
+        if exc_box[0]:
+            raise exc_box[0]
+
     def _cleanup(self, signum, frame):
         """
         Signal handler for graceful shutdown.
@@ -1061,7 +1101,7 @@ class IOTracer:
         The trace runs indefinitely if no duration is specified,
         or for the specified number of seconds otherwise.
         """
-        self.probe_tracker.attach_probes()
+        self._run_with_spinner("Attaching kernel probes", self.probe_tracker.attach_probes)
         if self.automatic_upload:
             self.upload_manager.start_worker()
 
