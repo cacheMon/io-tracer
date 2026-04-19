@@ -1452,6 +1452,7 @@ int trace_vfs_fsync_range(struct pt_regs *ctx, struct file *file, loff_t start,
 int trace_fput(struct pt_regs *ctx, struct file *file) {
   u64 pid_tgid = bpf_get_current_pid_tgid();
   u32 pid = pid_tgid >> 32;
+  u32 tid = (u32)pid_tgid;
 
   u32 config_key = 0;
   u32 *tracer_pid = tracer_config.lookup(&config_key);
@@ -1465,6 +1466,7 @@ int trace_fput(struct pt_regs *ctx, struct file *file) {
 
   struct data_t data = {};
   data.pid = pid;
+  data.tid = tid;
   data.ts = bpf_ktime_get_ns();
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = OP_CLOSE;
@@ -1497,6 +1499,7 @@ int trace_mmap_entry(struct pt_regs *ctx, struct file *file, unsigned long addr,
                      unsigned long flags) {
   u64 pid_tgid = bpf_get_current_pid_tgid();
   u32 pid = pid_tgid >> 32;
+  u32 tid = (u32)pid_tgid;
 
   u32 config_key = 0;
   u32 *tracer_pid = tracer_config.lookup(&config_key);
@@ -1510,6 +1513,7 @@ int trace_mmap_entry(struct pt_regs *ctx, struct file *file, unsigned long addr,
 
   struct data_t data = {};
   data.pid = pid;
+  data.tid = tid;
   data.ts = bpf_ktime_get_ns();
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = OP_MMAP;
@@ -1555,6 +1559,7 @@ int trace_mmap_ret(struct pt_regs *ctx) {
 int trace_munmap(struct pt_regs *ctx, unsigned long addr, size_t len) {
   u64 pid_tgid = bpf_get_current_pid_tgid();
   u32 pid = pid_tgid >> 32;
+  u32 tid = (u32)pid_tgid;
 
   u32 config_key = 0;
   u32 *tracer_pid = tracer_config.lookup(&config_key);
@@ -1564,6 +1569,7 @@ int trace_munmap(struct pt_regs *ctx, unsigned long addr, size_t len) {
 
   struct data_t data = {};
   data.pid = pid;
+  data.tid = tid;
   data.ts = bpf_ktime_get_ns();
   bpf_get_current_comm(&data.comm, sizeof(data.comm));
   data.op = OP_MUNMAP;

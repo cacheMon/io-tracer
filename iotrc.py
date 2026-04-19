@@ -66,6 +66,7 @@ if __name__ == "__main__":
     parser.add_argument('--dev', action='store_true', help='Developer mode with extra logs and checks')
     parser.add_argument('--computer-id', action='store_true', help='Print this machine ID and exit')
     parser.add_argument('--reward', action='store_true', help='Show your reward code (unlocked after uploading traces)')
+    parser.add_argument('--no-upload', action='store_true', help='Disable automatic upload of traces (for testing)')
 
     parse_args = parser.parse_args()
     output_dir = tempfile.gettempdir()
@@ -92,7 +93,7 @@ if __name__ == "__main__":
         page_cnt=8,
         verbose=parse_args.verbose,
         anonymous=parse_args.anonimize,
-        automatic_upload=not parse_args.dev,
+        automatic_upload=not parse_args.no_upload,
         developer_mode=parse_args.dev,
         version=app_version,
     )
