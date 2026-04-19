@@ -148,6 +148,7 @@ class FlagMapper:
             28: "MREMAP",
             29: "PROCESS_EXEC",
             30: "PROCESS_EXIT",
+            31: "FDATASYNC",
         }
 
         # msync flags

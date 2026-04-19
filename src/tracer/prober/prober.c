@@ -71,6 +71,7 @@ struct bpf_task_work {};
 #include <linux/blk_types.h>  /* Block layer types (bio, request) */
 #include <linux/blkdev.h>     /* Block device structures */
 #include <linux/dcache.h>     /* Dentry cache structures for path resolution */
+#include <linux/fdtable.h>    /* files_struct, fdtable — full definitions for fd-to-file lookup */
 #include <linux/fs.h>         /* VFS structures (file, inode, super_block) */
 #include <linux/fs_struct.h>  /* Process filesystem context (pwd, root) */
 #include <linux/in.h>         /* IPv4 socket address structures */
@@ -182,7 +183,8 @@ enum op_type {
   /* VM lifecycle events */
   OP_MREMAP,        /**< mremap() - Remap/move/resize a memory region */
   OP_PROCESS_EXEC,  /**< sched_process_exec - Process executed new image (address space wiped) */
-  OP_PROCESS_EXIT   /**< sched_process_exit - Process terminated */
+  OP_PROCESS_EXIT,  /**< sched_process_exit - Process terminated */
+  OP_FDATASYNC      /**< fdatasync() - Flush file data to storage (skip metadata unless required) */
 };
 
 /* ============================================================================
@@ -2018,6 +2020,72 @@ int trace_ksys_sync(struct pt_regs *ctx) {
 
   events.perf_submit(ctx, &data, sizeof(data));
 
+  return 0;
+}
+
+/**
+ * @brief Syscall tracepoint for fdatasync() - data-only file synchronization
+ *
+ * fdatasync() flushes file data to storage but skips inode metadata updates
+ * unless they are needed to retrieve the data (e.g. file size change).
+ * Unlike vfs_fsync (datasync=1), this probe fires at the syscall boundary,
+ * so we resolve the struct file * from the fd via the task's fd table.
+ *
+ * @param args  Tracepoint args: args->fd = file descriptor
+ * @return      0
+ */
+TRACEPOINT_PROBE(syscalls, sys_enter_fdatasync) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+
+  u32 config_key = 0;
+  u32 *tracer_pid = tracer_config.lookup(&config_key);
+  if (tracer_pid && pid == *tracer_pid) {
+    return 0;
+  }
+
+  // Resolve struct file * from fd: task->files->fdt->fd[args->fd]
+  struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+  struct files_struct *files = NULL;
+  bpf_probe_read_kernel(&files, sizeof(files), &task->files);
+  if (!files) {
+    return 0;
+  }
+
+  struct fdtable *fdt = NULL;
+  bpf_probe_read_kernel(&fdt, sizeof(fdt), &files->fdt);
+  if (!fdt) {
+    return 0;
+  }
+
+  struct file **fd_arr = NULL;
+  bpf_probe_read_kernel(&fd_arr, sizeof(fd_arr), &fdt->fd);
+  if (!fd_arr) {
+    return 0;
+  }
+
+  struct file *file = NULL;
+  bpf_probe_read_kernel(&file, sizeof(file), &fd_arr[args->fd]);
+  if (!file) {
+    return 0;
+  }
+
+  if (!is_regular_file(file)) {
+    return 0;
+  }
+
+  struct data_t data = {};
+  data.pid = pid;
+  data.tid = (u32)pid_tgid;
+  data.ts = bpf_ktime_get_ns();
+  bpf_get_current_comm(&data.comm, sizeof(data.comm));
+  data.op = OP_FDATASYNC;
+  data.inode = get_file_inode(file);
+  data.size = 0;
+  get_file_path(file, data.filename, sizeof(data.filename));
+  bpf_probe_read_kernel(&data.flags, sizeof(data.flags), &file->f_flags);
+
+  events.perf_submit(args, &data, sizeof(data));
   return 0;
 }
 
