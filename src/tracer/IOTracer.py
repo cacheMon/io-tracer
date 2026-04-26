@@ -775,6 +775,7 @@ class IOTracer:
             ret_val,
         )
         
+        print(event_type, fd)
         self.writer.append_conn_log(output)
 
     def _print_event_epoll(self, cpu, data, size):

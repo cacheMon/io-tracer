@@ -399,8 +399,8 @@ struct network_data {
   u32 saddr_v4;             /**< Source IPv4 address */
   u32 daddr_v4;             /**< Destination IPv4 address */
   /* IPv6 addresses (only valid when ipver==6) */
-  unsigned __int128 saddr_v6; /**< Source IPv6 address */
-  unsigned __int128 daddr_v6; /**< Destination IPv6 address */
+  u8 saddr_v6[16]; /**< Source IPv6 address */
+  u8 daddr_v6[16]; /**< Destination IPv6 address */
   u32 size_bytes;           /**< Data size in bytes */
   u64 latency_ns;           /**< Operation latency in nanoseconds */
   s32 error_code;           /**< Error code (negative errno on failure, 0 on success) */
@@ -412,6 +412,11 @@ struct send_ctx_t {
   struct sock *sk;  /**< Socket pointer */
   u64 start_ts;     /**< Timestamp at entry */
   u32 size;         /**< Requested send size */
+};
+
+struct connect_ctx_t {
+  u64 start_ts; /**< Timestamp at entry */
+  u32 fd;       /**< Socket fd from sys_enter_connect */
 };
 
 /* ---- Connection lifecycle event types ---- */
@@ -440,8 +445,8 @@ struct conn_event_data {
   u16 dport;
   u32 saddr_v4;
   u32 daddr_v4;
-  unsigned __int128 saddr_v6;
-  unsigned __int128 daddr_v6;
+  u8 saddr_v6[16];
+  u8 daddr_v6[16];
   u32 fd;
   u32 backlog;      /**< For listen() */
   s32 ret_val;
@@ -505,8 +510,8 @@ struct net_drop_data {
   u16 dport;
   u32 saddr_v4;
   u32 daddr_v4;
-  unsigned __int128 saddr_v6;
-  unsigned __int128 daddr_v6;
+  u8 saddr_v6[16];
+  u8 daddr_v6[16];
   u32 skb_len;
   u32 drop_reason;
   u32 state;        /**< TCP state for retransmit events */
@@ -687,7 +692,7 @@ BPF_HASH(recv_flags_ctx, u64, u32); /**< Recv flags from syscall entry */
 
 /* Connection lifecycle context maps */
 BPF_HASH(accept_ctx, u64, u64);   /**< Accept start timestamp */
-BPF_HASH(connect_ctx, u64, u64);  /**< Connect start timestamp */
+BPF_HASH(connect_ctx, u64, struct connect_ctx_t); /**< Connect start timestamp + fd */
 BPF_HASH(socket_create_ctx, u64, struct conn_event_data); /**< Socket create context */
 BPF_HASH(socket_fds, u64, u8);  /**< Track socket file descriptors (key: (pid<<32)|fd) */
 
@@ -800,8 +805,8 @@ static __always_inline int read_addrs_ports(struct sock *sk,
     bpf_probe_read_kernel(&sport, sizeof(sport), &sk->__sk_common.skc_num);
     bpf_probe_read_kernel(&dport, sizeof(dport), &sk->__sk_common.skc_dport);
 
-    e->saddr_v6 = saddr6;
-    e->daddr_v6 = daddr6;
+    __builtin_memcpy(e->saddr_v6, &saddr6, 16);
+    __builtin_memcpy(e->daddr_v6, &daddr6, 16);
     e->sport = sport;            // skc_num already host order
     e->dport = bpf_ntohs(dport); // skc_dport is network order
     return 0;
@@ -4090,8 +4095,10 @@ TRACEPOINT_PROBE(syscalls, sys_enter_connect) {
   u32 *tracer_pid = tracer_config.lookup(&config_key);
   if (tracer_pid && pid == *tracer_pid) return 0;
 
-  u64 ts = bpf_ktime_get_ns();
-  connect_ctx.update(&tid, &ts);
+  struct connect_ctx_t cctx = {};
+  cctx.start_ts = bpf_ktime_get_ns();
+  cctx.fd = (u32)args->fd;
+  connect_ctx.update(&tid, &cctx);
 
   /* We'll submit the event from sys_exit_connect */
   return 0;
@@ -4099,12 +4106,13 @@ TRACEPOINT_PROBE(syscalls, sys_enter_connect) {
 
 TRACEPOINT_PROBE(syscalls, sys_exit_connect) {
   u64 tid = bpf_get_current_pid_tgid();
-  u64 *start_ts = connect_ctx.lookup(&tid);
-  if (!start_ts) return 0;
+  struct connect_ctx_t *cctx = connect_ctx.lookup(&tid);
+  if (!cctx) return 0;
 
   struct conn_event_data e = {};
   fill_conn_common(&e, CONN_CONNECT);
-  e.latency_ns = bpf_ktime_get_ns() - *start_ts;
+  e.latency_ns = bpf_ktime_get_ns() - cctx->start_ts;
+  e.fd = cctx->fd;
   e.ret_val = (s32)args->ret;
   net_conn_events.perf_submit(args, &e, sizeof(e));
   connect_ctx.delete(&tid);

@@ -45,6 +45,62 @@
 | `SHUTDOWN` | Connection shutdown initiated |
 | `CLOSE` | Socket file descriptor closed |
 
+## When Each Event Is Triggered
+
+Each event fires **once per syscall invocation** — not per packet. Data flowing through an established connection (send/recv/read/write) generates **no rows** in this trace.
+
+### `SOCKET_CREATE`
+- **Probe:** `sys_exit_socket`
+- Fires when `socket()` **returns successfully** with a valid file descriptor.
+- Emitted at exit (not entry) so the assigned fd is available in `ret`.
+- The fd is added to an internal tracking map so future `close()` calls on it can be detected.
+- One row per `socket()` call regardless of whether the socket is ever used.
+
+### `BIND`
+- **Probe:** `sys_enter_bind`
+- Fires when `bind()` is called, **before** the kernel processes it.
+- Emitted at entry so the user-supplied `sockaddr` struct (address + port) is still readable from user memory.
+- Captures local address and port that the socket is being bound to.
+
+### `LISTEN`
+- **Probe:** `sys_enter_listen`
+- Fires when `listen()` is called, **before** the kernel processes it.
+- Captures the `backlog` value (max pending connections queue length).
+- One row per `listen()` call; re-calling `listen()` on the same fd emits another row.
+
+### `ACCEPT`
+- **Probe:** `sys_enter_accept4` (start timer) + `sys_exit_accept4` (emit row)
+- Entry probe records a timestamp only — no row emitted.
+- Exit probe fires when `accept4()` **returns**, meaning the kernel has dequeued an incoming connection and assigned it a new fd.
+- `Latency` = time between entry and exit (i.e., how long the process blocked waiting for a client).
+- The new client fd is added to the socket tracking map (same as `SOCKET_CREATE`).
+- One row per accepted client connection.
+
+### `CONNECT`
+- **Probe:** `sys_enter_connect` (start timer) + `sys_exit_connect` (emit row)
+- Entry probe records a timestamp only — no row emitted.
+- Exit probe fires when `connect()` **returns**, meaning the TCP handshake completed (or failed).
+- `Latency` = full round-trip time of the connection handshake (SYN → SYN-ACK → ACK).
+- `Return Value` is `0` on success, `-EINPROGRESS` for non-blocking sockets still in progress, negative errno on failure.
+- One row per `connect()` call.
+
+### `SHUTDOWN`
+- **Probe:** `sys_enter_shutdown`
+- Fires when `shutdown()` is called, **before** the kernel processes it.
+- Captures the `how` flag (stored in the `Backlog` column): `SHUT_RD`, `SHUT_WR`, or `SHUT_RDWR`.
+- Does not mean the connection is fully closed — the fd still exists until `close()` is called.
+
+### `CLOSE`
+- **Probe:** `sys_enter_close`
+- Fires when `close()` is called on an fd **only if that fd was previously tracked as a socket** (created via `socket()` or `accept4()`).
+- Regular file, pipe, and other non-socket fds are silently skipped — no row emitted.
+- One row per socket close, regardless of whether `shutdown()` was called first.
+
+### What Is NOT Captured
+- **Data transfer:** `send()`, `recv()`, `read()`, `write()`, `sendmsg()`, `recvmsg()` — no rows emitted per packet or per byte.
+- **Kernel-internal events:** TCP retransmits, RST packets, TIME_WAIT transitions.
+- **`accept()` (without the `4`):** Only `accept4()` is traced; processes using the older `accept()` syscall will not appear.
+
 ## Socket Domains
 
 | Value | Description |
