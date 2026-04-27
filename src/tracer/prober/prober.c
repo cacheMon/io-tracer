@@ -417,6 +417,10 @@ struct send_ctx_t {
 struct connect_ctx_t {
   u64 start_ts; /**< Timestamp at entry */
   u32 fd;       /**< Socket fd from sys_enter_connect */
+  u8  ipver;    /**< 4 or 6 */
+  u16 dport;    /**< Remote port (host byte order) */
+  u32 daddr_v4; /**< Remote IPv4 address */
+  u8  daddr_v6[16]; /**< Remote IPv6 address */
 };
 
 /* ---- Connection lifecycle event types ---- */
@@ -448,7 +452,8 @@ struct conn_event_data {
   u8 saddr_v6[16];
   u8 daddr_v6[16];
   u32 fd;
-  u32 backlog;      /**< For listen() */
+  u32 backlog;        /**< For listen(): listen backlog size */
+  u32 shutdown_how;   /**< For shutdown(): SHUT_RD/SHUT_WR/SHUT_RDWR */
   s32 ret_val;
   u64 latency_ns;
 };
@@ -3955,6 +3960,77 @@ TRACEPOINT_PROBE(syscalls, sys_enter_recvmsg) {
  * Captures socket creation, bind, listen, accept, connect, shutdown, close.
  */
 
+/**
+ * @brief Resolve struct sock * from a file descriptor via the task's fd table.
+ * Returns NULL on any failure.
+ */
+static __always_inline struct sock *get_sock_from_fd(u32 fd) {
+  struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+  if (!task) return NULL;
+
+  struct files_struct *files = NULL;
+  bpf_probe_read_kernel(&files, sizeof(files), &task->files);
+  if (!files) return NULL;
+
+  struct fdtable *fdt = NULL;
+  bpf_probe_read_kernel(&fdt, sizeof(fdt), &files->fdt);
+  if (!fdt) return NULL;
+
+  struct file **fd_array = NULL;
+  bpf_probe_read_kernel(&fd_array, sizeof(fd_array), &fdt->fd);
+  if (!fd_array) return NULL;
+
+  struct file *filep = NULL;
+  bpf_probe_read_kernel(&filep, sizeof(filep), &fd_array[fd]);
+  if (!filep) return NULL;
+
+  /* file->private_data == struct socket * for socket fds */
+  struct socket *sock = NULL;
+  bpf_probe_read_kernel(&sock, sizeof(sock), &filep->private_data);
+  if (!sock) return NULL;
+
+  struct sock *sk = NULL;
+  bpf_probe_read_kernel(&sk, sizeof(sk), &sock->sk);
+  return sk;
+}
+
+/**
+ * @brief Fill address/port fields in conn_event_data from a struct sock *.
+ * Handles IPv4 and IPv6; no-ops for other families.
+ */
+static __always_inline void fill_conn_addr_from_sock(struct conn_event_data *e,
+                                                     struct sock *sk) {
+  if (!sk) return;
+  u16 family = 0;
+  bpf_probe_read_kernel(&family, sizeof(family), &sk->__sk_common.skc_family);
+
+  if (family == AF_INET) {
+    e->ipver = 4;
+    struct inet_sock *inet = (struct inet_sock *)sk;
+    bpf_probe_read_kernel(&e->saddr_v4, sizeof(e->saddr_v4), &inet->inet_saddr);
+    bpf_probe_read_kernel(&e->daddr_v4, sizeof(e->daddr_v4), &inet->inet_daddr);
+    u16 sport = 0, dport = 0;
+    bpf_probe_read_kernel(&sport, sizeof(sport), &inet->inet_sport);
+    bpf_probe_read_kernel(&dport, sizeof(dport), &inet->inet_dport);
+    e->sport = bpf_ntohs(sport);
+    e->dport = bpf_ntohs(dport);
+  } else if (family == AF_INET6) {
+    e->ipver = 6;
+    unsigned __int128 saddr6 = 0, daddr6 = 0;
+    u16 sport = 0, dport = 0;
+    bpf_probe_read_kernel(&saddr6, sizeof(saddr6),
+                          &sk->__sk_common.skc_v6_rcv_saddr.in6_u);
+    bpf_probe_read_kernel(&daddr6, sizeof(daddr6),
+                          &sk->__sk_common.skc_v6_daddr.in6_u);
+    bpf_probe_read_kernel(&sport, sizeof(sport), &sk->__sk_common.skc_num);
+    bpf_probe_read_kernel(&dport, sizeof(dport), &sk->__sk_common.skc_dport);
+    __builtin_memcpy(e->saddr_v6, &saddr6, 16);
+    __builtin_memcpy(e->daddr_v6, &daddr6, 16);
+    e->sport = sport;
+    e->dport = bpf_ntohs(dport);
+  }
+}
+
 /** @brief Helper to fill common conn_event_data fields */
 static __always_inline void fill_conn_common(struct conn_event_data *e, u8 event_type) {
   e->ts_ns = bpf_ktime_get_ns();
@@ -4098,9 +4174,27 @@ TRACEPOINT_PROBE(syscalls, sys_enter_connect) {
   struct connect_ctx_t cctx = {};
   cctx.start_ts = bpf_ktime_get_ns();
   cctx.fd = (u32)args->fd;
-  connect_ctx.update(&tid, &cctx);
 
-  /* We'll submit the event from sys_exit_connect */
+  /* Capture remote address from the user-supplied sockaddr */
+  if (args->uservaddr && args->addrlen >= 2) {
+    u16 family = 0;
+    bpf_probe_read_user(&family, sizeof(family), args->uservaddr);
+    if (family == AF_INET && args->addrlen >= sizeof(struct sockaddr_in)) {
+      struct sockaddr_in sa = {};
+      bpf_probe_read_user(&sa, sizeof(sa), args->uservaddr);
+      cctx.ipver    = 4;
+      cctx.daddr_v4 = sa.sin_addr.s_addr;
+      cctx.dport    = bpf_ntohs(sa.sin_port);
+    } else if (family == AF_INET6 && args->addrlen >= sizeof(struct sockaddr_in6)) {
+      struct sockaddr_in6 sa6 = {};
+      bpf_probe_read_user(&sa6, sizeof(sa6), args->uservaddr);
+      cctx.ipver = 6;
+      bpf_probe_read_kernel(&cctx.daddr_v6, sizeof(cctx.daddr_v6), &sa6.sin6_addr);
+      cctx.dport = bpf_ntohs(sa6.sin6_port);
+    }
+  }
+
+  connect_ctx.update(&tid, &cctx);
   return 0;
 }
 
@@ -4112,8 +4206,33 @@ TRACEPOINT_PROBE(syscalls, sys_exit_connect) {
   struct conn_event_data e = {};
   fill_conn_common(&e, CONN_CONNECT);
   e.latency_ns = bpf_ktime_get_ns() - cctx->start_ts;
-  e.fd = cctx->fd;
+  e.fd  = cctx->fd;
   e.ret_val = (s32)args->ret;
+
+  /* Copy remote addr captured at entry */
+  e.ipver    = cctx->ipver;
+  e.dport    = cctx->dport;
+  e.daddr_v4 = cctx->daddr_v4;
+  __builtin_memcpy(e.daddr_v6, cctx->daddr_v6, 16);
+
+  /* Resolve local addr from the socket (available after connect attempt) */
+  struct sock *sk = get_sock_from_fd(cctx->fd);
+  if (sk && e.ipver == 4) {
+    struct inet_sock *inet = (struct inet_sock *)sk;
+    bpf_probe_read_kernel(&e.saddr_v4, sizeof(e.saddr_v4), &inet->inet_saddr);
+    u16 sport = 0;
+    bpf_probe_read_kernel(&sport, sizeof(sport), &inet->inet_sport);
+    e.sport = bpf_ntohs(sport);
+  } else if (sk && e.ipver == 6) {
+    unsigned __int128 saddr6 = 0;
+    bpf_probe_read_kernel(&saddr6, sizeof(saddr6),
+                          &sk->__sk_common.skc_v6_rcv_saddr.in6_u);
+    __builtin_memcpy(e.saddr_v6, &saddr6, 16);
+    u16 sport = 0;
+    bpf_probe_read_kernel(&sport, sizeof(sport), &sk->__sk_common.skc_num);
+    e.sport = sport;
+  }
+
   net_conn_events.perf_submit(args, &e, sizeof(e));
   connect_ctx.delete(&tid);
   return 0;
@@ -4130,7 +4249,11 @@ TRACEPOINT_PROBE(syscalls, sys_enter_shutdown) {
   struct conn_event_data e = {};
   fill_conn_common(&e, CONN_SHUTDOWN);
   e.fd = (u32)args->fd;
-  e.backlog = (u32)args->how; /* reuse backlog field for shutdown 'how' */
+  e.shutdown_how = (u32)args->how;
+
+  struct sock *sk = get_sock_from_fd((u32)args->fd);
+  fill_conn_addr_from_sock(&e, sk);
+
   net_conn_events.perf_submit(args, &e, sizeof(e));
   return 0;
 }
@@ -4151,8 +4274,12 @@ TRACEPOINT_PROBE(syscalls, sys_enter_close) {
   struct conn_event_data e = {};
   fill_conn_common(&e, CONN_CLOSE);
   e.fd = (u32)args->fd;
+
+  struct sock *sk = get_sock_from_fd((u32)args->fd);
+  fill_conn_addr_from_sock(&e, sk);
+
   net_conn_events.perf_submit(args, &e, sizeof(e));
-  
+
   /* Remove from tracking map */
   socket_fds.delete(&pid_fd);
   return 0;

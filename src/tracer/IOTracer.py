@@ -735,7 +735,6 @@ class IOTracer:
         event_type = FlagMapper.format_conn_event(e.event_type)
         domain = FlagMapper.format_domain(e.domain) if e.domain else ""
         sock_type = FlagMapper.format_sock_type(e.sock_type) if e.sock_type else ""
-        proto = FlagMapper.format_proto(e.proto) if e.proto else ""
         ipver = str(e.ipver) if e.ipver else ""
 
         # Address resolution
@@ -752,6 +751,7 @@ class IOTracer:
         dport = str(e.dport) if e.dport else ""
         fd = str(e.fd) if e.fd else ""
         backlog = str(e.backlog) if e.backlog else ""
+        shutdown_how = FlagMapper.format_shutdown_how(e.shutdown_how) if e.shutdown_how else ""
         latency_ns = str(e.latency_ns) if e.latency_ns else ""
         ret_val = str(e.ret_val) if e.ret_val != 0 else "0"
 
@@ -763,7 +763,6 @@ class IOTracer:
             comm,
             domain,
             sock_type,
-            proto,
             ipver,
             local_addr,
             remote_addr,
@@ -771,10 +770,10 @@ class IOTracer:
             dport,
             fd,
             backlog,
+            shutdown_how,
             latency_ns,
             ret_val,
         )
-        
         self.writer.append_conn_log(output)
 
     def _print_event_epoll(self, cpu, data, size):

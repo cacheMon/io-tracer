@@ -30,8 +30,9 @@
 | 13 | Remote Port | `u16` | Remote port number; empty if not applicable |
 | 14 | File Descriptor | `u32` | Socket file descriptor; empty if unavailable |
 | 15 | Backlog | `u32` | Listen backlog size (only for LISTEN events); empty otherwise |
-| 16 | Latency | `u64` | Operation latency in nanoseconds (only for ACCEPT/CONNECT); empty otherwise |
-| 17 | Return Value | `s32` | Syscall return value (`0` on success, negative errno on failure) |
+| 16 | ShutdownHow | `string` | Shutdown direction (only for SHUTDOWN events): `SHUT_RD`, `SHUT_WR`, or `SHUT_RDWR`; empty otherwise |
+| 17 | Latency | `u64` | Operation latency in nanoseconds (only for ACCEPT/CONNECT); empty otherwise |
+| 18 | Return Value | `s32` | Syscall return value (`0` on success, negative errno on failure) |
 
 ## Event Types
 
@@ -87,7 +88,7 @@ Each event fires **once per syscall invocation** — not per packet. Data flowin
 ### `SHUTDOWN`
 - **Probe:** `sys_enter_shutdown`
 - Fires when `shutdown()` is called, **before** the kernel processes it.
-- Captures the `how` flag (stored in the `Backlog` column): `SHUT_RD`, `SHUT_WR`, or `SHUT_RDWR`.
+- Captures the `how` flag in the `ShutdownHow` column: `SHUT_RD`, `SHUT_WR`, or `SHUT_RDWR`.
 - Does not mean the connection is fully closed — the fd still exists until `close()` is called.
 
 ### `CLOSE`
