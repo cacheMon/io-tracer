@@ -21,7 +21,7 @@
 | 4 | TID | `u32` | Thread ID |
 | 5 | Command | `string` | Process name (max 16 characters) |
 | 6 | Domain | `string` | Socket address family (see table below) |
-| 7 | Socket Type | `string` | Socket type (see table below) |
+| 7 | Socket Type | `string` | Socket type (see table below), triggered when SOCKET_CREATE |
 | 8 | Protocol | `string` | Protocol name (`TCP`, `UDP`) |
 | 9 | IP Version | `string` | IP version (`4` or `6`) |
 | 10 | Local Address | `string` | Local IP address; empty if not yet bound |
