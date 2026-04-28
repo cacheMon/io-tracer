@@ -873,7 +873,7 @@ class IOTracer:
         else:
             s_addr = d_addr = ""
 
-        drop_reason = str(e.drop_reason) if e.drop_reason else ""
+        drop_reason = str(e.drop_reason) if e.drop_reason else "0"  
         tcp_state = FlagMapper.format_tcp_state(e.state) if e.state else ""
 
         output = format_csv_row(

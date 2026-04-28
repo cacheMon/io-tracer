@@ -725,7 +725,35 @@ class FlagMapper:
 
     # --- Static maps (class-level for shared use) ---
 
-    network_proto_map = {6: "TCP", 17: "UDP"}
+    network_proto_map = {
+        0:   "HOPOPT",
+        1:   "ICMP",
+        2:   "IGMP",
+        3:   "GGP",
+        4:   "IP-in-IP",
+        6:   "TCP",
+        8:   "EGP",
+        9:   "IGP",
+        17:  "UDP",
+        27:  "RDP",
+        33:  "DCCP",
+        41:  "IPv6",
+        43:  "IPv6-Route",
+        44:  "IPv6-Frag",
+        47:  "GRE",
+        50:  "ESP",
+        51:  "AH",
+        58:  "ICMPv6",
+        59:  "IPv6-NoNxt",
+        60:  "IPv6-Opts",
+        89:  "OSPF",
+        103: "PIM",
+        112: "VRRP",
+        115: "L2TP",
+        132: "SCTP",
+        136: "UDPLite",
+        137: "MPLS-in-IP",
+    }
     network_dir_map = {0: "send", 1: "receive"}
 
     socket_domain_map = {
