@@ -18,11 +18,11 @@
 | 6 | IP Version | `string` | IP version (`4` or `6`) |
 | 7 | Source Address | `string` | Source IP address |
 | 8 | Destination Address | `string` | Destination IP address |
-| 9 | Source Port | `u16` | Source port number; empty if unavailable |
-| 10 | Destination Port | `u16` | Destination port number; empty if unavailable |
-| 11 | Packet Size | `u32` | Size of the packet/SKB in bytes; empty if unavailable |
-| 12 | Drop Reason | `u32` | Kernel drop reason code; empty if not applicable |
-| 13 | TCP State | `string` | TCP connection state at time of event (see table below); empty if not applicable |
+| 9 | Source Port | `u16` | Source port number; empty if unavailable (see notes) |
+| 10 | Destination Port | `u16` | Destination port number; empty if unavailable (see notes) |
+| 11 | Packet Size | `u32` | Size of the packet/SKB in bytes; empty for header-only packets with no payload |
+| 12 | Drop Reason | `u32` | Kernel drop reason code; empty if not applicable (see notes) |
+| 13 | TCP State | `string` | TCP connection state at time of event (see table below); empty if not applicable (see notes) |
 
 ## Event Types
 
@@ -47,6 +47,23 @@
 | `LISTEN` | Socket is listening for incoming connections |
 | `CLOSING` | Both sides sent FIN simultaneously |
 | `NEW_SYN_RECV` | SYN received in new mini-socket (syncookie/fastopen) |
+
+## Missing Values
+
+### `Protocol`
+Empty for `PACKET_DROP` events. `kfree_skb` fires at any layer and any lifecycle stage — header-offset parsing from raw SKB memory is inherently fragile because the SKB metadata (especially header offsets) is only reliable after the packet has been fully parsed by the kernel network stack. If protocol cannot be determined, ports will also be empty.
+
+### `Source Address`, `Destination Address`, `Source Port`, `Destination Port`
+Reliably populated only for `TCP_RETRANSMIT`. For `PACKET_DROP`, these fields come from header-offset parsing of raw SKB memory, which is fragile for the same reason as `Protocol` above. Source and destination address may occasionally appear for `PACKET_DROP` when the SKB is dropped late enough that header offsets are still valid, but this is not guaranteed.
+
+### `Packet Size`
+Empty for header-only packets (no payload).
+
+### `Drop Reason`
+Empty in some `PACKET_DROP` events. Root cause unclear — could not reproduce a case where the field is reliably absent. When actively reproduced, `drop_reason` is typically populated.
+
+### `TCP State`
+Only populated for `TCP_RETRANSMIT`. Always empty for `PACKET_DROP`.
 
 **Output File:** `linux_trace_v3_test/{MACHINE_ID}/{TIMESTAMP}/nw_drop/nw_drop_*.csv`
 

@@ -887,7 +887,7 @@ class IOTracer:
             d_addr,
             str(e.sport) if e.sport else "",
             str(e.dport) if e.dport else "",
-            str(e.skb_len) if e.skb_len else "",
+            str(e.skb_len) if e.skb_len else "0",
             drop_reason,
             tcp_state,
         )

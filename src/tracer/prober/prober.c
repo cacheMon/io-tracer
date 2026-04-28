@@ -4603,13 +4603,14 @@ TRACEPOINT_PROBE(skb, kfree_skb) {
   bpf_probe_read_kernel(&ip_version_byte, sizeof(ip_version_byte), ip_header);
   u8 ip_version = (ip_version_byte >> 4) & 0x0F;
 
+  e.ipver = ip_version;
+
   if (ip_version == 4) {
-    e.ipver = 4;
     /* IPv4 header offsets: saddr at +12, daddr at +16, protocol at +9 */
     bpf_probe_read_kernel(&e.proto, sizeof(e.proto), ip_header + 9);
     bpf_probe_read_kernel(&e.saddr_v4, sizeof(e.saddr_v4), ip_header + 12);
     bpf_probe_read_kernel(&e.daddr_v4, sizeof(e.daddr_v4), ip_header + 16);
-    
+
     /* Extract ports if TCP/UDP */
     if (e.proto == 6 || e.proto == 17) {  /* TCP or UDP */
       unsigned char *l4_header = head + transport_header;
@@ -4620,7 +4621,6 @@ TRACEPOINT_PROBE(skb, kfree_skb) {
       e.dport = __builtin_bswap16(dport_be);
     }
   } else if (ip_version == 6) {
-    e.ipver = 6;
     /* IPv6 header offsets: next_header at +6, saddr at +8, daddr at +24 */
     bpf_probe_read_kernel(&e.proto, sizeof(e.proto), ip_header + 6);
     bpf_probe_read_kernel(&e.saddr_v6, sizeof(e.saddr_v6), ip_header + 8);
